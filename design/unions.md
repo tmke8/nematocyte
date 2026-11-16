@@ -136,14 +136,18 @@ The rule behind the two cases above: a node starts from the class defaults
 only when an option of a group is named. Everything else applies on top of
 the field's default.
 
-An option is named either directly (`decoder=cnn`) or by a file's `defaults`.
-A file in a group's directory has to say which option it extends, and the
-chain ends at an option from the annotations:
+Naming an option also drops whatever lower layers selected or set under the
+node; see [composition.md](composition.md#layers).
+
+An option is named either directly (`decoder=cnn`) or by `_self_` in a
+file's `defaults` ([composition.md](composition.md)). A file in a group's
+directory has to say which option it extends, and the chain ends at an
+option from the annotations:
 
 ```yaml
 # configs/decoder/small_cnn.yaml
 defaults:
-  - cnn
+  _self_: cnn
 
 stride: 1
 ```
@@ -151,9 +155,10 @@ stride: 1
 `decoder=small_cnn` therefore gives `kernel_size=5`, the class default.
 
 A preset for a plain subconfig names no option, because there is only one
-class. It has no such `defaults` entry, so it does not request the class
-defaults and applies on top of the field's default. `opt=preset` with a file
-containing `wd: 0.1` gives the same result as `opt.wd=0.1`.
+class. Its `_self_`, if it has one, can only name another preset. So a
+preset never requests the class defaults: the chain of presets applies on
+top of the field's default. `opt=preset` with a file containing `wd: 0.1`
+gives the same result as `opt.wd=0.1`.
 
 This matches Hydra. Observed with
 `opt: Opt = field(default_factory=lambda: Opt(lr=0.1))` and a class default
@@ -188,7 +193,7 @@ Two things follow:
   type. Tested with both cattrs and pydantic.
 - Because the data carries no tag, a dumped config is not self-describing.
   Whatever is written out for reproducibility has to record the choices next
-  to the values, e.g. as a `defaults` list, so that it can be loaded again.
+  to the values, e.g. in `defaults`, so that it can be loaded again.
   The dict for logging records each choice under the key `_option_`
   ([api.md](api.md)).
 

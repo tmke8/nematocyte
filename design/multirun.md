@@ -207,7 +207,8 @@ Hydra's `submitit_local` launcher is left out.
 ### The SLURM launcher has all of Hydra's settings
 
 The 28 fields keep Hydra's names, so the launcher files of `hydra-example`
-work unchanged. The values are passed on to submitit, which takes them in
+work with one change, the form of their `defaults` entry
+([composition.md](composition.md)). The values are passed on to submitit, which takes them in
 three places (submitit 1.5.4):
 
 | Fields | Where submitit takes them |

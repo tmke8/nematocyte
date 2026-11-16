@@ -1,0 +1,16 @@
+---
+# A primary config can be based on another primary config: `_self_` names it in the
+# same way as `--config-name` does. Select this one with
+# `--config-name experiments/good_run_blond`.
+defaults:
+  _self_: good_run
+  # A selection made here replaces what `good_run.yaml` has for `dm`: the option it
+  # selects, and the values it sets under `dm`.
+  dm: celeba_male_blond
+
+# Everything else that `good_run.yaml` sets is kept, unless it is set again here.
+seed: 2
+
+dm:
+  # `good_run.yaml` sets this too, but for the option that it selects.
+  download: false

@@ -39,6 +39,8 @@ nematocyte. File references are relative to that project.
 - A plain subconfig can also have named presets: `configs/opt/weight_decay_adamw.yaml`
   is selected with `opt=weight_decay_adamw`, although `opt` is not a group of
   classes. This needs `- opt: null` in the primary config's `defaults`.
+- Not used by the example, but in scope: a preset that extends another
+  preset (see [design/composition.md](design/composition.md)).
 
 ## Primary configs
 
@@ -53,6 +55,8 @@ nematocyte. File references are relative to that project.
   `# @package _global_` and absolute entries in `defaults` (`/dm: cmnist`);
   nematocyte is meant to need neither (see
   [design/composition.md](design/composition.md)).
+- Not used by the example, but in scope: a primary config that extends
+  another primary config.
 
 ## Command line
 

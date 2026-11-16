@@ -2,7 +2,7 @@
 # usage: nematocyte.launcher=slurm_kyiv
 
 defaults:
-  - submitit_slurm
+  _self_: submitit_slurm
 
 partition: kyiv
 # How many CPUs to request

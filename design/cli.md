@@ -172,6 +172,12 @@ The question is only how to read `key=name`: as "select the config called
 dataclass, so `opt=weight_decay_adamw` is one too. `Config.seed` is an `int`,
 so `seed=123` is a value.
 
+The order of the arguments has no meaning: `model.kernel_size=3 model=cnn`
+is the same as `model=cnn model.kernel_size=3`. Selections are applied
+first, shortest path first, and then the values. What a selection does to
+the values that the config files set is described in
+[composition.md](composition.md#layers).
+
 Which names can be selected does not change from Hydra. For `model` they are
 the registered classes (`fcn`, `cnn`) plus the YAML files in `configs/model/`
 (`single_linear_layer`). `model=single_linear_layer` works as before.

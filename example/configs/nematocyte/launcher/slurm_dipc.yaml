@@ -2,7 +2,7 @@
 # usage: nematocyte.launcher=slurm_dipc
 
 defaults:
-  - submitit_slurm
+  _self_: submitit_slurm
 
 partition: general
 qos: regular

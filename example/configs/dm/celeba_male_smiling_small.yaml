@@ -1,6 +1,6 @@
 ---
 defaults:
   # You can also extend an option that is itself defined in a file.
-  - celeba_male_smiling
+  _self_: celeba_male_smiling
 
 default_res: 64

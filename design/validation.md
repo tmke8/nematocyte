@@ -58,8 +58,8 @@ The kind follows from where the file is ([composition.md](composition.md)).
 - **A primary config** is composed as if it had been passed to
   `--config-name`.
 - **A named config for a group** (`configs/dm/celeba_male_smiling.yaml`) is
-  selected for its field, and its `defaults` chain has to end at an option
-  from the annotations.
+  selected for its field, and its chain of `_self_` entries has to end at
+  an option from the annotations.
 - **A preset for a plain subconfig** (`configs/opt/weight_decay_adamw.yaml`)
   is selected for its field.
 - **Files under `configs/nematocyte/`**, the launcher and sweeper configs,

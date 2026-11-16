@@ -2,9 +2,9 @@
 # Primary configs can be kept in a subdirectory. Select this one with
 # `--config-name experiments/cmnist_cnn`.
 defaults:
-  - dm: cmnist
-  - model: cnn
-  - opt: weight_decay_adamw
+  dm: cmnist
+  model: cnn
+  opt: weight_decay_adamw
 
 dm:
   num_colors: 10

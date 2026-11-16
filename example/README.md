@@ -90,7 +90,7 @@ model.input_norm=false                 [bool] Whether to also apply the normaliz
                                        layer to the input.
 
 opt:                                   Config class for the optimisation.
-                                       Presets: weight_decay_adamw
+                                       Presets: strong_weight_decay, weight_decay_adamw
 opt.lr=5e-05                           [float] Learning rate.
 opt.weight_decay=0.0                   [float] Weight decay.
 opt.optimizer_cls=torch.optim.AdamW    [str] Import path of the optimizer class.
@@ -204,13 +204,13 @@ python main.py dm=celeba dm.superclass=Smiling dm.subclass=Male
 But after a while, it gets tiring to always type this out. Instead, you can create a config file in the `configs/dm/` directory to store often-used datamodule configurations. For example, you can create a file `configs/dm/celeba_male_smiling.yaml` with the following content:
 ```yaml
 defaults:
-  - celeba
+  _self_: celeba
 
 superclass: Smiling
 subclass: Male
 ```
 
-You can think of the `defaults` entry as specifying inheritance. A file in the directory of a config group always needs it, because it has to say which option of the group it is based on.
+The `_self_` entry under `defaults` says what this file is based on; here, the option `celeba` of the group. You can think of it as inheritance. A file in the directory of a config group always needs it, because it has to say which option of the group it is based on.
 
 Subsequently, you can use the config file like this:
 ```bash
@@ -225,7 +225,7 @@ python main.py dm=celeba_male_smiling dm.superclass=Blond_Hair dm.default_res=64
 And you can create config files which inherit from other config files you created. For example, you can create a file `configs/dm/celeba_male_smiling_small.yaml` with the following content:
 ```yaml
 defaults:
-  - celeba_male_smiling
+  _self_: celeba_male_smiling
 
 default_res: 64
 ```
@@ -242,6 +242,14 @@ There is no `defaults` entry, because there is no option to choose. You select t
 python main.py opt=weight_decay_adamw
 ```
 This has the same effect as setting the three values on the command line.
+
+A preset can also be based on another preset. The file `configs/opt/strong_weight_decay.yaml` takes the values of `weight_decay_adamw` and changes one of them:
+```yaml
+defaults:
+  _self_: weight_decay_adamw
+
+weight_decay: 0.1
+```
 
 ## Multiruns
 Often, we want to run the same experiment with only slightly different configurations. This can be done with the `--multirun` flag. For example, to run the code with seeds 42 and 43, we can do:
@@ -295,7 +303,7 @@ Create a config file in `configs/nematocyte/sweeper/`. The name doesn't matter, 
 ```yaml
 defaults:
   # Select here which hyperparameter optimization library to use.
-  - optuna
+  _self_: optuna
 
 sampler:
   warn_independent_sampling: true
@@ -315,7 +323,7 @@ params:
 
 Let's break down what's going on here:
 
-- First, we select the right `defaults` value. In this case, we want to use Optuna, so we set `optuna`.
+- First, the `_self_` entry under `defaults` says which sweeper this file configures. In this case, we want to use Optuna, so we set `optuna`.
 - Then, some settings for Optuna follow.
 - Finally, we specify `params`, which is the heart of this config file. Here, we specify the parameters we want to optimize. For each parameter, we have to specify the search space. For example, `opt.lr: tag(log, interval(1.e-5, 1.e-3))` means that we want to optimize the `opt.lr` parameter and we want to search in the log space between `1.e-5` and `1.e-3`. The `model.num_hidden: range(1, 4)` we want to search in the range from 1 to 3 (inclusive). The `model.dropout_prob: choice(0.0, 0.1)` means that we want to choose between 0.0 and 0.1.
 
@@ -335,8 +343,8 @@ Luckily, we can define a "primary config" in the top-level `configs/` directory,
 ```yaml
 ---
 defaults:
-  - model: single_linear_layer
-  - dm: celeba_male_smiling_small
+  model: single_linear_layer
+  dm: celeba_male_smiling_small
 
 seed: 1
 
@@ -351,7 +359,7 @@ opt:
   weight_decay: 0.001
 ```
 
-The `defaults` list selects options for config groups, in the same way as `model=...` and `dm=...` on the command line. Everything the file does not mention keeps its default from the `Config` class.
+The `defaults` section selects options for config groups, in the same way as `model=...` and `dm=...` on the command line. Everything the file does not mention keeps its default from the `Config` class.
 
 And then we can run the code with these config values by running:
 ```bash
@@ -369,6 +377,21 @@ Primary configs can also be kept in a subdirectory, as long as the directory doe
 ```bash
 python main.py -cn experiments/cmnist_cnn
 ```
+
+A primary config can also be based on another primary config, so that an experiment only has to say what is different about it. The file `configs/experiments/good_run_blond.yaml` looks like this:
+```yaml
+defaults:
+  _self_: good_run
+  dm: celeba_male_blond
+
+seed: 2
+
+dm:
+  download: false
+```
+The `_self_` entry names the primary config to start from, in the same way as `--config-name` does. Here, `good_run.yaml` is loaded first, and then this file is applied on top: it selects a different option for `dm` and changes the seed. What `good_run.yaml` sets for `model` and `opt` is kept.
+
+Selecting an option for a config group always starts that group afresh: `dm` is now `celeba_male_blond` with its own values, and what `good_run.yaml` set under `dm` is gone. That is why `download: false` is set again here. The same happens on the command line: `python main.py -cn good_run model=cnn` gives you a CNN with its default values, without the `activation: selu` from `good_run.yaml`.
 
 **Note**: It's very easy to fall into the trap of defining *everything* in these global configs, but that leads to lots of duplication. Try to put as much configuration as possible into the component-specific config files (i.e., those in `configs/dm/` and `configs/model` and so on), because those configs are easy to reuse across different experiments.
 

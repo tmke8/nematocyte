@@ -51,27 +51,165 @@ and is gone from the command line too; see [cli.md](cli.md).
 `configs/experiments/cmnist_cnn.yaml` is therefore a primary config with no
 header.
 
-A named config for a group has to say in its `defaults` which option it
-extends. A preset for a plain subconfig does not. What each of them builds
-on is described in [unions.md](unions.md#defaults).
+What a file builds on is said in its `defaults`.
 
-### Entries in a primary config's `defaults` are relative to the root
+### `defaults` is a mapping
 
-A primary config describes the root, so `- dm: cmnist` means the field `dm`
-of the root dataclass. There is no leading slash, and a primary config reads
-the same whichever directory it is in.
+In Hydra `defaults` is a list, for reasons that no longer apply:
 
-`experiments/cmnist_cnn.yaml` becomes:
+- The list is a merge order, and the entry `_self_` marks where the file's
+  own values go in it.
+- Some entries have no key, such as `- base_config` and, in a group file,
+  `- celeba`.
+- Some entries carry a keyword, such as `- override model: cnn`.
+
+In nematocyte `defaults` is a mapping. Each key says where: a field of the
+node that the file describes, a dotted path to a nested field, or `_self_`
+for that node itself. Each value names the config to load there.
 
 ```yaml
+# configs/experiments/cmnist_cnn.yaml, a primary config
 defaults:
-  - dm: cmnist
-  - model: cnn
-  - opt: weight_decay_adamw
+  dm: cmnist
+  model: cnn
+  opt: weight_decay_adamw
 
 dm:
   num_colors: 10
 ```
+
+```yaml
+# configs/dm/celeba_male_smiling.yaml, a named config for `dm`
+defaults:
+  _self_: celeba
+
+superclass: Smiling
+```
+
+- The order of the entries has no meaning. What is applied before what
+  follows from the keys; see [Layers](#layers).
+- A place cannot be given twice: the YAML parser reports a repeated key.
+- A primary config describes the root, so `dm: cmnist` means the field `dm`
+  of the root dataclass. There is no leading slash, and a primary config
+  reads the same whichever directory it is in.
+- `_self_` is reserved: no dataclass field can have that name. In Hydra the
+  word means something else, as described above.
+
+### `_self_` names the config that a file extends
+
+`_self_` names another config for the same node. That config is loaded
+first, and the `defaults` and values of this file apply on top.
+
+| File | What `_self_` can name | Required |
+| --- | --- | --- |
+| A named config for a group | An option of the group, or another named config in the same directory | Yes; the chain has to end at an option ([unions.md](unions.md#defaults)) |
+| A preset for a plain subconfig | Another preset in the same directory | No |
+| A primary config | Another primary config, by the name that `--config-name` takes | No |
+
+A chain that comes back to itself is an error.
+
+A primary config that extends another one:
+
+```yaml
+# configs/experiments/good_run_blond.yaml
+defaults:
+  _self_: good_run
+  dm: celeba_male_blond
+
+seed: 2
+```
+
+`hydra-example` has neither a primary config that extends another, nor a
+preset that extends another. Both were tested in Hydra on a copy of it.
+
+### A key in `defaults` can be a path
+
+Suppose the option `cnn` of `model` has a field `norm`, which is itself a
+group. A primary config can select for both:
+
+```yaml
+defaults:
+  model: my_cnn
+  model.norm: my_batchnorm
+
+model:
+  norm:
+    momentum: 0.2
+```
+
+`model.norm: my_batchnorm` loads `configs/model/norm/my_batchnorm.yaml`
+(see below for the directory). It is an error if the option selected for
+`model` has no field `norm`.
+
+A named config can do the same for its own fields. The keys other than
+`_self_` are relative to the node that the file describes:
+
+```yaml
+# configs/model/my_cnn.yaml
+defaults:
+  _self_: cnn
+  norm: layernorm
+```
+
+### Layers
+
+Everything that contributes to the config is a layer, and a higher layer
+always wins. For one file, from lowest to highest:
+
+1. The defaults of the dataclasses.
+2. The config that the file names with `_self_`, composed completely,
+   including its own `_self_`.
+3. The other entries in the file's `defaults`, shortest path first.
+4. The values in the file.
+
+The command line comes on top of the primary config, in the same way: first
+its selections, shortest path first, then its values.
+
+The order in which things are written, in a file or on the command line,
+never matters.
+
+**Shortest path first.** `model.norm` is inside `model`, so it is the more
+specific entry and is applied later. In the example above, `my_batchnorm`
+wins over what `configs/model/my_cnn.yaml` selects for `norm`, and
+`momentum: 0.2` is then set on it. Two paths of which neither contains the
+other cannot conflict.
+
+**What a selection does to the node** depends on what is selected:
+
+- An option of a group, or a named config for one, replaces the node. It
+  starts again from the class defaults of the option
+  ([unions.md](unions.md#defaults)), and everything that lower layers
+  selected or set under it is dropped.
+- A preset for a plain subconfig sets its values on top. The other values
+  that lower layers set at that node stay.
+
+With `good_run.yaml`, which sets `model.activation: selu`,
+`dm.download: false` and `opt.weight_decay: 0.001`:
+
+| Applied on top of `good_run` | Result |
+| --- | --- |
+| `opt: weight_decay_adamw`, in a file that extends it or as `opt=weight_decay_adamw` | `opt.weight_decay` is `0.01`, from the preset |
+| `model: cnn`, or `model=cnn` | A CNN with its class defaults. `activation: selu` is dropped |
+| `dm: celeba_male_blond` | `download` is back at its default. To keep `false`, it is set again |
+
+Hydra has no such rule. Tested on a copy of `hydra-example`, with the same
+`good_run` and the same preset:
+
+| How the preset is selected | `opt.weight_decay` |
+| --- | --- |
+| Child lists `- good_run`, then `- opt: weight_decay_adamw` | `0.01`, the preset wins |
+| Child lists `- opt: weight_decay_adamw`, then `- good_run` | `0.001`, the parent wins |
+| The parent has an entry for `opt`; child lists `- override opt: weight_decay_adamw` | `0.001`, the parent wins |
+| Command line `+opt=weight_decay_adamw`; the parent has no entry for `opt` | `0.01`, the preset wins |
+| Command line `opt=weight_decay_adamw`; the parent has an entry for `opt` | `0.001`, the parent wins |
+
+- The result depends on the order of the list, and on whether the extended
+  config happens to have an entry for the field.
+- Values that the parent sets under a group stay when another option is
+  selected. `--config-name good_run model=cnn` gives a CNN with
+  `activation: selu`. If the parent sets a value that the new class does not
+  have, such as `model.num_hidden`, the result is an error, and the child
+  has no way to remove the value.
 
 ### What a directory holds follows from the schema
 

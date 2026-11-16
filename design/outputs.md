@@ -133,7 +133,7 @@ When the directory of a job is created, two files are written into
 
 The files are JSON, not YAML as in Hydra. The saved config is a record of
 what ran, not a config file: it cannot be passed back as a primary config,
-since the choices are in `_option_` keys and not in a `defaults` list
+since the choices are in `_option_` keys and not in `defaults`
 ([unions.md](unions.md)). If a flag to run a job again is ever added, it can
 read this file, which holds every value and every choice.
 

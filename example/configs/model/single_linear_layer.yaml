@@ -1,6 +1,6 @@
 ---
 defaults:
-  - fcn
+  _self_: fcn
 
 num_hidden: 0
 activation: relu

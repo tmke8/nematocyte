@@ -4,7 +4,7 @@
 #
 defaults:
   # Select here which hyperparameter optimization library to use.
-  - optuna
+  _self_: optuna
 
 sampler:
   warn_independent_sampling: true

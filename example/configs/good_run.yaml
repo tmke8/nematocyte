@@ -5,8 +5,8 @@ defaults:
   # For each config group, we can choose which option we want.
   # The names are those declared in the `Config` class in `src/run.py`, plus the
   # files in the directory of the group (`configs/model/` and `configs/dm/`).
-  - model: single_linear_layer
-  - dm: celeba_male_smiling_small
+  model: single_linear_layer
+  dm: celeba_male_smiling_small
 
 seed: 1
 
