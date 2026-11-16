@@ -60,7 +60,6 @@ the same whichever directory it is in.
 
 ```yaml
 defaults:
-  - base_config
   - dm: cmnist
   - model: cnn
   - opt: weight_decay_adamw
@@ -82,16 +81,36 @@ configs.
 The same applies to nematocyte's own settings under the reserved key:
 `configs/nematocyte/launcher/` holds named launcher configs.
 
-## Open questions
+### A directory named after a field holds no primary configs
 
-- **The schema entry.** In `hydra-example` every primary config starts its
-  `defaults` with `- base_config` (or `- /base_config`), the name under which
-  the root dataclass was registered. If the root dataclass is given to the
-  entry point, this entry may not be needed.
-- **A subdirectory with the name of a field.** A primary config cannot live
-  in `configs/model/`. Whether that is an error or merely a consequence to
-  document.
-- **Named configs below the first level.** For a dataclass field nested
-  inside `model`, the directory would be `configs/model/NAME/`, next to the
-  files that are options of `model` itself. `hydra-example` only has this
-  under `hydra/`.
+`--config-name model/single_linear_layer` is an error. Files in
+`configs/model/` are named configs for `model` and nothing else.
+
+### Named configs for a nested field live in a nested directory
+
+The directory path follows the field path at every depth. If an option of
+`model` had a dataclass field `encoder`, its named configs would be in
+`configs/model/encoder/`, next to the files that are options of `model`.
+`configs/nematocyte/launcher/` is the same thing under the reserved key.
+
+A file and a directory with the same stem do not clash: `encoder.yaml` is an
+option of `model`, `encoder/` holds named configs for the field `encoder`.
+
+A subdirectory of `configs/model/` has to match a dataclass field of at least
+one option of `model`. Anything else is an error, because its files could be
+neither named configs nor primary configs.
+
+### The schema is always enforced
+
+The root dataclass is given to the entry point, and every primary config is
+validated against it. There is no schema entry in `defaults`.
+
+In Hydra the schema is opt-in. `hydra-example` registers the root dataclass
+under the name `base_config`, and a primary config is only validated if its
+`defaults` list names it. Observed with a primary config containing
+`seed: not-a-number` and `made_up_key: 1`:
+
+| `defaults` | Result |
+| --- | --- |
+| Starts with `- base_config` | "Value 'not-a-number' of type 'str' could not be converted to Integer" |
+| No `- base_config` | Composes without complaint, with both values in the tree |
