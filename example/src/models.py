@@ -1,7 +1,7 @@
 """Neural network models definitions."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, override
 
 from torch import nn
@@ -49,13 +49,24 @@ class ModelFactory(ABC):
 class FcnFactory(ModelFactory):
     """Factory for fully-connected neural networks."""
 
-    num_hidden: int = 1
-    hidden_dim: int | None = None
-    activation: Activation = "gelu"
-    norm: NormType | None = "LN"
-    dropout_prob: float = 0.0
-    final_bias: bool = True
-    input_norm: bool = False
+    num_hidden: int = field(default=1, doc="Number of hidden layers.")
+    hidden_dim: int | None = field(
+        default=None,
+        doc="Width of the hidden layers. If not set, the input dimension is used.",
+    )
+    activation: Activation = field(default="gelu", doc="Activation function.")
+    norm: NormType | None = field(
+        default="LN", doc="Normalization layer to use, if any."
+    )
+    dropout_prob: float = field(
+        default=0.0, doc="Dropout probability. No dropout is applied if this is 0."
+    )
+    final_bias: bool = field(
+        default=True, doc="Whether the final linear layer has a bias."
+    )
+    input_norm: bool = field(
+        default=False, doc="Whether to also apply the normalization layer to the input."
+    )
 
     def _make_block(self, in_features: int, *, out_features: int) -> nn.Sequential:
         block = nn.Sequential()
@@ -94,9 +105,9 @@ class FcnFactory(ModelFactory):
 class SimpleCNNFactory(ModelFactory):
     """Factory for a very simple CNN."""
 
-    kernel_size: int = 5
-    pool_stride: int = 2
-    activation: Activation = "relu"
+    kernel_size: int = field(default=5, doc="Kernel size of the convolutions.")
+    pool_stride: int = field(default=2, doc="Stride of the max-pooling layers.")
+    activation: Activation = field(default="relu", doc="Activation function.")
 
     @override
     def build(self, in_dim: int, *, out_dim: int) -> nn.Sequential:

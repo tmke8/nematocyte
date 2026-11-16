@@ -26,20 +26,22 @@ class Config:
     dm: (
         Annotated[CelebADataModule, option("celeba")]
         | Annotated[ColoredMNISTDataModule, option("cmnist")]
-    ) = field(default_factory=ColoredMNISTDataModule)
+    ) = field(default_factory=ColoredMNISTDataModule, doc="The dataset to train on.")
     model: (
         Annotated[FcnFactory, option("fcn")]
         | Annotated[SimpleCNNFactory, option("cnn")]
-    ) = field(default_factory=FcnFactory)
+    ) = field(default_factory=FcnFactory, doc="The model architecture.")
 
     # These are normal subconfigs. Note that in dataclasses, the default must not be
     # mutable, so we use `default_factory`.
     opt: OptimisationCfg = field(default_factory=OptimisationCfg)
     wandb: WandbCfg = field(default_factory=WandbCfg)
 
-    # These are normal fields, for which we can specify defaults.
-    seed: int = 42
-    gpu: int = -1  # Set to -1 to use CPU.
+    # These are normal fields. The `doc` of a field is shown by `--help`.
+    seed: int = field(default=42, doc="Random seed.")
+    gpu: int = field(
+        default=-1, doc="Index of the GPU to use. Set to -1 to use the CPU."
+    )
 
     def __post_init__(self) -> None:
         """Post-initialization checks.

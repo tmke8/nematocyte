@@ -244,6 +244,9 @@ written with dots at every depth.
 More can be added later. Printing the config with interpolations left
 unresolved is a likely addition, but not needed at first.
 
+What `--help` shows, and where the descriptions of the values come from, is
+covered in [helptext.md](helptext.md).
+
 For reference, the flags Hydra has beyond these (`hydra/_internal/utils.py`):
 
 | Flag | What it does in Hydra |

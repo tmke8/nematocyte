@@ -1,0 +1,161 @@
+# Help text
+
+How `--help` can explain what each config value is for.
+
+## The problem
+
+Hydra's `--help` prints the groups and the config with its default values,
+but nothing about what the values mean. There was no agreed place to put a
+description of a dataclass field.
+
+Python 3.14 adds one: `dataclasses.field(doc=...)`. This is why nematocyte
+requires Python 3.14.
+
+```python
+@dataclass(kw_only=True)
+class Config:
+    seed: int = field(default=42, doc="Random seed.")
+    gpu: int = field(default=-1, doc="Index of the GPU to use. Set to -1 to use the CPU.")
+```
+
+## What was tested
+
+Experiments on Python 3.15 and 3.14, with throwaway scripts.
+
+| Question | Result |
+| --- | --- |
+| Is the doc available at runtime? | Yes, as `f.doc` for each `f` in `dataclasses.fields(cls)`; `None` if not given |
+| Does it combine with `default`, `default_factory`, `kw_only`, and a field with no default? | Yes |
+| Is it inherited? | Yes, as long as the subclass does not declare the field again |
+| What if a subclass declares the field again, to change the default? | The doc is lost: `default_res: int = 28` in a subclass has `doc=None` |
+| `InitVar` fields | Not in `dataclasses.fields()`, but the doc is in `cls.__dataclass_fields__[name].doc` |
+| Does Python's own `help()` show it? | Only with `@dataclass(slots=True)`, where `__slots__` becomes a dict of the docs |
+| Do type checkers accept it? | ty and pyright do, when checking for Python 3.14. ty rejects `doc` when checking for 3.13 |
+| Does pydantic see it? | Yes. pydantic 2.14 puts it into the JSON schema as the field's `description`, and the class docstring as the description of the class |
+| Does tyro use it? | Yes, for its own `--help` |
+
+## Where each piece of help text comes from
+
+| Text | Source |
+| --- | --- |
+| What a value is for | `field(doc=...)` on the field |
+| What a group is for | `field(doc=...)` on the group field |
+| What an option of a group is | The docstring of the option's class |
+| What a subconfig is for | `field(doc=...)` on the field, else the docstring of its class |
+| What the program does | The docstring of the root dataclass |
+| The type and the default | The dataclass itself; nothing to write |
+
+Every one of these is optional. A field without a doc is shown without one.
+
+nematocyte's own settings under the reserved key are dataclasses too, so the
+launcher and sweeper settings get help text the same way.
+
+## Things to handle
+
+- **A field declared again in a subclass.** To avoid losing the doc, look
+  the field up along the class's MRO and take the first doc found. In the
+  prototype this gave `ColoredMNISTDataModule.default_res` the doc from its
+  base class.
+- **Generated class docstrings.** A dataclass without a docstring gets one
+  generated from its signature, such as `NoDocstring(x: int = 1)`. A subclass
+  does not inherit its base's docstring either, so it gets a generated one
+  too. These have to be recognised and ignored; they start with the class
+  name followed by `(`.
+- **Long docs.** Only the first paragraph belongs in an overview.
+- **The cost in the code.** A field with a plain default has to be rewritten
+  to carry a doc: `gpu: int = -1  # Set to -1 to use CPU.` becomes
+  `gpu: int = field(default=-1, doc="Set to -1 to use the CPU.")`.
+
+## What the help could look like
+
+Two layouts were prototyped on a documented copy of the example's `Config`,
+both built from the same walk over the config that the deserializer needs
+anyway ([deserializer.md](deserializer.md)).
+
+### One override per line
+
+```text
+Train a model on a dataset.
+
+dm=cmnist                The dataset to train on.
+                           celeba   The CelebA dataset of celebrity faces.
+                         * cmnist   MNIST with digits coloured according to their label.
+dm.default_res=28        [int] Resolution to which the images are resized.
+dm.colors=null           [list[int] | null] Indices of the colours to use.
+dm.val_prop=0.2          [float] Proportion of the training data that is held out
+                         for validation.
+
+model=fcn                The model architecture.
+                         * fcn      Fully-connected network.
+                           cnn
+model.num_hidden=1       [int] Number of hidden layers.
+model.activation=gelu    [relu|gelu|selu|silu] Activation function.
+
+opt:  Settings for the optimiser.
+opt.lr=5e-05             [float] Learning rate.
+seed=42                  [int] Random seed.
+gpu=-1                   [int] Index of the GPU to use. Set to -1 to use the CPU.
+```
+
+The left column is exactly what is typed on the command line, with the
+current value. A group shows its options, with the selected one marked. The
+type column shows the allowed values of a `Literal`.
+
+Its weakness is width: one long default, such as a path, widens the left
+column for every line.
+
+### YAML with comments
+
+```yaml
+# Train a model on a dataset.
+
+# The dataset to train on. Options: celeba, cmnist. Selected: cmnist.
+dm:
+  # Resolution to which the images are resized. (int)
+  default_res: 28
+  # Proportion of the training data that is held out for validation. (float)
+  val_prop: 0.2
+# Random seed. (int)
+seed: 42
+```
+
+This is close to what Hydra prints, and it is valid YAML, so it can be pasted
+into a config file as a starting point. The docs have the full width. It does
+not show what to type for a nested key, and a group's options do not fit
+well.
+
+### Proposal
+
+Use the first layout for `--help`, which answers "what can I type?". Use the
+second for the flag that prints the config ([cli.md](cli.md)), where the docs
+as comments could be optional.
+
+As in Hydra, `--help` reflects the other arguments: `model=cnn --help` shows
+the fields of the CNN.
+
+## Other ways to attach a doc
+
+tyro reads three sources. All three showed up in its `--help` in the test:
+
+```python
+num_hidden: int = field(default=1, doc="From field(doc=...).")
+activation: Activation = "gelu"  # From a trailing comment.
+dropout: float = 0.0
+"""From a string after the field."""
+```
+
+The last two are not available at runtime. tyro gets them by reading the
+source code of the class, which only works where the source can be found.
+
+Proposal: read `field(doc=...)` only. It is one documented mechanism, it needs
+no source code, and pydantic and type checkers understand it.
+
+## Open questions
+
+- **Options defined in YAML files.** `single_linear_layer` has no class and
+  so no docstring. Its description could be the leading comment of the file,
+  or the option it extends.
+- **Checking that fields are documented.** A helper for tests, next to
+  `validate_configs`, that reports fields without a doc.
+- **Showing the docs elsewhere.** In the error for an unknown key, the docs of
+  the fields that do exist could be listed.

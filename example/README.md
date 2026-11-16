@@ -12,7 +12,7 @@ The design documents do not cover the following, so treat them as proposals:
 - **The dict for logging:** `nematocyte.to_dict(config)` in `main.py`.
 - **Validating a single file:** `nematocyte.validate_config(path, Config, config_dir=...)` in `tests/test_configs.py`. The validation design says such a function exists but does not name it.
 - **The names of the built-in options:** `submitit_slurm` for the launcher and `optuna` for the sweeper, kept from Hydra, and starting a search with `--multirun nematocyte.sweeper=fcn_params`.
-- **The program output shown below:** the layout of `--help`, the error messages and the log lines of a multirun.
+- **The program output shown below:** the error messages and the log lines of a multirun. The layout of `--help` is the first of the two layouts proposed in [`../design/helptext.md`](../design/helptext.md), which is not agreed yet; the lines listing options and presets from files are an addition to it.
 
 ## Installing dependencies
 
@@ -60,56 +60,70 @@ It should look like this:
 <summary> Help output (quite long) </summary>
 
 ```
-== Config groups ==
-Select an option with group=option
+Main configuration class for the code base.
 
-dm: celeba, celeba_male_blond, celeba_male_smiling, celeba_male_smiling_small, cmnist
-model: cnn, fcn, single_linear_layer
+dm=cmnist                              The dataset to train on.
+                                         celeba   Data-module for the CelebA dataset.
+                                       * cmnist   Data-module for the ColoredMNIST dataset.
+                                       From files: celeba_male_blond,
+                                       celeba_male_smiling, celeba_male_smiling_small
+dm.root=/srv/galene0/shared/data       [path] Directory in which the datasets are
+                                       stored.
+dm.default_res=28                      [int] Resolution of the images.
+dm.label_map=null                      [dict[int, int] | null] Mapping from the original
+                                       labels to new labels.
+dm.colors=null                         [list[int] | null] Indices of the colors to use.
+dm.num_colors=10                       [int] Number of colors.
+dm.val_prop=0.2                        [float] Proportion of the data that is used for
+                                       validation.
 
-== Presets ==
-Select a preset with key=preset
+model=fcn                              The model architecture.
+                                       * fcn      Factory for fully-connected neural networks.
+                                         cnn      Factory for a very simple CNN.
+                                       From files: single_linear_layer
+model.num_hidden=1                     [int] Number of hidden layers.
+model.hidden_dim=null                  [int | null] Width of the hidden layers. If not
+                                       set, the input dimension is used.
+model.activation=gelu                  [relu|gelu|selu|silu] Activation function.
+model.norm=LN                          [BN|LN | null] Normalization layer to use, if
+                                       any.
+model.dropout_prob=0.0                 [float] Dropout probability. No dropout is
+                                       applied if this is 0.
+model.final_bias=true                  [bool] Whether the final linear layer has a bias.
+model.input_norm=false                 [bool] Whether to also apply the normalization
+                                       layer to the input.
 
-opt: weight_decay_adamw
+opt:                                   Config class for the optimisation.
+                                       Presets: weight_decay_adamw
+opt.lr=5e-05                           [float] Learning rate.
+opt.weight_decay=0.0                   [float] Weight decay.
+opt.optimizer_cls=torch.optim.AdamW    [str] Import path of the optimizer class.
+opt.optimizer_kwargs=null              [dict[str, any] | null] Further keyword arguments
+                                       for the optimizer.
 
-== Config ==
-Override anything in the config (foo.bar=value)
+wandb:                                 Dataclass wrapper around the parameters for
+                                       `wandb.init()`.
+wandb.name=null                        [str | null] Name of the run.
+wandb.dir=./local_logging              [str] Directory in which W&B stores its files.
+wandb.id=null                          [str | null] ID of the run.
+wandb.project=nematocyte-example       [str] W&B project to log to.
+wandb.group=null                       [str | null] Group to put the run in.
+wandb.entity=predictive-analytics-lab  [str] W&B user or team to log to.
+wandb.tags=null                        [list[str] | null] Tags for the run.
+wandb.job_type=null                    [str | null] Type of the run.
+wandb.mode=disabled                    [online|offline|disabled] Whether to log online,
+                                       offline or not at all.
+wandb.resume=null                      [str | null] Whether and how to resume a previous
+                                       run.
 
-dm:
-  root: /srv/galene0/shared/data
-  default_res: 28
-  label_map: null
-  colors: null
-  num_colors: 10
-  val_prop: 0.2
-model:
-  num_hidden: 1
-  hidden_dim: null
-  activation: gelu
-  norm: LN
-  dropout_prob: 0.0
-  final_bias: true
-  input_norm: false
-opt:
-  lr: 5.0e-05
-  weight_decay: 0.0
-  optimizer_cls: torch.optim.AdamW
-  optimizer_kwargs: null
-wandb:
-  name: null
-  dir: ./local_logging
-  id: null
-  project: nematocyte-example
-  group: null
-  entity: predictive-analytics-lab
-  tags: null
-  job_type: null
-  mode: disabled
-  resume: null
-seed: 42
-gpu: -1
+seed=42                                [int] Random seed.
+gpu=-1                                 [int] Index of the GPU to use. Set to -1 to use
+                                       the CPU.
 ```
 
 </details>
+
+Every line shows a key with its current value, in the form in which you would set it on the command line, followed by the type of the value and a description. The descriptions come from the dataclasses in `src/` (see [Describing config values](#describing-config-values) below).
 
 We can see that `seed` and `gpu` are "top-level" config values, but there are also a lot of values in subconfigs. For example, we can change the `num_hidden` value in the `model` config:
 ```bash
@@ -119,7 +133,10 @@ This should print a different model architecture.
 
 But we can also see that there are different options available in the "model" group:
 ```
-model: cnn, fcn, single_linear_layer
+model=fcn                              The model architecture.
+                                       * fcn      Factory for fully-connected neural networks.
+                                         cnn      Factory for a very simple CNN.
+                                       From files: single_linear_layer
 ```
 This allows us to completely change the model architecture:
 ```bash
@@ -143,10 +160,13 @@ python main.py model=cnn --help
 ```
 Now the "model" part of the output should look like this:
 ```
-model:
-  kernel_size: 5
-  pool_stride: 2
-  activation: relu
+model=cnn                              The model architecture.
+                                         fcn      Factory for fully-connected neural networks.
+                                       * cnn      Factory for a very simple CNN.
+                                       From files: single_linear_layer
+model.kernel_size=5                    [int] Kernel size of the convolutions.
+model.pool_stride=2                    [int] Stride of the max-pooling layers.
+model.activation=relu                  [relu|gelu|selu|silu] Activation function.
 ```
 This tells us that we can set the `kernel_size`, `pool_stride`, and `activation` values for the "cnn" architecture. For example:
 ```bash
@@ -365,7 +385,9 @@ class Config:
     """Main configuration class for the code base."""
 
     # ...all the other fields...
-    gpu: int = -1  # Set to -1 to use CPU.
+    gpu: int = field(
+        default=-1, doc="Index of the GPU to use. Set to -1 to use the CPU."
+    )
 
     def __post_init__(self) -> None:
         """Post-initialization checks."""
@@ -422,9 +444,9 @@ Then we can pull the configurable parameters into a dataclass and re-write it li
 class SimpleCNNFactory(ModelFactory):
     """Factory for a very simple CNN."""
 
-    kernel_size: int = 5
-    pool_stride: int = 2
-    activation: Activation = "relu"
+    kernel_size: int = field(default=5, doc="Kernel size of the convolutions.")
+    pool_stride: int = field(default=2, doc="Stride of the max-pooling layers.")
+    activation: Activation = field(default="relu", doc="Activation function.")
 
     @override
     def build(self, in_dim: int, *, out_dim: int) -> nn.Sequential:
@@ -457,6 +479,17 @@ class Config:
 ```
 
 The default says which option is used if nothing is selected. The base class is not needed for this to work; the options only have to be dataclasses.
+
+### Describing config values
+To tell the users of your program what a config value is for, give the field a `doc`:
+
+```python
+seed: int = field(default=42, doc="Random seed.")
+```
+
+This text is shown by `--help`, next to the key, its type and its current value. You don't have to repeat the type or the default in the text.
+
+The description of an option of a config group is the docstring of its class, and the description of a group is the `doc` of its field in the `Config` class.
 
 ## Using the current date in config values
 nematocyte comes with a built-in `now` resolver which formats the current date and time with a [`strftime`](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes) pattern. This is useful, for example, for grouping W&B runs by the day they were started:

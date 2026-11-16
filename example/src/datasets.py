@@ -1,7 +1,7 @@
 """Data loading and preprocessing."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, override
 
@@ -15,7 +15,10 @@ __all__ = ["Dataset", "DataModule", "CelebADataModule", "ColoredMNISTDataModule"
 class DataModule(ABC):
     """Base class for data modules."""
 
-    root: Path = Path("/srv/galene0/shared/data")
+    root: Path = field(
+        default=Path("/srv/galene0/shared/data"),
+        doc="Directory in which the datasets are stored.",
+    )
 
     @property
     @abstractmethod
@@ -40,11 +43,17 @@ type CelebAttr = Literal["Blond_Hair", "Male", "Smiling"]
 class CelebADataModule(DataModule):
     """Data-module for the CelebA dataset."""
 
-    default_res: int = 224
-    superclass: CelebAttr = "Blond_Hair"
-    subclass: CelebAttr = "Male"
-    download: bool = False
-    split_seed: int | None = None
+    default_res: int = field(default=224, doc="Resolution of the images.")
+    superclass: CelebAttr = field(
+        default="Blond_Hair", doc="Attribute that defines the superclass."
+    )
+    subclass: CelebAttr = field(
+        default="Male", doc="Attribute that defines the subclass."
+    )
+    download: bool = field(
+        default=False, doc="Whether to download the dataset if necessary."
+    )
+    split_seed: int | None = field(default=None, doc="Seed for splitting the dataset.")
 
     @property
     @override
@@ -73,13 +82,17 @@ class CelebADataModule(DataModule):
 class ColoredMNISTDataModule(DataModule):
     """Data-module for the ColoredMNIST dataset."""
 
-    default_res: int = 28
+    default_res: int = field(default=28, doc="Resolution of the images.")
 
     # Colorization settings
-    label_map: dict[int, int] | None = None
-    colors: list[int] | None = None
-    num_colors: int = 10
-    val_prop: float = 0.2
+    label_map: dict[int, int] | None = field(
+        default=None, doc="Mapping from the original labels to new labels."
+    )
+    colors: list[int] | None = field(default=None, doc="Indices of the colors to use.")
+    num_colors: int = field(default=10, doc="Number of colors.")
+    val_prop: float = field(
+        default=0.2, doc="Proportion of the data that is used for validation."
+    )
 
     @property
     @override

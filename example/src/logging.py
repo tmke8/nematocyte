@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 import wandb
@@ -18,16 +18,24 @@ class WandbCfg:
     line.
     """
 
-    name: str | None = None
-    dir: str = "./local_logging"
-    id: str | None = None
-    project: str = "nematocyte-example"
-    group: str | None = None
-    entity: str = "predictive-analytics-lab"
-    tags: list[str] | None = None
-    job_type: str | None = None
-    mode: Literal["online", "offline", "disabled"] = "disabled"
-    resume: str | None = None
+    name: str | None = field(default=None, doc="Name of the run.")
+    dir: str = field(
+        default="./local_logging", doc="Directory in which W&B stores its files."
+    )
+    id: str | None = field(default=None, doc="ID of the run.")
+    project: str = field(default="nematocyte-example", doc="W&B project to log to.")
+    group: str | None = field(default=None, doc="Group to put the run in.")
+    entity: str = field(
+        default="predictive-analytics-lab", doc="W&B user or team to log to."
+    )
+    tags: list[str] | None = field(default=None, doc="Tags for the run.")
+    job_type: str | None = field(default=None, doc="Type of the run.")
+    mode: Literal["online", "offline", "disabled"] = field(
+        default="disabled", doc="Whether to log online, offline or not at all."
+    )
+    resume: str | None = field(
+        default=None, doc="Whether and how to resume a previous run."
+    )
 
     def init(self, cfg: dict[str, Any], *, reinit: bool) -> Run:
         """Call `wandb.init()` with the parameters from the config."""
