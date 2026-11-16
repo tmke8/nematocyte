@@ -96,6 +96,11 @@ build(cls, node):
 The `registered type` branch is not in the first version. No field in
 `hydra-example` needs a converter, and the walk leaves room to add one.
 
+A field without a default has to be given a value, and a missing one is
+reported with its path. Hydra's marker for a mandatory value, `???`, is not
+implemented: a dataclass field without a default already says the same. In
+a config file, `???` is an ordinary string.
+
 A sketch of this (about 30 lines) built the `hydra-example` config, collected
 every error across the tree with full paths, and surfaced the `__post_init__`
 message. The walk is not wasted effort: the same schema traversal is needed

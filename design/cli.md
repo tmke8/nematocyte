@@ -284,6 +284,12 @@ For reference, the flags Hydra has beyond these (`hydra/_internal/utils.py`):
 | `--hydra-help` | Prints help for Hydra's flags, as opposed to the application's |
 | `--version` | Prints Hydra's version |
 
+## Not in the first version
+
+- **Shell tab completion**, which Hydra installs with `--shell-completion`.
+  Perhaps later.
+- **`--resolve`**, to print the resolved values with `--cfg`.
+
 ## Rejected ideas
 
 ### Converting numbers to strings for `str` fields

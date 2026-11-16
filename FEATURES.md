@@ -106,20 +106,8 @@ nematocyte. File references are relative to that project.
   (`tests/test_configs.py`). The test has to be told which directories hold
   primary configs rather than group options.
 
-## Hydra features the example does not use
+## Output directories
 
-Candidates for leaving out:
-
-- `_target_` and `hydra.utils.instantiate`
-- `+key=value` and `~key` overrides
-- Mandatory values (`???`)
-- References between config values (`${a.b}`); only the `now` resolver appears
-- Custom resolvers and `oc.env`
-- Changing the working directory to the output directory
-- Hydra's job logging configuration (see
-  [design/logging.md](design/logging.md))
-- Shell tab completion
-
-Per-run output directories and the saved copy of the config are not used by
-the example either, but they are wanted, as the place for model checkpoints
-(see [design/outputs.md](design/outputs.md)).
+- Not used by the example, but in scope: a directory per run, as the place
+  for model checkpoints, with a saved copy of the config (see
+  [design/outputs.md](design/outputs.md)).

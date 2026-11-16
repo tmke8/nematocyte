@@ -77,6 +77,8 @@ Two things to know about the snippet:
 
 ## Not in the first version
 
+- **A logging setup by nematocyte**, configured through the config as with
+  Hydra's `hydra/job_logging`. Perhaps later.
 - **A built-in `nematocyte.log_level`**, so that a program does not have to
   declare the field itself.
 - **`DEBUG` for named loggers only**, as with `hydra.verbose=[train]`.

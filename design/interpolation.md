@@ -27,6 +27,13 @@ against the type of the field it lands in, like any other value.
 
 ## Decided
 
+### References between values are supported
+
+`${a.b}` can refer to any value in the tree, as described above, although
+`hydra-example` only uses the `now` resolver. Validation relies on this: a
+named config is checked in the whole tree because it may refer to a value
+outside its own node ([validation.md](validation.md)).
+
 ### `now` is computed once, also in a multirun
 
 The launching process fixes the time, and every job of a multirun gets the
@@ -56,6 +63,12 @@ tree, and a dataclass default is not in it.
 Supporting this would mean filling the raw tree with the defaults before
 resolving, and it only type-checks for `str` fields. Until then, the value can
 be set in a config file or derived in `__post_init__`.
+
+### Custom resolvers and environment variables
+
+`now` is the only resolver. In Hydra a program can register its own, and
+OmegaConf's `oc.env` reads an environment variable. Both may be added
+later.
 
 ### Relative references and nested interpolations
 

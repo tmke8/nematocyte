@@ -118,7 +118,8 @@ checkpoint_dir = nematocyte.output_dir() / "checkpoints"
 after `nematocyte.compose(...)`, it is an error.
 
 The working directory is not changed, which is Hydra's default too. Relative
-paths in the config, such as `dm.root`, keep their meaning.
+paths in the config, such as `dm.root`, keep their meaning. Hydra's setting
+that changes it, `hydra.job.chdir`, is not implemented.
 
 ### What nematocyte writes
 

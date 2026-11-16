@@ -195,3 +195,17 @@ Two things follow:
 How the chosen class is then handed to the validator is covered in
 [deserializer.md](deserializer.md): pydantic cannot take it directly, so
 nematocyte walks the dataclass nodes itself.
+
+## No `_target_`
+
+In Hydra a config can name a class or function by its import path under the
+key `_target_`, and `hydra.utils.instantiate` calls it with the other keys
+as arguments. nematocyte does not implement this.
+
+The class of every node comes from the schema: the type of the field, or
+the option of a group that is selected by name. A config file never names
+Python code.
+
+A program that wants to name a class in its config holds the import path in
+a `str` field and imports it itself, as `opt.optimizer_cls` does in the
+example.
