@@ -124,14 +124,20 @@ into a config file as a starting point. The docs have the full width. It does
 not show what to type for a nested key, and a group's options do not fit
 well.
 
-### Proposal
+### Decided
 
-Use the first layout for `--help`, which answers "what can I type?". Use the
-second for the flag that prints the config ([cli.md](cli.md)), where the docs
-as comments could be optional.
+The first layout is used for `--help`, which answers "what can I type?". The
+second is used for `--cfg`, which prints the config ([cli.md](cli.md)); there
+the docs as comments could be optional.
 
-As in Hydra, `--help` reflects the other arguments: `model=cnn --help` shows
-the fields of the CNN.
+- When `key=value` is longer than the left column, the description starts on
+  the next line, as in argparse. One long default then does not widen the
+  column for every line.
+- As in Hydra, `--help` reflects the other arguments: `model=cnn --help`
+  shows the fields of the CNN.
+- An option that exists only as a YAML file, such as `single_linear_layer`,
+  is listed by its name, without a description. The same goes for the presets
+  of a plain subconfig.
 
 ## Other ways to attach a doc
 
@@ -147,15 +153,25 @@ dropout: float = 0.0
 The last two are not available at runtime. tyro gets them by reading the
 source code of the class, which only works where the source can be found.
 
-Proposal: read `field(doc=...)` only. It is one documented mechanism, it needs
-no source code, and pydantic and type checkers understand it.
+**Decided:** nematocyte reads `field(doc=...)` only. It is one documented
+mechanism, it needs no source code, and pydantic and type checkers understand
+it.
 
-## Open questions
+## Docs in error messages
 
-- **Options defined in YAML files.** `single_linear_layer` has no class and
-  so no docstring. Its description could be the leading comment of the file,
-  or the option it extends.
+Decided:
+
+- For a value that is not valid (`opt.lr=abc`), the error includes the doc of
+  that field.
+- For an unknown key (`model.hiden_dim=10`), the error lists the valid names
+  and the closest match, without docs.
+
+The wording of the messages is left to the implementation.
+
+## Not in the first version
+
+- **Descriptions for options defined in YAML files.** `single_linear_layer`
+  has no class and so no docstring. Its description could be generated from
+  the file ("fcn with num_hidden=0"), or be the leading comment of the file.
 - **Checking that fields are documented.** A helper for tests, next to
   `validate_configs`, that reports fields without a doc.
-- **Showing the docs elsewhere.** In the error for an unknown key, the docs of
-  the fields that do exist could be listed.

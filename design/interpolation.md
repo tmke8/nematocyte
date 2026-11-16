@@ -25,11 +25,44 @@ A 60-line prototype covered:
 Because resolution happens before validation, an interpolated value is checked
 against the type of the field it lands in, like any other value.
 
-## Open questions
+## Decided
 
-- **Interpolation strings as dataclass defaults** (`name: str = "${seed}"`).
-  This requires filling the raw tree with defaults before resolving, and only
-  type-checks for `str` fields. A derived value in `__post_init__` may be the
-  better answer.
-- **Relative references and nested interpolations** (`${.sibling}`,
-  `${a.${b}}`): not used in `hydra-example`; leave out until needed.
+### `now` is computed once, also in a multirun
+
+The launching process fixes the time, and every job of a multirun gets the
+same value ([multirun.md](multirun.md)).
+
+In Hydra this depends on the pattern. Tested with three jobs, with both the
+basic and the submitit launcher:
+
+| Pattern | Value in the jobs |
+| --- | --- |
+| `${now:%Y-%m-%d}`, `${now:%H-%M-%S}` | The same in every job |
+| Any other, such as `${now:%M-%S.%f}` | Different in every job |
+
+Hydra caches a resolved value per pattern and copies the cache to each job.
+The two patterns in the first row are the ones Hydra uses for its own output
+directory, so they are already in the cache when the jobs start. A sweep with
+`wandb.group=${now:%Y-%m-%d_%H}` that runs for more than an hour ends up in
+several groups.
+
+## Not in the first version
+
+### Interpolation strings as dataclass defaults
+
+`name: str = "${seed}"` is not resolved. Interpolation is a pass over the raw
+tree, and a dataclass default is not in it.
+
+Supporting this would mean filling the raw tree with the defaults before
+resolving, and it only type-checks for `str` fields. Until then, the value can
+be set in a config file or derived in `__post_init__`.
+
+### Relative references and nested interpolations
+
+`${.sibling}` and `${a.${b}}` are not supported, and the error says so.
+`hydra-example` uses neither.
+
+Relative references matter less than in Hydra. A file's place in the config
+directory fixes where its content goes in the tree
+([composition.md](composition.md)), so a file in `configs/dm/` can always
+write `${dm.default_res}`.

@@ -30,6 +30,6 @@ CONFIG_DIR = Path(__file__).parent.parent / "configs"
     ids=Path.as_posix,
 )
 def test_config(path: Path) -> None:
-    result = nematocyte.validate_config(path, Config, config_dir=CONFIG_DIR)
+    result = nematocyte.validate_config(Config, CONFIG_DIR, path)
     if result.error is not None:
         raise result.error

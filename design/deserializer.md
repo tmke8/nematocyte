@@ -93,6 +93,9 @@ build(cls, node):
     return cls(**kwargs)          # runs __post_init__
 ```
 
+The `registered type` branch is not in the first version. No field in
+`hydra-example` needs a converter, and the walk leaves room to add one.
+
 A sketch of this (about 30 lines) built the `hydra-example` config, collected
 every error across the tree with full paths, and surfaced the `__post_init__`
 message. The walk is not wasted effort: the same schema traversal is needed

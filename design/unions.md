@@ -64,6 +64,16 @@ what Hydra ships as plugins (submitit, Optuna) is built into nematocyte, and
 the `launcher` and `sweeper` fields under the reserved key are ordinary
 closed unions.
 
+The built-in options keep Hydra's names ([multirun.md](multirun.md)):
+
+| Field | Options |
+| --- | --- |
+| `nematocyte.launcher` | `basic` (the default), `submitit_slurm` |
+| `nematocyte.sweeper` | `basic` (the default), `optuna` |
+
+submitit and Optuna are optional extras of the nematocyte package. They are
+imported only when their option is selected.
+
 ### No optional dataclass fields, for now
 
 `None` is not allowed as a member of a group, and a plain dataclass field
@@ -179,6 +189,8 @@ Two things follow:
 - Because the data carries no tag, a dumped config is not self-describing.
   Whatever is written out for reproducibility has to record the choices next
   to the values, e.g. as a `defaults` list, so that it can be loaded again.
+  The dict for logging records each choice under the key `_option_`
+  ([api.md](api.md)).
 
 How the chosen class is then handed to the validator is covered in
 [deserializer.md](deserializer.md): pydantic cannot take it directly, so

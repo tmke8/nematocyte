@@ -71,8 +71,9 @@ nematocyte. File references are relative to that project.
 
 - The `now` resolver with a `strftime` pattern, on the command line and in
   YAML: `wandb.group=${now:%Y-%m-%d}-cnn-dropout`.
-- The value is fixed within a run. In a multirun, each job resolves it
-  separately.
+- The value is fixed within a run. In a multirun, whether the jobs share it
+  depends on the pattern; nematocyte computes it once for all jobs (see
+  [design/interpolation.md](design/interpolation.md)).
 
 ## Multirun and sweeps
 

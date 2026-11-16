@@ -106,8 +106,14 @@ against `torch.cuda.device_count()`, which gives a different answer on the
 test machine and fails in CI. The `gpu < -1` half belongs in
 `__post_init__`; the device count belongs in `run()`.
 
-For code that cannot follow the convention yet, `validate_configs` has an
-opt-in switch that stops before the constructors. Composition, interpolation,
+For code that cannot follow the convention yet, there is an opt-in switch
+that stops before the constructors:
+
+```python
+nematocyte.validate_configs(Config, config_dir, construct=False)
+```
+
+Composition, interpolation,
 the checks for unknown and missing keys, and pydantic's check of every field
 value still happen; only the final `cls(**kwargs)` is skipped, and with it
 every `__post_init__`. This is possible because nematocyte walks the
@@ -116,15 +122,35 @@ dataclass nodes itself ([deserializer.md](deserializer.md)).
 ### One result per file
 
 The function returns one result per file, with the path and the error if
-there is one, so that a test can report each broken file separately. A
-function for a single file is available too, for parametrised tests such as
-the one in `hydra-example`.
+there is one, so that a test can report each broken file separately.
 
-## Open questions
+A function for a single file is available too, for parametrised tests such as
+the one in `hydra-example`:
 
-- **Sweeper parameters.** The values under `params` in a sweeper config
-  (`opt.lr: tag(log, interval(1.e-5, 1.e-3))`) are override expressions.
-  Whether validation parses them and checks that the keys exist.
+```python
+nematocyte.validate_config(Config, config_dir, path)
+```
+
+### Sweeper parameters are checked
+
+The values under `params` in a sweeper config are override expressions:
+
+```yaml
+params:
+  opt.lr: tag(log, interval(1.e-5, 1.e-3))
+  model.num_hidden: range(1, 4)
+```
+
+Validation checks two things:
+
+- Each value is parsed with the override parser ([cli.md](cli.md)).
+- Each key has to name a value in the schema. Where the path goes through a
+  group, it is enough that one option of the group has the field. The file
+  does not say which option of `model` will be selected, and
+  `model.num_hidden` exists only for `fcn`.
+
+The exact check, against the options that are selected, is made at the start
+of a multirun, before any job is submitted ([multirun.md](multirun.md)).
 
 ## Rejected ideas
 

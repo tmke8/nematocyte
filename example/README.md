@@ -8,11 +8,7 @@ This code base is meant to show-case how to use nematocyte to manage configurati
 
 The design documents do not cover the following, so treat them as proposals:
 
-- **The entry point:** `@nematocyte.main(Config, config_dir="configs")` in `main.py`.
-- **The dict for logging:** `nematocyte.to_dict(config)` in `main.py`.
-- **Validating a single file:** `nematocyte.validate_config(path, Config, config_dir=...)` in `tests/test_configs.py`. The validation design says such a function exists but does not name it.
-- **The names of the built-in options:** `submitit_slurm` for the launcher and `optuna` for the sweeper, kept from Hydra, and starting a search with `--multirun nematocyte.sweeper=fcn_params`.
-- **The program output shown below:** the error messages and the log lines of a multirun. The layout of `--help` is the first of the two layouts proposed in [`../design/helptext.md`](../design/helptext.md), which is not agreed yet; the lines listing options and presets from files are an addition to it.
+- **The program output shown below:** the wording of the error messages and the log lines of a multirun. In the output of `--help`, the lines `From files:` and `Presets:` are this example's way of listing the configs that are defined in YAML files.
 
 ## Installing dependencies
 
@@ -504,7 +500,7 @@ wandb:
   group: ${now:%Y-%m-%d}-cnn-dropout
 ```
 
-**Note**: within a single run, the value is fixed, so it doesn't change. But in a multirun, each job resolves it separately, so if your sweep runs past midnight, the later jobs will get the next day's date.
+**Note**: the value is fixed when the program starts, so it doesn't change. This also holds for a multirun: all jobs get the same value, even if your sweep runs past midnight.
 
 ## Structure of the code
 

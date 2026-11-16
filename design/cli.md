@@ -239,10 +239,29 @@ written with dots at every depth.
 | `--help`, `-h` | Prints the groups with their options and the composed config |
 | `--multirun`, `-m` | Runs one job per combination of swept values |
 | `--config-name`, `-cn` | Selects the primary config |
-| A flag to print the config | Prints the composed, resolved config instead of running |
+| `--cfg`, `-c` `{job,all}` | Prints the composed config instead of running |
 
-More can be added later. Printing the config with interpolations left
-unresolved is a likely addition, but not needed at first.
+`--cfg` is taken from Hydra, with its required argument:
+
+- `--cfg job` prints the user's config, without the `nematocyte` key.
+- `--cfg all` prints the user's config and nematocyte's own settings.
+
+The output is the whole config: the values from files and overrides, and the
+defaults of the dataclasses for everything else.
+
+As in Hydra, interpolations are printed as written, not resolved. Hydra's
+`--resolve`, which prints the resolved values instead, is a likely addition
+but not in the first version.
+
+A tree with unresolved interpolations cannot be validated in full:
+`hidden_dim: ${dm.default_res}` is a string where an `int` is expected. So
+after printing the tree, `--cfg` resolves and builds the config as a normal
+run would, and reports any error.
+
+Hydra's third choice, `--cfg hydra`, which prints only Hydra's own settings,
+has no counterpart for now.
+
+More flags can be added later.
 
 What `--help` shows, and where the descriptions of the values come from, is
 covered in [helptext.md](helptext.md).
@@ -251,7 +270,6 @@ For reference, the flags Hydra has beyond these (`hydra/_internal/utils.py`):
 
 | Flag | What it does in Hydra |
 | --- | --- |
-| `--cfg`, `-c` `{job,hydra,all}` | Prints the composed config instead of running, unresolved |
 | `--resolve` | With `--cfg`: resolves interpolations before printing |
 | `--package`, `-p` | With `--cfg`: prints only one subtree |
 | `--info`, `-i` `{all,config,defaults,defaults-tree,plugins,searchpath,aliases}` | Prints debugging information about composition |
@@ -262,11 +280,6 @@ For reference, the flags Hydra has beyond these (`hydra/_internal/utils.py`):
 | `--experimental-rerun` | Reruns a job from its saved output directory |
 | `--hydra-help` | Prints help for Hydra's flags, as opposed to the application's |
 | `--version` | Prints Hydra's version |
-
-## Open questions
-
-- **The name of the flag that prints the config.** Hydra spells it
-  `--cfg job --resolve`.
 
 ## Rejected ideas
 
