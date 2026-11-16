@@ -180,8 +180,10 @@ checked against it. A prototype with the `hydra-example` dataclasses:
 **Rejected because** a schema is a second, approximate statement of the
 rules, and it disagrees with the loader:
 
-- PyYAML reads `1e-3` as a string. pydantic's lax mode converts it; the
-  schema rejects it.
+- PyYAML, which the prototype used, reads `1e-3` as a string. pydantic's lax
+  mode converts it; the schema rejects it. This point no longer applies now
+  that config files are read as YAML 1.2
+  ([composition.md](composition.md)); the others do.
 - An interpolation in a non-string field fails, unless every field is
   loosened to allow strings as well.
 - `__post_init__` checks cannot be expressed.

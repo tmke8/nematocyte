@@ -165,9 +165,11 @@ without a special case.
 
 **Rejected because** every value would take a round trip through `json.dumps`
 just to reach the validator. That also requires every value to be
-JSON-serialisable, which PyYAML does not guarantee: an unquoted `2026-11-16`
-becomes a `date` object.
+JSON-serialisable, which a YAML parser does not guarantee: an unquoted
+`2026-11-16` becomes a `date` object.
 
 Rejecting `lr: 1e-3` (which PyYAML reads as a string) was not part of the
 reason. Having to write `1.e-3` is acceptable, so that lax mode accepts
-`1e-3` is a side effect and not a requirement.
+`1e-3` is a side effect and not a requirement. Since config files are read
+as YAML 1.2 ([composition.md](composition.md)), the question no longer
+arises: `1e-3` is a float.

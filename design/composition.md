@@ -137,3 +137,33 @@ say:
 
 An empty string for `--config-name` means no primary config. The entry point
 does not have to name a default one either.
+
+### Config files are YAML 1.2, read with ruamel.yaml
+
+Hydra reads config files with PyYAML, which implements YAML 1.1. The same
+text read with PyYAML 6.0.3 and with ruamel.yaml 0.19.1:
+
+| Text in a file | PyYAML (YAML 1.1) | ruamel.yaml (YAML 1.2) |
+| --- | --- | --- |
+| `1e-3` | string | float |
+| `yes`, `on`, `No` | bool | string |
+| `010` | int `8` | int `10` |
+| `1:30` | int `90` | string |
+| A key given twice | The second one wins, silently | Error |
+| `1_000` | int | int |
+| `3.10` | float `3.1` | float `3.1` |
+| `2026-11-16` | date | date |
+
+Reasons for YAML 1.2:
+
+- The values in a file are typed almost as on the command line
+  ([cli.md](cli.md)). With YAML 1.1, `yes`, `on` and `1e-3` would mean one
+  thing in a file and another on the command line.
+- A key that is given twice is a mistake, and is reported.
+
+ruamel.yaml is pure Python and has no required dependencies. It is slower
+than PyYAML's C loader (38 ms against 3 ms for a file of 1,200 lines), which
+does not matter for config files.
+
+A config file carried over from Hydra can change its meaning where it relied
+on YAML 1.1, such as `on` for a boolean.

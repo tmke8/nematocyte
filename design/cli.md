@@ -144,9 +144,16 @@ Two things to know:
 - **The shell removes quotes.** `wandb.name='123'` reaches the program as
   `wandb.name=123`. The quotes have to be protected: `"wandb.name='123'"` or
   `wandb.name=\'123\'`. The error for `wandb.name=123` should say so.
-- **The grammar is not YAML.** It agrees with YAML on the cases above, but
-  not everywhere: `yes` and `on` are strings here and booleans in YAML 1.1,
-  and `1e-3` is a float here and a string in PyYAML.
+- **The grammar is not YAML.** It agrees with YAML 1.2, which the config
+  files use ([composition.md](composition.md)), on the cases above, and on
+  `yes`, `on` and `1e-3`. It differs in a few places:
+
+  | Text | On the command line | In a config file |
+  | --- | --- | --- |
+  | `007` | string | int `7` |
+  | `inf` | float | string; the float is written `.inf` |
+  | `2026-11-16` | string | date |
+  | `~` | An error unless quoted | null |
 
 This differs from Hydra in one place. OmegaConf converts a number to a string
 for a `str` field, so `wandb.name=123` works there without quotes (and

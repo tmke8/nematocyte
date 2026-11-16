@@ -15,7 +15,88 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    { include-group = "test" },
+    { include-group = "lint" },
+    { include-group = "reference" },
+]
+test = ["pytest>=8"]
+lint = ["ruff>=0.14", "ty"]
+# Not used by nematocyte; installed to compare behaviour during development.
+reference = [
     "hydra-core==1.4.0rc3",
     "hydra-qol>=0.2.3",
     "tyro>=1.0.17",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.ty.rules]
+disjoint-cast = "warn"
+possibly-missing-attribute = "warn"
+possibly-missing-import = "warn"
+possibly-unresolved-reference = "warn"
+truthiness-test-of-none-union = "warn"
+unsound-assignment = "warn"
+unsound-return = "warn"
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+# The example is a project of its own, with its own configuration.
+extend-exclude = ["example"]
+
+[tool.ruff.format]
+quote-style = "preserve"
+
+[tool.ruff.lint]
+select = [
+    "ARG", # flake8-unused-args
+    "B",   # bugbear
+    "C4",  # flake8-comprehensions
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "FBT", # boolean trap
+    "I",   # isort
+    "INP", # implicit namespace package
+    "N",   # pep8-naming
+    "PLC", # pylint convention
+    "PLE", # pylint error
+    "PLR", # pylint refactor
+    "PLW", # pylint warning
+    "PTH", # flake8-use-pathlib
+    "SIM", # flake8-simplify
+    "UP",  # pyupgrade
+    "W",
+]
+ignore = [
+    "E501",    # line too long (conflicts with formatter)
+    "N812",    # case of import alias
+    "PLR0402", # useless import alias
+    "PLR2004", # magic number comparison
+    "PLR0913", # too many arguments
+    "PLW2901", # overwriting loop variables
+    "PLC0105", # mark variance in typevar name
+    "W191",    # tab indentation (conflicts with formatter)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = [
+    "F403",
+    "PLC0414", # reexporting
+]
+"tests/**" = ["INP"]
+
+[tool.ruff.lint.isort]
+extra-standard-library = ["typing_extensions"]
+no-lines-before = ["future", "standard-library"]
+force-sort-within-sections = true
+split-on-trailing-comma = false
+
+[tool.ruff.lint.pylint]
+max-statements = 60 # default: 50
+max-branches = 13   # default: 12

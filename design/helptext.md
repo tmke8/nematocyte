@@ -15,7 +15,9 @@ requires Python 3.14.
 @dataclass(kw_only=True)
 class Config:
     seed: int = field(default=42, doc="Random seed.")
-    gpu: int = field(default=-1, doc="Index of the GPU to use. Set to -1 to use the CPU.")
+    gpu: int = field(
+        default=-1, doc="Index of the GPU to use. Set to -1 to use the CPU."
+    )
 ```
 
 ## What was tested
