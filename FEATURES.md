@@ -50,7 +50,9 @@ nematocyte. File references are relative to that project.
   anywhere in the tree, including under groups.
 - Primary configs in a subdirectory (`configs/experiments/cmnist_cnn.yaml`),
   selected as `experiments/cmnist_cnn`. In Hydra this needs
-  `# @package _global_` and absolute entries in `defaults` (`/dm: cmnist`).
+  `# @package _global_` and absolute entries in `defaults` (`/dm: cmnist`);
+  nematocyte is meant to need neither (see
+  [design/composition.md](design/composition.md)).
 
 ## Command line
 

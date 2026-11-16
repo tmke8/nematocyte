@@ -225,8 +225,9 @@ Using the wrong spelling fails silently. Observed in `hydra-example`:
 | `hydra.launcher=slurm_kyiv` | The string `slurm_kyiv`; no error |
 | `hydra.launcher=nope` | The string `nope`; no error |
 
-nematocyte has one namespace, the tree, and the field's type says whether a
-key is a selection. The slash form leaves the grammar, and a selection is
+nematocyte has one namespace, the tree (see
+[composition.md](composition.md)), and the field's type says whether a key is
+a selection. The slash form leaves the grammar, and a selection is
 written with dots at every depth.
 
 ### Four flags to start with
