@@ -203,6 +203,9 @@ unchanged:
 
 The user's root dataclass must not have a field called `nematocyte`.
 
+The output directory is set under the same key, as `nematocyte.output_dir`
+([outputs.md](outputs.md)).
+
 ### No slash in keys
 
 In Hydra a key has two spellings, for two different namespaces:

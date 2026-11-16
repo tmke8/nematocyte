@@ -76,7 +76,8 @@ per batch.
 Each job gets an output directory (`multirun/DATE/TIME/N`) with the composed
 config and a log file, optionally becomes the working directory, and can read
 its own number and id from Hydra's config. `hydra-example` uses none of this
-([FEATURES.md](../FEATURES.md)).
+([FEATURES.md](../FEATURES.md)). Output directories are wanted all the same,
+as the place for model checkpoints; see [outputs.md](outputs.md).
 
 ## Decided
 
@@ -124,17 +125,14 @@ Consequences:
   in the job. That fits the convention that it only checks the config
   ([validation.md](validation.md)).
 
-### No output directories
+### Each job has an output directory
 
-A job gets no output directory, its working directory is not changed, and no
-config or log file is saved for it. The only files nematocyte causes to be
-written are those of submitit.
+A multirun has a directory under `outputs/`, and each job has a numbered
+directory in it. The working directory is not changed. The details are in
+[outputs.md](outputs.md).
 
-The function is not told its job number. A W&B run can be told apart by its
-config.
-
-A directory per multirun, `multirun/DATE/TIME/` as in Hydra, could be added
-later. The files of submitit would then move into it.
+The function is not told its job number, other than through the name of its
+directory.
 
 ### The `basic` sweeper
 
@@ -183,8 +181,8 @@ sampler's settings are in the schema, and each copy has to be kept in step
 with Optuna. The others that Hydra offers can be added as they are needed.
 
 At the end the best parameters and the best value are printed. Hydra also
-writes them to a file in the output directory; without output directories,
-`storage` is the way to keep the results.
+writes them to a file in the directory of the multirun, and nematocyte does
+the same ([outputs.md](outputs.md)).
 
 ### `direction` can be a list
 
@@ -231,8 +229,8 @@ and `wckey`. They can be given through `additional_parameters`.
 Hydra's defaults refer to its output directory and its job name. In
 nematocyte:
 
-- `submitit_folder` is `.submitit/DATE/TIME/%j` under the working directory,
-  filled in by nematocyte.
+- `submitit_folder` is `.submitit/%j` in the directory of the multirun, as
+  in Hydra, filled in by nematocyte ([outputs.md](outputs.md)).
 - `name` is the name of the script without `.py`.
 
 ### A launcher without `--multirun` is an error

@@ -76,6 +76,16 @@ that is the value, because pydantic reads enums by value
 ([deserializer.md](deserializer.md)). `hydra-qol` uses the name instead,
 because Hydra reads enums by name.
 
+### The output directory
+
+```python
+checkpoint_dir = nematocyte.output_dir() / "checkpoints"
+```
+
+Returns the directory of the current job as a `Path`, and creates it if it
+does not exist yet; see [outputs.md](outputs.md). Outside a run, such as
+after `nematocyte.compose(...)`, it is an error.
+
 ### Declaring a group
 
 `nematocyte.option("name")` names a member of an annotated union; see

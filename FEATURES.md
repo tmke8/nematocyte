@@ -115,7 +115,11 @@ Candidates for leaving out:
 - Mandatory values (`???`)
 - References between config values (`${a.b}`); only the `now` resolver appears
 - Custom resolvers and `oc.env`
-- Per-run output directories, changing the working directory, and saved
-  copies of the config
-- Hydra's job logging configuration
+- Changing the working directory to the output directory
+- Hydra's job logging configuration (see
+  [design/logging.md](design/logging.md))
 - Shell tab completion
+
+Per-run output directories and the saved copy of the config are not used by
+the example either, but they are wanted, as the place for model checkpoints
+(see [design/outputs.md](design/outputs.md)).
