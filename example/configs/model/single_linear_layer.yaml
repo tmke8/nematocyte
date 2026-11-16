@@ -1,0 +1,7 @@
+---
+defaults:
+  - fcn
+
+num_hidden: 0
+activation: relu
+norm: null

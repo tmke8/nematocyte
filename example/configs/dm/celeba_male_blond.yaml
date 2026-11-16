@@ -1,0 +1,8 @@
+---
+defaults:
+  # Specify here the name of the option of the `dm` config group you want to extend.
+  # `celeba` is declared in the `Config` class in `src/run.py`.
+  - celeba
+
+superclass: Blond_Hair
+subclass: Male

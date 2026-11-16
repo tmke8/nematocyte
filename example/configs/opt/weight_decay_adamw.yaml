@@ -1,0 +1,6 @@
+---
+# A preset for the `opt` subconfig. `opt` is not a config group, so there is no option
+# to extend and no `defaults` entry: the values are applied on top of the defaults.
+lr: 1.0e-3
+weight_decay: 1.e-2
+optimizer_cls: "torch.optim.AdamW"
