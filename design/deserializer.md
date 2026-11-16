@@ -108,6 +108,9 @@ Costs of this approach, to be aware of:
   `Literal` or `StrEnum` avoids the problem.
 - `seed: true` is accepted as `1`. If that matters, it is a one-line check in
   the walk.
+- A number is rejected for a `str` field, in config files and on the command
+  line alike, and has to be quoted. See [cli.md](cli.md) for why this is not
+  relaxed.
 
 The alternative is to hand whole dataclass nodes to pydantic and only
 instantiate group nodes ahead of time. That is less code and also worked in
@@ -123,14 +126,6 @@ primitive hooks, one hook for group bases, one custom error formatter, and one
 unstructure hook. Its group handling is more elegant than anything pydantic
 allows. It loses on constraints, JSON schema, `InitVar`, and the amount of
 validation behaviour we would own.
-
-## Open questions
-
-- **CLI override values.** pydantic's `validate_strings` converts scalars by
-  field type (`seed=123`, `wandb.name=123` as a string) but has no notion of
-  `null` and does not parse lists. Parsing the value as YAML first handles
-  those, but then `wandb.name=123` arrives as an `int` and is rejected for
-  `str | None`. Some combination is needed.
 
 ## Rejected ideas
 
