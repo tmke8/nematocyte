@@ -157,11 +157,13 @@ for a `str` field, so `wandb.name=123` works there without quotes (and
 The question is only how to read `key=name`: as "select the config called
 `name` for this field" or as "set this field to the value `name`".
 
-- If the field's type is a dataclass, it is a selection.
+- If the field's type is a dataclass, or a group of dataclasses (see
+  [unions.md](unions.md)), it is a selection.
 - Otherwise it is a value.
 
-`Config.model` is typed `ModelFactory`, a dataclass, so `model=cnn` is a
-selection. `Config.seed` is an `int`, so `seed=123` is a value.
+`Config.model` is a group, so `model=cnn` is a selection. `Config.opt` is a
+dataclass, so `opt=weight_decay_adamw` is one too. `Config.seed` is an `int`,
+so `seed=123` is a value.
 
 Which names can be selected does not change from Hydra. For `model` they are
 the registered classes (`fcn`, `cnn`) plus the YAML files in `configs/model/`

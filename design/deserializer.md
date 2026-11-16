@@ -101,6 +101,10 @@ for interpolation ([interpolation.md](interpolation.md)).
 Costs of this approach, to be aware of:
 
 - nematocyte handles `InitVar` and `init=False` fields itself.
+- A key missing from the config does not always fall back to the class
+  default. Unless an option of a group is named for the field, the value
+  comes from the field's default instance (see
+  [unions.md](unions.md#defaults)).
 - Group fields and registered converters are only recognised as direct fields
   of a dataclass, not nested inside `list[...]` or `dict[...]`. Hydra has the
   same limitation for groups.

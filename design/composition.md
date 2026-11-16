@@ -44,11 +44,16 @@ and is gone from the command line too; see [cli.md](cli.md).
   point, is a **primary config**. It describes the root of the tree, wherever
   the file is.
 - A file in a directory whose path matches a field whose type is a dataclass
-  is a named config for that field: `configs/dm/` holds the options of the
-  group `dm`, and `configs/opt/` the presets for the subconfig `opt`.
+  or a group (see [unions.md](unions.md)) is a named config for that field:
+  `configs/dm/` holds the options of the group `dm`, and `configs/opt/` the
+  presets for the subconfig `opt`.
 
 `configs/experiments/cmnist_cnn.yaml` is therefore a primary config with no
 header.
+
+A named config for a group has to say in its `defaults` which option it
+extends. A preset for a plain subconfig does not. What each of them builds
+on is described in [unions.md](unions.md#defaults).
 
 ### Entries in a primary config's `defaults` are relative to the root
 
