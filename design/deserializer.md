@@ -62,8 +62,9 @@ variant that does work was considered and rejected; see
   light relabelling; cattrs's need to be written.
 - **Constraints in the type** (`Annotated[float, Field(ge=0, le=1)]`) remove a
   lot of `__post_init__` boilerplate, and still work with plain dataclasses.
-- **JSON schema** opens the door to editor completion and validation of the
-  YAML files, which Hydra cannot offer.
+- **JSON schema** opens the door to editor completion for the YAML files,
+  which Hydra cannot offer. It is not used to validate them; see
+  [validation.md](validation.md).
 - **`InitVar` works**, which matters if the library is meant to feel like
   "just dataclasses".
 

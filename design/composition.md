@@ -119,3 +119,21 @@ under the name `base_config`, and a primary config is only validated if its
 | --- | --- |
 | Starts with `- base_config` | "Value 'not-a-number' of type 'str' could not be converted to Integer" |
 | No `- base_config` | Composes without complaint, with both values in the tree |
+
+### A primary config is optional
+
+Without a primary config, the tree comes from the root dataclass alone:
+field defaults, including defaults on group fields
+([unions.md](unions.md#defaults)).
+
+`configs/default_config.yaml` in `hydra-example` then has nothing left to
+say:
+
+| Entry | Why it is not needed |
+| --- | --- |
+| `- base_config` | The schema is always enforced |
+| `- dm: cmnist`, `- model: fcn` | A group field can have a default in the dataclass |
+| `- opt: null` | Selecting a preset no longer needs the entry ([cli.md](cli.md)) |
+
+An empty string for `--config-name` means no primary config. The entry point
+does not have to name a default one either.
