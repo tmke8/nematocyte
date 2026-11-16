@@ -16,5 +16,6 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "hydra-core==1.4.0rc3",
+    "hydra-qol>=0.2.3",
     "tyro>=1.0.17",
 ]

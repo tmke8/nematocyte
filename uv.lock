@@ -24,6 +24,19 @@ wheels = [
 ]
 
 [[package]]
+name = "hydra-qol"
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "hydra-core" },
+    { name = "omegaconf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e6/64/04f80ea4e5dcf6af0687054d4c4bdb3edbf720c7e9bf8cd7c758e490ebbd/hydra_qol-0.2.3.tar.gz", hash = "sha256:cb2799eae3fa9fa28beb756c7f253df35e982c541d58fa1162519dc30239756b", size = 15519, upload-time = "2026-10-26T11:04:41.32Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/e2/942970fce87bfc2a8f71e6a819c1a54e1c6b5d4eb84b47950b01590e2a28/hydra_qol-0.2.3-py3-none-any.whl", hash = "sha256:3d3bddb24c7d4929de9870df4130ac1ac508e908a4623b6456469e2f61c1e87e", size = 16261, upload-time = "2026-10-26T11:04:40.414Z" },
+]
+
+[[package]]
 name = "nematocyte"
 version = "0.1.0"
 source = { editable = "." }
@@ -31,6 +44,7 @@ source = { editable = "." }
 [package.dev-dependencies]
 dev = [
     { name = "hydra-core" },
+    { name = "hydra-qol" },
     { name = "tyro" },
 ]
 
@@ -39,6 +53,7 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "hydra-core", specifier = "==1.4.0rc3" },
+    { name = "hydra-qol", specifier = ">=0.2.3" },
     { name = "tyro", specifier = ">=1.0.17" },
 ]
 
