@@ -337,6 +337,7 @@ source = { editable = "../" }
 dependencies = [
     { name = "pydantic" },
     { name = "ruamel-yaml" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -353,6 +354,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12" },
     { name = "ruamel-yaml", specifier = ">=0.18" },
     { name = "submitit", marker = "extra == 'submitit'", specifier = ">=1.5" },
+    { name = "typing-extensions", specifier = ">=4.16" },
 ]
 provides-extras = ["submitit", "optuna"]
 

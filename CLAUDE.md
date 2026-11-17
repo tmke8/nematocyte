@@ -59,9 +59,9 @@ documents stay true.
 ## Constraints
 
 - Python 3.14 or later. `dataclasses.field(doc=...)` is required.
-- Runtime dependencies: pydantic 2.12 or later, and ruamel.yaml, which
-  reads the config files as YAML 1.2 (`design/composition.md`). Do not use
-  PyYAML.
+- Runtime dependencies: pydantic 2.12 or later, ruamel.yaml, which
+  reads the config files as YAML 1.2 (`design/composition.md`), and
+  typing_extensions 4.16 or later, for `sentinel`. Do not use PyYAML.
 - submitit and Optuna are optional extras, imported only when their option
   is selected.
 - No OmegaConf, Hydra or ANTLR at runtime. The override parser is written by

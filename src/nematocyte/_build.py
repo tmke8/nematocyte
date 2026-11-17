@@ -2,6 +2,7 @@
 
 from dataclasses import MISSING
 from typing import Any
+from typing_extensions import sentinel
 
 from pydantic import (
     ConfigDict,
@@ -19,7 +20,7 @@ from ._types import type_text
 
 __all__ = ["build"]
 
-_FAILED: Any = object()
+_FAILED = sentinel("_FAILED")
 _ADAPTERS: dict[tuple[type | None, str], TypeAdapter[Any]] = {}
 
 
@@ -58,7 +59,7 @@ def _quote_hint(node: Node, info: FieldInfo, value: Any) -> str:
     )
 
 
-def _check_value(node: Node, info: FieldInfo, errors: list[str]) -> Any:
+def _check_value(node: Node, info: FieldInfo, errors: list[str]) -> object | _FAILED:
     path = format_path((*node.path, info.name))
     value = node.value(info)
     if value is MISSING:
@@ -134,7 +135,9 @@ def _bool_to_number(value: Any, result: Any) -> str | None:
     return None
 
 
-def _build(node: Node, errors: list[str], *, construct: bool, skip: str | None) -> Any:
+def _build(
+    node: Node, errors: list[str], *, construct: bool, skip: str | None
+) -> object | _FAILED:
     kwargs: dict[str, Any] = {}
     failed = False
     for info in node.fields.values():
@@ -169,7 +172,7 @@ def _build(node: Node, errors: list[str], *, construct: bool, skip: str | None) 
         return _FAILED
 
 
-def build(node: Node, *, construct: bool = True, skip: str | None = None) -> Any:
+def build(node: Node, *, construct: bool = True, skip: str | None = None) -> object:
     """Build the instance for `node`, and for everything under it.
 
     Every value is checked by pydantic against the type of its field, and
