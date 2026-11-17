@@ -1,4 +1,4 @@
-"""Turning the composed tree into dataclass instances, with pydantic per value."""
+"""Turning the composed tree into config instances, with pydantic per value."""
 
 from dataclasses import MISSING
 from typing import Any
@@ -14,13 +14,14 @@ from pydantic import (
 
 from ._errors import ConfigError, SchemaError
 from ._overrides import format_value
-from ._schema import FieldInfo, Kind
+from ._schema import OPTION_KEY, FieldInfo, Kind, is_typeddict_class
 from ._tree import Node, format_path
 from ._types import type_text
 
 __all__ = ["build"]
 
 _FAILED = sentinel("_FAILED")
+_UNSET = sentinel("_UNSET")
 _ADAPTERS: dict[tuple[type | None, str], tuple[TypeAdapter[Any], bool]] = {}
 
 
@@ -64,9 +65,14 @@ def _quote_hint(node: Node, info: FieldInfo, value: Any) -> str:
     )
 
 
-def _check_value(node: Node, info: FieldInfo, errors: list[str]) -> object | _FAILED:
+def _check_value(
+    node: Node, info: FieldInfo, errors: list[str]
+) -> object | _FAILED | _UNSET:
     path = format_path((*node.path, info.name))
     value = node.value(info)
+    if value is MISSING and not info.required:
+        # A `NotRequired` key of a `TypedDict` that nothing set is left out.
+        return _UNSET
     if value is MISSING:
         errors.append(
             f"{path}: a value is required. The field {info.name!r} of "
@@ -173,11 +179,14 @@ def _build(
                 value = _build(child, errors, construct=construct, skip=None)
         if value is _FAILED:
             failed = True
-        else:
+        elif value is not _UNSET:
             kwargs[info.name] = value
     if failed or not construct:
         return _FAILED
     assert node.cls is not None
+    if node.option is not None and is_typeddict_class(node.cls):
+        # A TypedDict that is an option of a group says which one it is.
+        kwargs = {OPTION_KEY: node.option, **kwargs}
     try:
         return node.cls(**kwargs)
     except Exception as exc:
@@ -190,7 +199,8 @@ def build(node: Node, *, construct: bool = True, skip: str | None = None) -> obj
     """Build the instance for `node`, and for everything under it.
 
     Every value is checked by pydantic against the type of its field, and
-    then the constructors run, which runs every `__post_init__`. All the
+    then the constructors run, which runs every `__post_init__`. A
+    `TypedDict` node becomes a plain dict. All the
     errors in the tree are collected and reported together.
 
     With `construct=False` the constructors are skipped, and the result is

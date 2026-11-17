@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 from typing import Any, Protocol, cast
+from typing_extensions import TypeForm
 
 from ._build import build
 from ._cli import run_cli
@@ -14,7 +15,7 @@ from ._compose import Composer
 from ._interpolation import resolve
 from ._overrides import parse_override
 from ._run import ENTRY_ATTRIBUTE, Entry
-from ._schema import RESERVED_KEY
+from ._schema import RESERVED_KEY, config_class
 from ._settings import Settings
 
 __all__ = ["EntryPoint", "compose", "main"]
@@ -45,7 +46,7 @@ def _defining_dir(function: Callable[..., Any]) -> Path:
 
 
 def main[C](
-    config_cls: type[C],
+    config_cls: TypeForm[C],
     *,
     config_path: str | os.PathLike[str],
     config_name: str | None = None,
@@ -53,20 +54,23 @@ def main[C](
     """Turn a function that takes the config into the entry point of a program.
 
     Args:
-        config_cls: The root dataclass. Every config is checked against it,
-            and the function receives an instance of it.
+        config_cls: The root config class, a dataclass or a TypedDict.
+            Every config is checked against it, and the function receives an
+            instance of it.
         config_path: The directory with the config files, relative to the
             file that defines the function. It has to exist, even if it is empty.
         config_name: The primary config to use if `--config-name` is not
-            given. Without it, the config comes from the root dataclass alone.
+            given. Without it, the config comes from the root config class alone.
 
     The return value of the function is the objective for a sweeper, and is
     ignored otherwise.
     """
 
+    cls = config_class(config_cls)
+
     def decorator(function: Callable[[C], object]) -> EntryPoint:
         directory = _defining_dir(function) / Path(config_path)
-        entry = Entry(function, config_cls, directory, config_name)
+        entry = Entry(function, cls, directory, config_name)
 
         @functools.wraps(function)
         def wrapper(args: Sequence[str] | None = None) -> None:
@@ -79,7 +83,7 @@ def main[C](
 
 
 def compose[C](
-    config_cls: type[C],
+    config_cls: TypeForm[C],
     config_dir: str | os.PathLike[str] | None = None,
     *,
     config_name: str | None = None,
@@ -88,17 +92,17 @@ def compose[C](
     """Compose a config without the command line, for tests and notebooks.
 
     Args:
-        config_cls: The root dataclass.
+        config_cls: The root config class, a dataclass or a TypedDict.
         config_dir: The directory with the config files. A relative path is
             relative to the working directory.
         config_name: The primary config, as `--config-name` takes it.
         overrides: Overrides as they are written on the command line.
 
     Returns:
-        An instance of `config_cls`.
+        An instance of `config_cls`; a dict for a TypedDict.
     """
     directory = Path(config_dir) if config_dir is not None else None
-    composer = Composer(config_cls, directory, Settings)
+    composer = Composer(config_class(config_cls), directory, Settings)
     root = composer.compose(config_name, [parse_override(text) for text in overrides])
     resolve(root, datetime.now())
     return cast("C", build(root, skip=RESERVED_KEY))

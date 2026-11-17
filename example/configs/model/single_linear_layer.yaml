@@ -1,7 +1,7 @@
 ---
 defaults:
   _self_: fcn
+  norm: none
 
 num_hidden: 0
 activation: relu
-norm: null

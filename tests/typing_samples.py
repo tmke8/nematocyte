@@ -7,7 +7,8 @@ that the API is understood by all of them without a plugin.
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Any, assert_type
+from typing import Annotated, Any, Literal, NotRequired, TypedDict, assert_type
+import typing_extensions
 
 import nematocyte
 from nematocyte import option
@@ -120,3 +121,97 @@ assert_type(
     nematocyte.validate_configs(Config, "configs", config_name="x", construct=False),
     list[nematocyte.ValidationResult],
 )
+
+# -- TypedDicts --------------------------------------------------------------------
+
+
+# A TypedDict that is an option of a group names its option in `_option_`.
+class Sgd(TypedDict):
+    _option_: Literal["sgd"]
+    momentum: float
+
+
+class Adam(TypedDict):
+    _option_: Literal["adam"]
+    beta1: float
+    eps: NotRequired[float]
+
+
+class Plain(TypedDict):
+    lr: float
+
+
+class TypedConfig(TypedDict):
+    """A root config that is a TypedDict."""
+
+    seed: int
+    optimizer: Sgd | Adam
+    model: Model
+    plain: Plain
+
+
+assert_type(nematocyte.compose(TypedConfig), TypedConfig)
+assert_type(nematocyte.compose(Sgd, "configs", overrides=["momentum=0.9"]), Sgd)
+
+
+@nematocyte.main(TypedConfig, config_path="configs")
+def typed_main(config: TypedConfig) -> None:
+    assert_type(config["seed"], int)
+    assert_type(config["optimizer"], Sgd | Adam)
+    assert_type(config["model"], Fcn | Cnn)
+    # The option narrows the union, in `match` and in `if`.
+    match config["optimizer"]:
+        case {"_option_": "sgd"}:
+            pass
+        case _:
+            pass
+    optimizer = config["optimizer"]
+    if optimizer["_option_"] == "adam":
+        assert_type(optimizer, Adam)
+    else:
+        assert_type(optimizer, Sgd)
+
+
+@dataclass(kw_only=True)
+class WithTypedDicts:
+    plain: Plain = field(default_factory=lambda: Plain(lr=0.1))
+    optimizer: Sgd | Adam = field(
+        default_factory=lambda: Sgd(_option_="sgd", momentum=0.9)
+    )
+
+
+assert_type(nematocyte.compose(WithTypedDicts).optimizer, Sgd | Adam)
+assert_type(nematocyte.to_dict(nematocyte.compose(WithTypedDicts)), dict[str, Any])
+
+
+assert_type(typed_main, nematocyte.EntryPoint)
+
+
+def takes_a_typed_config(config: TypedConfig) -> None:
+    del config
+
+
+# A function that takes another class than the TypedDict is an error, and the
+# other way round.
+nematocyte.main(Config, config_path="configs")(takes_a_typed_config)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
+nematocyte.main(TypedConfig, config_path="configs")(takes_another_class)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
+
+assert_type(
+    nematocyte.validate_configs(TypedConfig, "configs"),
+    list[nematocyte.ValidationResult],
+)
+
+
+# A TypedDict from typing_extensions, which can be closed.
+class Closed(typing_extensions.TypedDict, closed=True):
+    _option_: Literal["closed"]
+    lr: float
+
+
+class WithClosed(typing_extensions.TypedDict):
+    plain: Plain
+    closed: Closed | Sgd
+
+
+assert_type(nematocyte.compose(WithClosed), WithClosed)
+assert_type(nematocyte.compose(WithClosed)["closed"], Closed | Sgd)

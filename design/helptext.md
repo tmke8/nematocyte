@@ -149,6 +149,12 @@ the docs as comments.
   shown with its options and the selected one.
 - A value that is required and missing is shown as `???`, in `--help` and in
   `--cfg`.
+- A key of a `TypedDict` has no doc: there is no `field(doc=...)` for it,
+  and no other way to attach one. Its type is still shown. The section of a
+  TypedDict subconfig uses the class docstring, as for a dataclass.
+- A `NotRequired` key of a TypedDict that nothing set is shown as
+  `key=` with `(not set)` in `--help`, and as a comment `# key: not set` in
+  `--cfg`. In `--cfg`, a subconfig with nothing but such keys is `{}`.
 - Python 3.15 generates dataclass docstrings lazily, through an object that
   is not a string. The check for generated docstrings handles both.
 

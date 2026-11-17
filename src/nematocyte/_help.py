@@ -34,7 +34,16 @@ def _terminal_width() -> int:
 
 def _value_text(node: Node, info: FieldInfo) -> str:
     value = node.value(info)
-    return _REQUIRED if value is MISSING else format_value(value)
+    if value is MISSING:
+        return _REQUIRED if info.required else ""
+    return format_value(value)
+
+
+def _missing_note(node: Node, info: FieldInfo) -> str:
+    """The note for a value that nothing set: required, or not set."""
+    if node.value(info) is not MISSING:
+        return ""
+    return " (required)" if info.required else " (not set)"
 
 
 class _Help:
@@ -69,8 +78,8 @@ class _Help:
             key = prefix + info.name
             if info.kind is Kind.VALUE:
                 doc = info.doc
-                required = "" if node.value(info) is not MISSING else " (required)"
-                text = f"[{type_text(info.annotation)}]{required} {doc}".rstrip()
+                note = _missing_note(node, info)
+                text = f"[{type_text(info.annotation)}]{note} {doc}".rstrip()
                 self.row(f"{key}={_value_text(node, info)}", text)
                 continue
             child = node.children.get(info.name)
@@ -172,7 +181,9 @@ def _cfg_node(
                 f"{doc} ({type_text(info.annotation)})".strip(), indent, width
             )
             value = node.value(info)
-            if value is MISSING:
+            if value is MISSING and not info.required:
+                lines.append(f"{indent}# {info.name}: not set")
+            elif value is MISSING:
                 lines.append(f"{indent}{info.name}: {_REQUIRED}  # a value is required")
             else:
                 lines += [indent + line for line in _dump_yaml(info.name, value)]
@@ -194,7 +205,8 @@ def _cfg_node(
         before = len(lines)
         lines.append(f"{indent}{info.name}:")
         _cfg_node(child, indent + "  ", width, lines, skip=None)
-        if len(lines) == before + 1:
+        # Only comments below the key, e.g. for a TypedDict with no key set.
+        if all(line.lstrip().startswith("#") for line in lines[before + 1 :]):
             lines[before] += " {}"
     if empty and not indent:
         lines.append("{}")
