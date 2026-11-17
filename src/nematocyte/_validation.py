@@ -78,35 +78,69 @@ def _classify(composer: Composer, relative: Path) -> KeyPath | None:
     return tuple(path) if path else None
 
 
-def _selection(
-    composer: Composer, config_name: str | None, path: KeyPath, name: str
-) -> list[Override]:
-    """The overrides that select the config `name` for the field at `path`.
+def _selections(
+    composer: Composer,
+    config_name: str | None,
+    path: KeyPath,
+    name: str,
+    *,
+    overrides: tuple[Override, ...] = (),
+    depth: int = 1,
+) -> list[list[Override]]:
+    """The ways to select the config `name` for the field at `path`.
 
-    Where the path goes through a group whose selected option does not have
-    the next field, the first option that has it is selected.
+    Where the path goes through a group, there is one way for each option
+    that has the next field: the option that is selected, if it has it, and
+    every other one, selected with an override.
     """
-    overrides: list[Override] = []
-    for depth in range(1, len(path)):
-        root = composer.compose(config_name, overrides)
-        node = root
-        for segment in path[: depth - 1]:
-            node = node.children[segment]
-        info = node.fields[path[depth - 1]]
-        child = node.children.get(info.name)
-        following = path[depth]
-        if child is not None and following in child.fields:
+    if depth == len(path):
+        return [[*overrides, Override(path, name, f"{'.'.join(path)}={name}")]]
+    root = composer.compose(config_name, overrides)
+    node = root
+    for segment in path[: depth - 1]:
+        node = node.children[segment]
+    info = node.fields[path[depth - 1]]
+    child = node.children.get(info.name)
+    following = path[depth]
+    choices: list[tuple[Override, ...]] = []
+    if child is not None and following in child.fields:
+        choices.append(overrides)
+    for option_name, option_cls in info.options.items():
+        if child is not None and option_cls is child.cls:
             continue
-        for option_name, option_cls in info.options.items():
-            found = class_fields(option_cls).get(following)
-            if found is not None and found.kind is not Kind.VALUE:
-                key = path[:depth]
-                overrides.append(
-                    Override(key, option_name, f"{'.'.join(key)}={option_name}")
-                )
-                break
-    overrides.append(Override(path, name, f"{'.'.join(path)}={name}"))
-    return overrides
+        found = class_fields(option_cls).get(following)
+        if found is not None and found.kind is not Kind.VALUE:
+            key = path[:depth]
+            selection = Override(key, option_name, f"{'.'.join(key)}={option_name}")
+            choices.append((*overrides, selection))
+    return [
+        selection
+        for choice in choices
+        for selection in _selections(
+            composer, config_name, path, name, overrides=choice, depth=depth + 1
+        )
+    ]
+
+
+def _check_tree(
+    composer: Composer,
+    config_name: str | None,
+    overrides: list[Override],
+    relative: Path,
+    *,
+    construct: bool,
+) -> None:
+    root = composer.compose(config_name, overrides)
+    resolve(root, datetime.now())
+    build(root, skip=RESERVED_KEY, construct=construct)
+    # nematocyte's own settings are always built: their classes are its own.
+    settings = build(root.children[RESERVED_KEY])
+    assert isinstance(settings, Settings)
+    if settings.sweeper.params is not None:
+        where = relative.as_posix()
+        check_params(
+            parse_params(settings.sweeper.params, where), composer.config_cls, where
+        )
 
 
 def _validate(
@@ -118,19 +152,27 @@ def _validate(
         raise ConfigError(f"{relative.as_posix()} is not a YAML file.")
     path = _classify(composer, relative)
     if path is None:
-        root = composer.compose(relative.with_suffix("").as_posix())
-    else:
-        overrides = _selection(composer, config_name, path, relative.stem)
-        root = composer.compose(config_name, overrides)
-    resolve(root, datetime.now())
-    build(root, skip=RESERVED_KEY, construct=construct)
-    # nematocyte's own settings are always built: their classes are its own.
-    settings = build(root.children[RESERVED_KEY])
-    assert isinstance(settings, Settings)
-    if settings.sweeper.params is not None:
-        where = relative.as_posix()
-        check_params(
-            parse_params(settings.sweeper.params, where), composer.config_cls, where
+        name = relative.with_suffix("").as_posix()
+        _check_tree(composer, name, [], relative, construct=construct)
+        return
+    selections = _selections(composer, config_name, path, relative.stem)
+    if len(selections) == 1:
+        _check_tree(composer, config_name, selections[0], relative, construct=construct)
+        return
+    # The file is checked with every option that has its field; it has to fit
+    # all of them, since any of them can be selected when it is used.
+    failures: list[str] = []
+    for overrides in selections:
+        try:
+            _check_tree(composer, config_name, overrides, relative, construct=construct)
+        except ConfigError as exc:
+            shown = " ".join(override.text for override in overrides[:-1])
+            failures.append(f"With {shown or 'the option that is selected'}:\n{exc}")
+    if failures:
+        raise ConfigError(
+            f"{relative.as_posix()} is a config for {'.'.join(path)!r}, which "
+            "more than one option has, and it has to fit each of them.\n"
+            + "\n".join(failures)
         )
 
 

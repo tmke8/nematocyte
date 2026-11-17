@@ -9,7 +9,7 @@ import pytest
 import nematocyte
 from nematocyte import ConfigError
 
-from .helpers import Config
+from .helpers import Config, empty_config_dir
 
 
 class FixedTime(datetime):
@@ -24,7 +24,7 @@ def fixed_time(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def make_main(directories: list[Path], *, ask: bool = True) -> nematocyte.EntryPoint:
-    @nematocyte.main(Config)
+    @nematocyte.main(Config, config_dir=empty_config_dir())
     def main(config: Config) -> None:
         if ask and config.flag:
             directories.append(nematocyte.output_dir())
@@ -49,7 +49,7 @@ def test_directory_is_created_when_it_is_first_asked_for(tmp_path: Path) -> None
 def test_asking_twice_gives_the_same_directory() -> None:
     directories: list[Path] = []
 
-    @nematocyte.main(Config)
+    @nematocyte.main(Config, config_dir=empty_config_dir())
     def main(config: Config) -> None:  # noqa: ARG001
         directories.append(nematocyte.output_dir())
         (nematocyte.output_dir() / "checkpoints").mkdir()
@@ -141,7 +141,7 @@ def test_multirun_has_one_directory_per_job(
 ) -> None:
     directories: list[Path] = []
 
-    @nematocyte.main(Config)
+    @nematocyte.main(Config, config_dir=empty_config_dir())
     def main(config: Config) -> None:
         # Only the jobs that ask get a directory.
         if config.seed != 2:

@@ -158,6 +158,16 @@ in Hydra, since a single run and a multirun can now meet as well.
 - On SLURM the directory has to be on a file system that the compute nodes
   share with the machine that submits, as in Hydra.
 
+### Details
+
+- `nematocyte.output_dir()` returns an absolute path.
+- The number that keeps a directory from being shared is also added to a
+  directory that was set with `nematocyte.output_dir`.
+- `config.json` is written from the resolved tree, which is what `to_dict`
+  gives, plus the values of `InitVar` fields. A value that JSON does not
+  have, such as a date, is written as its text, and so is a dict key that is
+  not a string.
+
 ## Not in the first version
 
 - **Referring to the directory in the config.** Hydra allows

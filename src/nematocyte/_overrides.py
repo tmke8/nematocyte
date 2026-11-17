@@ -15,7 +15,7 @@ Unquoted text is typed by its form: an int, a float, a bool, null, or else
 a string.
 """
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 import math
@@ -31,6 +31,7 @@ __all__ = [
     "RangeSweep",
     "Sweep",
     "format_value",
+    "last_wins",
     "parse_override",
     "parse_value",
 ]
@@ -505,6 +506,16 @@ def parse_override(text: str) -> Override:
     except _ParseError as exc:
         raise _fail(text, exc) from None
     return Override(tuple(key_text.split(".")), value, text)
+
+
+def last_wins(overrides: Sequence[Override]) -> list[Override]:
+    """Drop every override whose key is given again later.
+
+    The overrides that are left keep their order, and a repeated key takes
+    the place of its last occurrence.
+    """
+    last = {override.key: index for index, override in enumerate(overrides)}
+    return [o for index, o in enumerate(overrides) if last[o.key] == index]
 
 
 def iter_sweep(sweep: Sweep) -> Iterator[Any]:

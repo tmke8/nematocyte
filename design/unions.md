@@ -176,6 +176,25 @@ class alone. Unless an option is named for the field, a key missing from the
 config takes its value from the field's default instance, not from the class
 definition.
 
+## Decided
+
+### Details of declaring a group
+
+- `defaults` is reserved, like `_self_`: no config dataclass can have a
+  field called `defaults`, because that key means something else at the top
+  of every config file.
+- A union that mixes a dataclass with something else, such as `Sub | int`,
+  is an error. A union with a dataclass in it is a group, and all of its
+  members have to be named dataclasses.
+- A single `Annotated[X, option("x")]` is a group with one option.
+- A class can be in a group only once, and an option name only once.
+- An option name starts with a letter or an underscore, followed by letters,
+  digits, `_` or `-`, so that it can be typed unquoted.
+- The default of a plain dataclass field has to be an instance of exactly
+  the declared class; an instance of a subclass is an error, since the node
+  is built as the declared class. The default of a group field has to be an
+  instance of exactly one of the option classes.
+
 ## No tagging
 
 No tagging strategy is needed. In Hydra the choice of class never lives in the

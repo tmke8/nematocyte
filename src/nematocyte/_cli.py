@@ -13,7 +13,7 @@ from ._errors import ConfigError
 from ._help import format_cfg, format_help
 from ._interpolation import resolve
 from ._multirun import Multirun, run_multirun
-from ._overrides import Override, parse_override
+from ._overrides import Override, last_wins, parse_override
 from ._run import Entry, Job, StartDir, default_start_dir, run_job
 from ._schema import RESERVED_KEY
 from ._settings import Settings
@@ -87,7 +87,7 @@ def _run(
     entry: Entry, wrapper: Callable[..., Any], args: argparse.Namespace, program: str
 ) -> int:
     now = datetime.now()
-    overrides = [parse_override(text) for text in args.overrides]
+    overrides = last_wins([parse_override(text) for text in args.overrides])
     config_name = entry.config_name
     if args.config_name is not None:
         config_name = str(args.config_name)
@@ -153,15 +153,6 @@ def _multirun(
             raise ConfigError(
                 f"Error in {override.text!r}:\nnematocyte's own settings cannot be swept."
             )
-    seen: dict[tuple[str, ...], Override] = {}
-    for override in [*fixed, *sweeps]:
-        if override.key in seen:
-            raise ConfigError(
-                f"The key {override.key_text!r} is given twice: "
-                f"{seen[override.key].text!r} and {override.text!r}."
-            )
-        seen[override.key] = override
-
     # nematocyte's own settings are the same for every job. They are read
     # from the primary config and from the overrides under the reserved key.
     own = [override for override in fixed if override.key[0] == RESERVED_KEY]

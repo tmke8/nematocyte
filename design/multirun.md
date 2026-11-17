@@ -240,6 +240,10 @@ nematocyte:
 `--multirun`. The same goes for a sweeper. Hydra ignores both silently, and
 the job that was meant for the cluster runs on the login node.
 
+It is an error whenever anything is selected or set under
+`nematocyte.launcher` or `nematocyte.sweeper`, by an override or by a config
+file. That includes `nematocyte.launcher=basic`.
+
 ### A failed job does not stop the others
 
 As in Hydra, the other jobs still run. At the end every failure is listed,
@@ -254,3 +258,37 @@ sweeper, once the jobs are submitted. There is no option to submit and exit.
 
 An Optuna search does not survive it: the loop that asks for the next trials
 is in the launching process.
+
+### Details
+
+- The messages of nematocyte go to standard error, with the prefix
+  `[nematocyte]`.
+- Order of the jobs: the product of the sweeps under `params`, then those on
+  the command line, with the last one varying fastest.
+- A value under `params` that is not a string (`seed: 1`) is a fixed value
+  for every job.
+- nematocyte's own settings cannot be swept (`nematocyte.launcher=a,b`).
+- Exit code of a multirun: with the basic sweeper, 1 if any job failed; the
+  traceback of each is printed at the end. With Optuna, 0 while the failures
+  stay within `max_failure_rate`, and 1 when a batch exceeds it, after which
+  the search stops.
+- Optuna: a return value that is not a number makes the trial a failed one.
+  A trial whose config is not valid stops the whole search, since it is a
+  mistake in the config and not a failed job. If no trial completes, no
+  `optimization_results.yaml` is written.
+- The exact check of the swept keys at the start leaves out keys under a
+  group that is itself swept (`model=choice(fcn,cnn)` with
+  `model.num_hidden=...`); those get the check that validation makes.
+- A `range()` of floats becomes a float distribution with a step. Hydra
+  falls back to a categorical one when the floats do not round cleanly; this
+  is not copied.
+- The sampler classes copy the arguments of Optuna 5.1. Every field defaults
+  to null, which means "Optuna's default", so that the copy also works with
+  Optuna 4. The arguments that take a Python function (`gamma`, `weights`,
+  `constraints_func`) are left out.
+- submitit: `SlurmExecutor` is used directly, and the names that submitit
+  shares between executors are translated by hand. `mem_gb` is a `float`.
+  `submitit_folder` and `name` default to null and are filled in at launch.
+- What is pickled for a SLURM job is the decorated function, the resolved
+  tree and the directory of the multirun. The job needs the program's
+  modules to be importable, as with Hydra.

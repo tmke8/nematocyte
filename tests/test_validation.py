@@ -121,6 +121,66 @@ def test_named_config_for_a_nested_field_of_another_option(config_dir: Path) -> 
     assert "BatchNorm" in found["model/norm/bad.yaml"]
 
 
+@dataclass
+class Adam:
+    lr: float = 1e-3
+    betas: tuple[float, float] = (0.9, 0.999)
+
+
+@dataclass
+class Sgd:
+    lr: float = 0.1
+    momentum: float = 0.0
+
+
+@dataclass
+class Small:
+    opt: Adam = field(default_factory=Adam)
+
+
+@dataclass
+class Large:
+    opt: Sgd = field(default_factory=Sgd)
+    depth: int = 3
+
+
+@dataclass
+class Shared:
+    net: Annotated[Small, option("small")] | Annotated[Large, option("large")] = field(
+        default_factory=Small
+    )
+
+
+def test_named_config_for_a_field_of_several_options_fits_each(
+    tmp_path: Path,
+) -> None:
+    # `net.opt` is an `Adam` in `small` and an `Sgd` in `large`; a file in
+    # `net/opt/` can be selected under either, so it is checked with both.
+    write_files(
+        tmp_path,
+        {
+            "net/opt/fast.yaml": "lr: 0.5\n",
+            "net/opt/adam_only.yaml": "betas: [0.8, 0.9]\n",
+            "net/opt/sgd_only.yaml": "momentum: 0.9\n",
+        },
+    )
+    results = {
+        result.path.as_posix(): result.error
+        for result in nematocyte.validate_configs(Shared, tmp_path)
+    }
+    assert results["net/opt/fast.yaml"] is None
+    adam_only = str(results["net/opt/adam_only.yaml"])
+    assert "net=large" in adam_only
+    assert "'betas'" in adam_only
+    assert "Sgd" in adam_only
+    sgd_only = str(results["net/opt/sgd_only.yaml"])
+    # The option that is selected by default is the one without an override.
+    assert "the option that is selected" in sgd_only
+    assert "'momentum'" in sgd_only
+    assert "Adam" in sgd_only
+    assert "net=large:" not in sgd_only
+
+
 def test_files_that_belong_nowhere(config_dir: Path) -> None:
     write_files(
         config_dir,

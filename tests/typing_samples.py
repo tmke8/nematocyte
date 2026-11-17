@@ -80,7 +80,7 @@ def main_without_result(config: Config) -> None:
 
 # The decorator returns something that takes a function of `Config`.
 assert_type(
-    nematocyte.main(Config),
+    nematocyte.main(Config, config_dir="configs"),
     Callable[[Callable[[Config], object]], nematocyte.EntryPoint],
 )
 
@@ -90,7 +90,7 @@ def takes_another_class(config: Opt) -> None:
 
 
 # A function that does not take `Config` is an error.
-nematocyte.main(Config)(takes_another_class)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
+nematocyte.main(Config, config_dir="configs")(takes_another_class)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
 
 # -- compose ----------------------------------------------------------------------
 

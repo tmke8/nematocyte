@@ -149,9 +149,23 @@ def test_selections_are_applied_shortest_path_first(config_dir: Path) -> None:
     assert config.model == Cnn(stride=1, norm=BatchNorm(momentum=0.9))
 
 
-def test_key_given_twice_is_an_error() -> None:
-    with pytest.raises(ConfigError, match="twice"):
-        nematocyte.compose(Config, overrides=["seed=1", "seed=2"])
+def test_key_given_twice_the_last_one_wins() -> None:
+    assert nematocyte.compose(Config, overrides=["seed=1", "seed=2"]).seed == 2
+    config = nematocyte.compose(
+        Config, overrides=["model=fcn", "model.kernel_size=3", "model=cnn"]
+    )
+    assert config.model == Cnn(kernel_size=3)
+    # An earlier value that would be an error does not matter.
+    assert nematocyte.compose(Config, overrides=["seed=abc", "seed=3"]).seed == 3
+
+
+def test_key_given_twice_the_last_one_wins_on_the_command_line(
+    config_dir: Path,
+) -> None:
+    seen: list[Config] = []
+    make_main(config_dir, seen)(["seed=1", "model=cnn", "seed=2"])
+    assert seen[0].seed == 2
+    assert isinstance(seen[0].model, Cnn)
 
 
 def test_sweep_without_multirun_is_an_error() -> None:

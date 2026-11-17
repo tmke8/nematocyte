@@ -32,7 +32,7 @@ class Entry:
 
     function: Callable[[Any], Any]
     config_cls: type
-    config_dir: Path | None
+    config_dir: Path
     config_name: str | None
 
 

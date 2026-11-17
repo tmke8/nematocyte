@@ -287,6 +287,28 @@ def test_directory_named_after_a_field_holds_no_primary_configs(
     assert "'model'" in message
 
 
+@pytest.mark.parametrize("name", ["model.yaml", "opt.yml", "nematocyte.yaml"])
+def test_file_at_the_top_named_after_a_subconfig_or_group_is_an_error(
+    config_dir: Path, name: str
+) -> None:
+    write_files(config_dir, {name: "{}\n"})
+    # Whatever is composed: the file is a mistake wherever it is used.
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, config_name="good_run")
+    message = str(excinfo.value)
+    stem = name.split(".", maxsplit=1)[0]
+    assert name in message
+    assert f"configs/{stem}/" in message
+    assert f"{stem}=NAME" in message
+
+
+def test_file_at_the_top_named_after_a_value_is_a_primary_config(
+    config_dir: Path,
+) -> None:
+    write_files(config_dir, {"seed.yaml": "seed: 4\n"})
+    assert nematocyte.compose(Config, config_dir, config_name="seed").seed == 4
+
+
 def test_unknown_primary_config_lists_the_ones_there_are(config_dir: Path) -> None:
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(Config, config_dir, config_name="god_run")
@@ -447,6 +469,32 @@ def test_empty_file_is_an_empty_config(tmp_path: Path) -> None:
 def test_yml_suffix(config_dir: Path) -> None:
     write_files(config_dir, {"short.yml": "seed: 5\n"})
     assert nematocyte.compose(Config, config_dir, config_name="short").seed == 5
+
+
+@pytest.mark.parametrize(
+    ("files", "args"),
+    [
+        (["short.yaml", "short.yml"], {"config_name": "short"}),
+        (["short.yaml", "short.yml"], {"config_name": "short.yml"}),
+        (["opt/fast.yaml", "opt/fast.yml"], {"overrides": ["opt=fast"]}),
+    ],
+)
+def test_same_name_with_both_suffixes_is_an_error(
+    config_dir: Path, files: list[str], args: dict[str, Any]
+) -> None:
+    write_files(config_dir, dict.fromkeys(files, "{}\n"))
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, **args)
+    message = str(excinfo.value)
+    assert all(name.split("/")[-1] in message for name in files)
+    assert "ambiguous" in message
+
+
+def test_same_name_with_both_suffixes_in_a_listing(config_dir: Path) -> None:
+    # Also when the clash is only met while listing the names in a message.
+    write_files(config_dir, {"opt/fast.yaml": "{}\n", "opt/fast.yml": "{}\n"})
+    with pytest.raises(ConfigError, match="fast.yml"):
+        nematocyte.compose(Config, config_dir, overrides=["opt=slow"])
 
 
 def test_subconfig_key_with_nothing_under_it_is_ignored(config_dir: Path) -> None:

@@ -229,6 +229,14 @@ The same applies to nematocyte's own settings under the reserved key:
 `--config-name model/single_linear_layer` is an error. Files in
 `configs/model/` are named configs for `model` and nothing else.
 
+A file at the top of the config directory that is named after a subconfig
+or a group of the root dataclass, such as `configs/model.yaml`, is an error,
+whatever is being composed. Its name says "a config for `model`", but at the
+top it would be a primary config; a config for `model` belongs in
+`configs/model/`. The same goes for `configs/nematocyte.yaml`. A file named
+after a plain value, such as `configs/seed.yaml`, is an ordinary primary
+config.
+
 ### Named configs for a nested field live in a nested directory
 
 The directory path follows the field path at every depth. If an option of
@@ -305,3 +313,21 @@ does not matter for config files.
 
 A config file carried over from Hydra can change its meaning where it relied
 on YAML 1.1, such as `on` for a boolean.
+
+### Details of finding and reading files
+
+- The config directory has to exist. One that does not is an error straight
+  away.
+- Config files end in `.yaml` or `.yml`. `--config-name` accepts a name with
+  or without the suffix. Two files whose names differ only in the suffix,
+  such as `cnn.yaml` and `cnn.yml` in the same directory, are an error,
+  since the name is ambiguous.
+- A key of a subconfig or group with nothing under it (`model:` and then
+  only comments, which YAML reads as null) is ignored.
+- A selection written among the values (`model: cnn` outside `defaults`) is
+  an error that points to `defaults`.
+- `defaults` as a list, as in Hydra, is an error that shows the mapping
+  form. An entry with `null` (Hydra's `- opt: null`) is an error that says
+  it is not needed.
+- `nematocyte=NAME` selects a preset for all of nematocyte's settings, from a
+  file directly in `configs/nematocyte/`. This follows from the general rule.

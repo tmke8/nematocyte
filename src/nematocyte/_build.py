@@ -67,13 +67,15 @@ def _check_value(node: Node, info: FieldInfo, errors: list[str]) -> Any:
             f"{node.describe()} has no default."
         )
         return _FAILED
+    if info.name in node.sources:
+        origin = f"set in {node.sources[info.name]}"
+    else:
+        origin = f"the default of {node.class_name}.{info.name}"
+    described = f"{node.class_name}.{info.name} ({type_text(info.annotation)})"
+    field_line = f"\n    Field: {described}{'. ' + info.doc if info.doc else ''}"
     try:
-        return _adapter(info).validate_python(value, extra="forbid")
+        result = _adapter(info).validate_python(value, extra="forbid")
     except ValidationError as exc:
-        if info.name in node.sources:
-            origin = f"set in {node.sources[info.name]}"
-        else:
-            origin = f"the default of {node.class_name}.{info.name}"
         lines: list[str] = []
         hint = ""
         for error in exc.errors():
@@ -89,11 +91,47 @@ def _check_value(node: Node, info: FieldInfo, errors: list[str]) -> Any:
             message = f"{path}: the value fits none of the allowed types:" + "".join(
                 f"\n    - {line}" for line in lines
             )
-        message += f"\n    Value: {value!r} ({origin})"
-        described = f"{node.class_name}.{info.name} ({type_text(info.annotation)})"
-        message += f"\n    Field: {described}{'. ' + info.doc if info.doc else ''}"
+        message += f"\n    Value: {value!r} ({origin}){field_line}"
         errors.append(message + hint)
         return _FAILED
+    inner = _bool_to_number(value, result)
+    if inner is not None:
+        location = f" (at {inner})" if inner else ""
+        errors.append(
+            f"{path}: a bool is not a number{location}; write 1 or 0 instead."
+            f"\n    Value: {value!r} ({origin}){field_line}"
+        )
+        return _FAILED
+    return result
+
+
+def _bool_to_number(value: Any, result: Any) -> str | None:
+    """Where pydantic turned a bool into a number; `None` if it did not.
+
+    pydantic's lax mode accepts `true` for an `int` or a `float`, as `1`.
+    The bools are found by comparing the value with the result, also inside
+    lists, tuples and dicts. The location is `""` for the value itself.
+    """
+    if isinstance(value, bool):
+        return None if isinstance(result, bool) else ""
+    pairs: list[tuple[str, Any, Any]] = []
+    sequences = isinstance(value, (list, tuple)) and isinstance(result, (list, tuple))
+    mappings = isinstance(value, dict) and isinstance(result, dict)
+    if sequences and len(value) == len(result):
+        pairs = [
+            (str(index), item, out)
+            for index, (item, out) in enumerate(zip(value, result, strict=True))
+        ]
+    elif mappings and len(value) == len(result):
+        pairs = [
+            (str(key), item, out)
+            for (key, item), out in zip(value.items(), result.values(), strict=True)
+        ]
+    for location, item, out in pairs:
+        inner = _bool_to_number(item, out)
+        if inner is not None:
+            return f"{location}.{inner}" if inner else location
+    return None
 
 
 def _build(node: Node, errors: list[str], *, construct: bool, skip: str | None) -> Any:

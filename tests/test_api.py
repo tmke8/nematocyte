@@ -15,7 +15,7 @@ import pytest
 import nematocyte
 from nematocyte import ConfigError, option
 
-from .helpers import Cnn, Config, Fcn, write_files
+from .helpers import Cnn, Config, Fcn, empty_config_dir, write_files
 
 
 def test_public_names() -> None:
@@ -86,8 +86,21 @@ def main(config: Config) -> None:
     assert app.seen == [11, 12, 0]
 
 
+def test_entry_point_with_a_missing_config_dir(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    @nematocyte.main(Config, config_dir="no_such_directory")
+    def main(config: Config) -> None:
+        del config
+
+    with pytest.raises(SystemExit) as excinfo:
+        main([])
+    assert excinfo.value.code == 1
+    assert "no_such_directory" in capsys.readouterr().err
+
+
 def test_decorated_function_keeps_its_name() -> None:
-    @nematocyte.main(Config)
+    @nematocyte.main(Config, config_dir=empty_config_dir())
     def my_entry_point(config: Config) -> float:
         """Docstring."""
         return float(config.seed)
@@ -213,7 +226,7 @@ def test_logging_is_not_set_up() -> None:
     root = logging.getLogger()
     before = (root.level, list(root.handlers))
 
-    @nematocyte.main(Config)
+    @nematocyte.main(Config, config_dir=empty_config_dir())
     def main(config: Config) -> None:
         del config
 

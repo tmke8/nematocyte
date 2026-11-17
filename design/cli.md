@@ -174,7 +174,10 @@ so `seed=123` is a value.
 
 The order of the arguments has no meaning: `model.kernel_size=3 model=cnn`
 is the same as `model=cnn model.kernel_size=3`. Selections are applied
-first, shortest path first, and then the values. What a selection does to
+first, shortest path first, and then the values. The one exception is a key
+that is given more than once: the last one wins, and the earlier ones are
+dropped before anything is applied (`seed=1 seed=2` sets `2`; with
+`--multirun`, `seed=1,2 seed=3` is one job). What a selection does to
 the values that the config files set is described in
 [composition.md](composition.md#layers).
 
@@ -296,6 +299,19 @@ For reference, the flags Hydra has beyond these (`hydra/_internal/utils.py`):
 | `--experimental-rerun` | Reruns a job from its saved output directory |
 | `--hydra-help` | Prints help for Hydra's flags, as opposed to the application's |
 | `--version` | Prints Hydra's version |
+
+### Details of the grammar and the flags
+
+- A quoted key in a dict is rejected, as in Hydra (`{'a b':1}`).
+- Function arguments can be named, as in Hydra (`range(start=1, stop=4)`).
+- `interval(1, 12)` keeps its integers, so that Optuna gets an integer
+  distribution ([multirun.md](multirun.md)).
+- `--help` and `--cfg` with `--multirun` leave the swept values out, since
+  there is one config per job. Without `--multirun`, a sweep is the error
+  that it always is.
+- Exit codes: 1 for an error in the configuration, 2 for a wrong flag (from
+  `argparse`). A config error is printed without a traceback; an exception
+  of the program itself is not caught.
 
 ## Not in the first version
 

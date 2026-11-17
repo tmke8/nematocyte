@@ -10,7 +10,15 @@ from ruamel.yaml.error import YAMLError
 from ._errors import ConfigError
 from ._schema import DEFAULTS_KEY
 
-__all__ = ["SUFFIXES", "ConfigFile", "find_file", "list_names", "load_file"]
+__all__ = [
+    "SUFFIXES",
+    "ConfigFile",
+    "check_unique",
+    "display_path",
+    "find_file",
+    "list_names",
+    "load_file",
+]
 
 SUFFIXES = (".yaml", ".yml")
 
@@ -26,7 +34,8 @@ class ConfigFile:
     values: dict[str, Any]
 
 
-def _display(path: Path) -> str:
+def display_path(path: Path) -> str:
+    """The path as it is shown in messages: relative to the working directory."""
     try:
         return str(path.relative_to(Path.cwd()))
     except ValueError:
@@ -35,7 +44,7 @@ def _display(path: Path) -> str:
 
 def load_file(path: Path) -> ConfigFile:
     """Read a config file and split off its `defaults`."""
-    label = _display(path)
+    label = display_path(path)
     yaml = YAML(typ="safe", pure=True)
     yaml.allow_duplicate_keys = False
     try:
@@ -90,23 +99,47 @@ def _check_keys(mapping: dict[Any, Any], label: str, path: tuple[str, ...]) -> N
                 raise ConfigError(f"{label}: the key {key!r}{where} is not a string.")
 
 
+def _clash(paths: list[Path]) -> ConfigError:
+    names = " and ".join(display_path(path) for path in paths)
+    return ConfigError(
+        f"{names} are both there, so the name {paths[0].stem!r} is ambiguous. "
+        "Remove or rename one of them."
+    )
+
+
 def find_file(directory: Path, name: str) -> Path | None:
-    """The config file called `name` in `directory`, if there is one."""
-    for suffix in SUFFIXES:
-        candidate = directory / f"{name}{suffix}"
-        if candidate.is_file():
-            return candidate
-    return None
+    """The config file called `name` in `directory`, if there is one.
+
+    A name with a file for each suffix is an error.
+    """
+    found = [
+        candidate
+        for suffix in SUFFIXES
+        if (candidate := directory / f"{name}{suffix}").is_file()
+    ]
+    if len(found) > 1:
+        raise _clash(found)
+    return found[0] if found else None
+
+
+def check_unique(paths: list[Path]) -> None:
+    """Raise if two of the config files `paths` differ only in their suffix."""
+    seen: dict[Path, Path] = {}
+    for path in sorted(paths):
+        stem = path.with_suffix("")
+        if stem in seen:
+            raise _clash([seen[stem], path])
+        seen[stem] = path
 
 
 def list_names(directory: Path) -> list[str]:
     """The names of the config files in `directory`, sorted."""
     if not directory.is_dir():
         return []
-    return sorted(
-        {
-            path.stem
-            for path in directory.iterdir()
-            if path.is_file() and path.suffix in SUFFIXES
-        }
-    )
+    paths = [
+        path
+        for path in directory.iterdir()
+        if path.is_file() and path.suffix in SUFFIXES
+    ]
+    check_unique(paths)
+    return sorted(path.stem for path in paths)

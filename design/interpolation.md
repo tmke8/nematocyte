@@ -53,6 +53,15 @@ directory, so they are already in the cache when the jobs start. A sweep with
 `wandb.group=${now:%Y-%m-%d_%H}` that runs for more than an hour ends up in
 several groups.
 
+### Details
+
+- A reference can go into a dict value (`${opt.optimizer_kwargs.eps}`), but
+  not into a list.
+- Inside a longer string a value is formatted with `str()`, so `true`
+  becomes `True` and null becomes `None`.
+- There is no way to write a literal `${`.
+- The argument of `now` is everything after the first colon, as it is.
+
 ## Not in the first version
 
 ### Interpolation strings as dataclass defaults

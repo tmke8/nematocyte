@@ -119,8 +119,10 @@ Costs of this approach, to be aware of:
   same limitation for groups.
 - Enum-by-name inside a container would need annotation rewriting. Using
   `Literal` or `StrEnum` avoids the problem.
-- `seed: true` is accepted as `1`. If that matters, it is a one-line check in
-  the walk.
+- pydantic's lax mode accepts `seed: true` as `1`. The walk rejects it: a
+  bool that pydantic turned into a number is an error, also inside a list,
+  tuple or dict. Where the type allows a bool (`int | bool`, `Any`), it is
+  kept.
 - A number is rejected for a `str` field, in config files and on the command
   line alike, and has to be quoted. See [cli.md](cli.md) for why this is not
   relaxed.
@@ -139,6 +141,29 @@ primitive hooks, one hook for group bases, one custom error formatter, and one
 unstructure hook. Its group handling is more elegant than anything pydantic
 allows. It loses on constraints, JSON schema, `InitVar`, and the amount of
 validation behaviour we would own.
+
+## Decided
+
+### Details of the walk
+
+- Default values are validated by pydantic as well. Every value goes through
+  one path: the resolved tree in plain form, then pydantic, then the
+  constructor. A value that nothing set is the default, converted to plain
+  form (`Path` to `str` and so on) and validated like any other. This is
+  what lets a job build its config from the resolved tree alone
+  ([multirun.md](multirun.md)), and it makes a single run behave exactly
+  like a job. A sloppy default such as `size: int = None` is therefore an
+  error, which pydantic itself would let through; OmegaConf rejects it too.
+- A bool that pydantic turns into a number is an error (see above).
+- An `InitVar` is not kept on an instance, so under a default instance its
+  value falls back to the default in the class.
+- `init=False` fields are not config keys. They cannot be set, and `to_dict`
+  leaves them out, since a config file could not hold them.
+- A type that pydantic cannot handle (such as `torch.device`) is accepted
+  for a default value, by an `isinstance` check. It cannot be set from a
+  config file, since registered converters are not in the first version.
+- An invalid value names the class and the type of the field in its error,
+  next to the doc: `Field: Opt.lr (float). Learning rate.`
 
 ## Rejected ideas
 

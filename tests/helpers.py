@@ -250,6 +250,13 @@ params:
 }
 
 
+def empty_config_dir() -> Path:
+    """An empty config directory, in the working directory of the test."""
+    directory = Path.cwd() / "no_configs"
+    directory.mkdir(exist_ok=True)
+    return directory
+
+
 def write_files(directory: Path, files: dict[str, str]) -> Path:
     """Write `files`, which maps relative paths to their content."""
     for name, content in files.items():

@@ -7,8 +7,16 @@ import re
 from typing import Any
 
 from ._errors import ConfigError
-from ._files import SUFFIXES, ConfigFile, find_file, list_names, load_file
-from ._overrides import Override
+from ._files import (
+    SUFFIXES,
+    ConfigFile,
+    check_unique,
+    display_path,
+    find_file,
+    list_names,
+    load_file,
+)
+from ._overrides import Override, last_wins
 from ._schema import (
     RESERVED_KEY,
     SELF_KEY,
@@ -47,6 +55,33 @@ class Composer:
         self.config_cls = config_cls
         self.config_dir = config_dir
         self.settings_cls = settings_cls
+        self._check_top_level_files()
+
+    def _check_top_level_files(self) -> None:
+        """A file at the top named after a subconfig or a group is an error.
+
+        Its name says "the config of that field", but at the top it would be
+        a primary config; the named configs of the field are in its directory.
+        """
+        if self.config_dir is None:
+            return
+        nested = {
+            name
+            for name, info in class_fields(self.config_cls).items()
+            if info.kind is not Kind.VALUE
+        }
+        nested.add(RESERVED_KEY)
+        for path in sorted(self.config_dir.iterdir()):
+            if path.is_file() and path.suffix in SUFFIXES and path.stem in nested:
+                directory = f"{self.config_dir.name}/{path.stem}/"
+                raise _error(
+                    display_path(path),
+                    f"The file is named after the field {path.stem!r}, but "
+                    f"a file at the top of the config directory is a primary "
+                    f"config, for the whole tree. A config for {path.stem!r} "
+                    f"goes in {directory}, and is selected with "
+                    f"{path.stem}=NAME. A primary config needs another name.",
+                )
 
     # -- the public steps -------------------------------------------------
 
@@ -63,20 +98,12 @@ class Composer:
     def apply_overrides(self, root: Node, overrides: Sequence[Override]) -> None:
         """Apply command-line overrides: selections first, then values.
 
-        The order of the overrides has no meaning. Selections are applied
-        shortest path first, so that `model=cnn` is in place before
+        Apart from a key that is given more than once, where the last one
+        wins, the order of the overrides has no meaning. Selections are
+        applied shortest path first, so that `model=cnn` is in place before
         `model.norm=batchnorm` is looked at.
         """
-        seen: dict[KeyPath, Override] = {}
-        for override in overrides:
-            if override.key in seen:
-                raise ConfigError(
-                    f"The key {override.key_text!r} is given twice: "
-                    f"{seen[override.key].text!r} and {override.text!r}. "
-                    "The order of overrides has no meaning, so neither could win."
-                )
-            seen[override.key] = override
-
+        overrides = last_wins(overrides)
         values: list[Override] = []
         for override in sorted(overrides, key=lambda o: len(o.key)):
             source = repr(override.text)
@@ -157,15 +184,19 @@ class Composer:
         if self.config_dir is None:
             return []
         reserved = self.root_field_names()
-        names: list[str] = []
+        paths: list[Path] = []
         for path in sorted(self.config_dir.rglob("*")):
             if not path.is_file() or path.suffix not in SUFFIXES:
                 continue
             relative = path.relative_to(self.config_dir)
             if len(relative.parts) > 1 and relative.parts[0] in reserved:
                 continue
-            names.append(relative.with_suffix("").as_posix())
-        return names
+            paths.append(path)
+        check_unique(paths)
+        return [
+            path.relative_to(self.config_dir).with_suffix("").as_posix()
+            for path in paths
+        ]
 
     # -- applying files ----------------------------------------------------
 

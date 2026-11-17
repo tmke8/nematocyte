@@ -129,8 +129,8 @@ well.
 ### Decided
 
 The first layout is used for `--help`, which answers "what can I type?". The
-second is used for `--cfg`, which prints the config ([cli.md](cli.md)); there
-the docs as comments could be optional.
+second is used for `--cfg`, which prints the config ([cli.md](cli.md)), with
+the docs as comments.
 
 - When `key=value` is longer than the left column, the description starts on
   the next line, as in argparse. One long default then does not widen the
@@ -140,6 +140,17 @@ the docs as comments could be optional.
 - An option that exists only as a YAML file, such as `single_linear_layer`,
   is listed by its name, without a description. The same goes for the presets
   of a plain subconfig.
+- `--help` also shows nematocyte's own settings and the flags, after the
+  program's keys, as a block of their own, so that their keys do not widen
+  the left column. The left column is at most 40 characters wide, and the
+  text is wrapped at the width of the terminal, between 60 and 100 columns
+  (88 when there is no terminal).
+- `--cfg` always prints the docs as comments; there is no switch. A group is
+  shown with its options and the selected one.
+- A value that is required and missing is shown as `???`, in `--help` and in
+  `--cfg`.
+- Python 3.15 generates dataclass docstrings lazily, through an object that
+  is not a string. The check for generated docstrings handles both.
 
 ## Other ways to attach a doc
 

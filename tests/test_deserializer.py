@@ -228,9 +228,49 @@ def test_initvar_and_init_false_fields() -> None:
         nematocyte.compose(Root, overrides=["scaled=1"])
 
 
-def test_bool_is_accepted_for_int() -> None:
-    # A known wart of lax mode, kept as it is.
-    assert nematocyte.compose(Config, overrides=["seed=true"]).seed == 1
+@pytest.mark.parametrize(
+    ("override", "where"),
+    [
+        ("i=true", ""),
+        ("f=false", ""),
+        ("opt_i=true", ""),
+        ("ints=[1,true]", " (at 1)"),
+        ("pair=[true,a]", " (at 0)"),
+        ("int_map={1:true}", " (at 1)"),
+    ],
+)
+def test_bool_is_rejected_for_a_number(override: str, where: str) -> None:
+    # pydantic's lax mode would accept `true` as `1`; the walk rejects it.
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Types, overrides=[override])
+    message = str(excinfo.value)
+    assert f"a bool is not a number{where}" in message
+    assert f"Types.{override.split('=', maxsplit=1)[0]} (" in message
+
+
+def test_bool_is_kept_where_the_type_allows_it() -> None:
+    @dataclass
+    class Root:
+        flag: int | bool = 0
+        anything: Any = None
+        mixed: list[int | bool] = field(default_factory=list)
+
+    config = nematocyte.compose(
+        Root, overrides=["flag=true", "anything=true", "mixed=[1,true]"]
+    )
+    assert config.flag is True
+    assert config.anything is True
+    assert config.mixed == [1, True]
+    assert config.mixed[1] is True
+
+
+def test_bool_default_for_a_number_is_rejected() -> None:
+    @dataclass
+    class Root:
+        seed: int = True
+
+    with pytest.raises(ConfigError, match="the default of Root.seed"):
+        nematocyte.compose(Root)
 
 
 def test_unknown_key_in_a_nested_dataclass_value() -> None:

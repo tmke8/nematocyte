@@ -88,6 +88,13 @@ as with `config_with_defaults` in `hydra-qol`.
 Building the tree once per file is more work than checking the node alone,
 but the tree is small and nothing is run.
 
+A named config for a nested field of a group, such as a file in
+`configs/model/norm/`, is checked once for each option of the group that
+has the field: with the option that is selected, if it has it, and with
+every other one, selected by name. Two options can have a field of the same
+name with different classes, and the file can be selected under either, so
+it has to fit each of them. The error says which selection it failed with.
+
 ### `__post_init__` runs, and checks the config only
 
 Validation builds the full objects by default, so every `__post_init__`
@@ -151,6 +158,11 @@ Validation checks two things:
 
 The exact check, against the options that are selected, is made at the start
 of a multirun, before any job is submitted ([multirun.md](multirun.md)).
+
+### Details
+
+- `validate_configs` and `validate_config` take `config_name`, for the
+  primary config that supplies the rest of the tree, and `construct`.
 
 ## Rejected ideas
 

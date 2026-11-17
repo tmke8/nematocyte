@@ -47,7 +47,7 @@ def _defining_dir(function: Callable[..., Any]) -> Path:
 def main[C](
     config_cls: type[C],
     *,
-    config_dir: str | os.PathLike[str] | None = None,
+    config_dir: str | os.PathLike[str],
     config_name: str | None = None,
 ) -> Callable[[Callable[[C], object]], EntryPoint]:
     """Turn a function that takes the config into the entry point of a program.
@@ -56,7 +56,7 @@ def main[C](
         config_cls: The root dataclass. Every config is checked against it,
             and the function receives an instance of it.
         config_dir: The directory with the config files, relative to the file
-            that defines the function. Without it, there are no config files.
+            that defines the function. It has to exist, even if it is empty.
         config_name: The primary config to use if `--config-name` is not
             given. Without it, the config comes from the root dataclass alone.
 
@@ -65,9 +65,7 @@ def main[C](
     """
 
     def decorator(function: Callable[[C], object]) -> EntryPoint:
-        directory = None
-        if config_dir is not None:
-            directory = _defining_dir(function) / Path(config_dir)
+        directory = _defining_dir(function) / Path(config_dir)
         entry = Entry(function, config_cls, directory, config_name)
 
         @functools.wraps(function)

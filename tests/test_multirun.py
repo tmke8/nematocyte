@@ -25,6 +25,7 @@ from .helpers import (
     Config,
     Fcn,
     compose_settings,
+    empty_config_dir,
     fcn,
     optuna_sweeper,
     write_files,
@@ -32,7 +33,7 @@ from .helpers import (
 
 
 def make_main(
-    config_dir: Path | None,
+    config_dir: Path,
     seen: list[Config],
     result: Callable[[Config], Any] = lambda config: config.seed,
 ) -> nematocyte.EntryPoint:
@@ -60,7 +61,7 @@ def run(main: nematocyte.EntryPoint, args: list[str]) -> int:
 @pytest.mark.parametrize("flag", ["--multirun", "-m"])
 def test_comma_separated_values(flag: str, capsys: pytest.CaptureFixture[str]) -> None:
     seen: list[Config] = []
-    assert run(make_main(None, seen), [flag, "seed=42,43"]) == 0
+    assert run(make_main(empty_config_dir(), seen), [flag, "seed=42,43"]) == 0
     assert [config.seed for config in seen] == [42, 43]
     err = capsys.readouterr().err
     assert "Launching 2 jobs locally" in err
@@ -71,7 +72,7 @@ def test_comma_separated_values(flag: str, capsys: pytest.CaptureFixture[str]) -
 def test_several_sweeps_give_the_product(capsys: pytest.CaptureFixture[str]) -> None:
     seen: list[Config] = []
     args = ["-m", "seed=42,43", "model.hidden_dim=10", "model.num_hidden=1,2,3"]
-    assert run(make_main(None, seen), args) == 0
+    assert run(make_main(empty_config_dir(), seen), args) == 0
     capsys.readouterr()
     assert [(c.seed, fcn(c).num_hidden) for c in seen] == [
         (42, 1),
@@ -87,7 +88,7 @@ def test_several_sweeps_give_the_product(capsys: pytest.CaptureFixture[str]) -> 
 def test_choice_and_range(capsys: pytest.CaptureFixture[str]) -> None:
     seen: list[Config] = []
     args = ["-m", "seed=range(1,3)", "opt.lr=choice(0.1,0.2)"]
-    assert run(make_main(None, seen), args) == 0
+    assert run(make_main(empty_config_dir(), seen), args) == 0
     capsys.readouterr()
     assert [(c.seed, c.opt.lr) for c in seen] == [
         (1, 0.1),
@@ -99,16 +100,33 @@ def test_choice_and_range(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_selections_can_be_swept(capsys: pytest.CaptureFixture[str]) -> None:
     seen: list[Config] = []
-    assert run(make_main(None, seen), ["-m", "model=fcn,cnn"]) == 0
+    assert run(make_main(empty_config_dir(), seen), ["-m", "model=fcn,cnn"]) == 0
     capsys.readouterr()
     assert [type(config.model) for config in seen] == [Fcn, Cnn]
+
+
+@pytest.mark.parametrize(
+    ("args", "seeds"),
+    [
+        (["seed=1,2", "seed=3"], [3]),
+        (["seed=3", "seed=1,2"], [1, 2]),
+        (["seed=1,2", "seed=4,5,6"], [4, 5, 6]),
+    ],
+)
+def test_key_given_twice_in_a_multirun_the_last_one_wins(
+    capsys: pytest.CaptureFixture[str], args: list[str], seeds: list[int]
+) -> None:
+    seen: list[Config] = []
+    assert run(make_main(empty_config_dir(), seen), ["-m", *args]) == 0
+    capsys.readouterr()
+    assert [config.seed for config in seen] == seeds
 
 
 def test_multirun_without_a_sweep_is_one_job(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     seen: list[Config] = []
-    assert run(make_main(None, seen), ["-m", "seed=5"]) == 0
+    assert run(make_main(empty_config_dir(), seen), ["-m", "seed=5"]) == 0
     assert "Launching 1 job locally" in capsys.readouterr().err
     assert [config.seed for config in seen] == [5]
 
@@ -117,7 +135,10 @@ def test_interval_names_the_optuna_sweeper(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     seen: list[Config] = []
-    assert run(make_main(None, seen), ["-m", "opt.lr=interval(0.1,0.2)"]) == 1
+    assert (
+        run(make_main(empty_config_dir(), seen), ["-m", "opt.lr=interval(0.1,0.2)"])
+        == 1
+    )
     err = capsys.readouterr().err
     assert not seen
     assert "optuna" in err
@@ -130,7 +151,7 @@ def test_every_job_is_checked_before_the_first_runs(
     # `model.num_hidden` does not exist for `cnn`, which is the second job.
     seen: list[Config] = []
     args = ["-m", "model=fcn,cnn", "model.num_hidden=2"]
-    assert run(make_main(None, seen), args) == 1
+    assert run(make_main(empty_config_dir(), seen), args) == 1
     err = capsys.readouterr().err
     assert not seen
     assert "job #1" in err
@@ -142,7 +163,7 @@ def test_post_init_error_is_found_before_anything_runs(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     seen: list[Config] = []
-    assert run(make_main(None, seen), ["-m", "gpu=0,-7"]) == 1
+    assert run(make_main(empty_config_dir(), seen), ["-m", "gpu=0,-7"]) == 1
     assert not seen
     assert "Invalid GPU index -7" in capsys.readouterr().err
 
@@ -157,7 +178,7 @@ def test_failed_job_does_not_stop_the_others(
             raise RuntimeError(f"seed {config.seed} is unlucky")
         return 0.0
 
-    assert run(make_main(None, seen, result), ["-m", "seed=1,2,3,4"]) == 1
+    assert run(make_main(empty_config_dir(), seen, result), ["-m", "seed=1,2,3,4"]) == 1
     assert [config.seed for config in seen] == [1, 2, 3, 4]
     err = capsys.readouterr().err
     # Every failure is listed, not only the first.
@@ -172,14 +193,14 @@ def test_now_is_the_same_in_every_job(capsys: pytest.CaptureFixture[str]) -> Non
     seen: list[Config] = []
     # Hydra gives every job a different value for a pattern like this one.
     args = ["-m", "seed=1,2,3", "wandb.group=${now:%M-%S.%f}"]
-    assert run(make_main(None, seen), args) == 0
+    assert run(make_main(empty_config_dir(), seen), args) == 0
     capsys.readouterr()
     assert len({config.wandb.group for config in seen}) == 1
 
 
 def test_job_gets_a_fresh_config_object(capsys: pytest.CaptureFixture[str]) -> None:
     seen: list[Config] = []
-    assert run(make_main(None, seen), ["-m", "seed=1,2"]) == 0
+    assert run(make_main(empty_config_dir(), seen), ["-m", "seed=1,2"]) == 0
     capsys.readouterr()
     assert seen[0].opt is not seen[1].opt
 
@@ -231,14 +252,19 @@ def test_params_are_checked_at_the_start(
 
 def test_own_settings_cannot_be_swept(capsys: pytest.CaptureFixture[str]) -> None:
     args = ["-m", "nematocyte.launcher=basic,submitit_slurm"]
-    assert run(make_main(None, []), args) == 1
+    assert run(make_main(empty_config_dir(), []), args) == 1
     assert "cannot be swept" in capsys.readouterr().err
 
 
 def test_help_with_multirun_leaves_the_sweeps_out(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert run(make_main(None, []), ["-m", "seed=1,2", "model=cnn", "--help"]) == 0
+    assert (
+        run(
+            make_main(empty_config_dir(), []), ["-m", "seed=1,2", "model=cnn", "--help"]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     assert "seed=42" in out
     assert "model=cnn" in out

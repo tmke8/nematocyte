@@ -19,13 +19,21 @@ if __name__ == "__main__":
 - The root dataclass is passed to the decorator. It is the schema that every
   config is checked against ([composition.md](composition.md)), and a type
   checker can verify that the function takes that class.
-- `config_dir` is relative to the file that defines the function, as in
-  Hydra.
+- `config_dir` is required, and is relative to the file that defines the
+  function, as in Hydra. The directory has to exist, even if it is empty.
 - `config_name` is optional and names the default primary config. Without
   it there is none, and the tree comes from the root dataclass alone
   ([composition.md](composition.md)).
 - The return value is the objective for a sweeper
   ([multirun.md](multirun.md)). Otherwise it is ignored.
+
+The decorated function takes an optional list of arguments, which replaces
+`sys.argv[1:]`. It is for tests, which call the entry point directly:
+`main(["seed=1", "model=cnn"])`. Without it, the arguments come from the
+command line. The decorated function returns `None`: the return value of
+the function inside is the objective, and in a multirun it is handed to the
+sweeper inside nematocyte, one value per job. A test that needs the values
+reads them from the function it decorates.
 
 ### Composing without the command line
 
@@ -35,6 +43,9 @@ config = nematocyte.compose(Config, config_dir, overrides=["model=cnn", "seed=1"
 
 Returns the config object, for tests and notebooks. It takes the same
 `config_name` as the entry point.
+
+Unlike in the entry point, `config_dir` is optional here; without it there
+are no config files. A relative path is relative to the working directory.
 
 ### A dict for logging
 
@@ -99,3 +110,16 @@ nematocyte.validate_config(Config, config_dir, path)
 ```
 
 See [validation.md](validation.md).
+
+### Details
+
+- The names that the other documents do not give: `nematocyte.ConfigError`
+  for every error in a configuration, `nematocyte.SchemaError` (a subclass)
+  for a dataclass that is declared in an unsupported way,
+  `nematocyte.ValidationResult` with `path`, `error` and `ok`,
+  `nematocyte.EntryPoint` for the type of the decorated function, and
+  `nematocyte.Option` for what `option()` returns.
+- `to_dict`: a value of an unknown type is left as it is; a set is sorted if
+  it can be; a dataclass inside a list or dict becomes a dict without
+  `_option_`; an instance of a subclass of an option gets the name of that
+  option.
