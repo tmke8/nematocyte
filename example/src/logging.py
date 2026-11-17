@@ -10,7 +10,7 @@ __all__ = ["WandbCfg"]
 type Run = sdk.wandb_run.Run | lib.disabled.RunDisabled | None
 
 
-@dataclass
+@dataclass(frozen=True)
 class WandbCfg:
     """Dataclass wrapper around the parameters for `wandb.init()`.
 

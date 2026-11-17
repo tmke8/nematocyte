@@ -509,31 +509,17 @@ def build_simple_cnn(
 Then we can pull the configurable parameters into a dataclass and re-write it like this
 
 ```python
-@dataclass(kw_only=True)
-class SimpleCNNFactory(ModelFactory):
+@dataclass(kw_only=True, frozen=True)
+class SimpleCNNFactory:
     """Factory for a very simple CNN."""
 
     kernel_size: int = field(default=5, doc="Kernel size of the convolutions.")
     pool_stride: int = field(default=2, doc="Stride of the max-pooling layers.")
     activation: Activation = field(default="relu", doc="Activation function.")
 
-    @override
     def build(self, in_dim: int, *, out_dim: int) -> nn.Sequential:
         return nn.Sequential(...)  # use `self.kernel_size` etc.
 ```
-
-In this code, we also have an abstract base class, which describes what all model factories have in common:
-
-```python
-class ModelFactory(ABC):
-    """Interface for model factories."""
-
-    @abstractmethod
-    def build(self, in_dim: int, *, out_dim: int) -> nn.Module:
-        raise NotImplementedError()
-```
-
-As you can see, `SimpleCNNFactory` above inherits from this.
 
 ### Declaring a config group
 Which model factories can be chosen is declared in the `Config` class, in the type of the `model` field. Each option is given the name under which it is selected:
@@ -547,7 +533,7 @@ class Config:
     ) = field(default_factory=FcnFactory)
 ```
 
-The default says which option is used if nothing is selected. The base class is not needed for this to work; the options only have to be dataclasses.
+The default says which option is used if nothing is selected.
 
 ### Describing config values
 To tell the users of your program what a config value is for, give the field a `doc`:

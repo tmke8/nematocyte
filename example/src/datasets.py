@@ -11,7 +11,7 @@ from torch.utils.data import Dataset
 __all__ = ["Dataset", "DataModule", "CelebADataModule", "ColoredMNISTDataModule"]
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, frozen=True)
 class DataModule(ABC):
     """Base class for data modules."""
 
@@ -39,7 +39,7 @@ class DataModule(ABC):
 type CelebAttr = Literal["Blond_Hair", "Male", "Smiling"]
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, frozen=True)
 class CelebADataModule(DataModule):
     """Data-module for the CelebA dataset."""
 
@@ -78,7 +78,7 @@ class CelebADataModule(DataModule):
         pass
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, frozen=True)
 class ColoredMNISTDataModule(DataModule):
     """Data-module for the ColoredMNIST dataset."""
 
