@@ -224,7 +224,7 @@ log = logging.getLogger(__name__)
 log.info("Starting a run with seed %d on %s.", self.seed, device)
 ```
 
-`main.py` sets up `logging` at the start of the run, by calling `nematocyte.configure_logging()`. The messages then go to standard error, and to the file `run.log` in the output directory of the run, such as `outputs/2026-11-17/11-50-24/0/run.log`. If you don't want the file, call `nematocyte.configure_logging(file=False)`. If you don't call `configure_logging()` at all, nematocyte leaves `logging` alone.
+`main.py` sets up `logging` at the start of the run, by calling `nematocyte.configure_logging()`. The messages then go to standard output, and to the file `run.log` in the output directory of the run, such as `outputs/2026-11-17/11-50-24/0/run.log`. If you don't want the file, call `nematocyte.configure_logging(file=False)`. If you don't call `configure_logging()` at all, nematocyte leaves `logging` alone.
 
 How much is logged is not part of the experiment, so it is not a field of `Config`. It is one of nematocyte's own settings, `nematocyte.log`, which is `info` by default. To also see the debug messages, such as the full config of the run:
 ```bash

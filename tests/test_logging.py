@@ -29,7 +29,7 @@ def run(args: list[str], config_dir: Path | None = None) -> list[int]:
     """Run the entry point; return the level that each job saw."""
     levels: list[int] = []
 
-    @nematocyte.main(Config, config_dir=config_dir or empty_config_dir())
+    @nematocyte.main(Config, config_path=config_dir or empty_config_dir())
     def main(config: Config) -> None:
         del config
         levels.append(nematocyte.log_level())
@@ -90,12 +90,12 @@ def test_help_shows_the_setting(capsys: pytest.CaptureFixture[str]) -> None:
     assert "Level of log messages" in out
 
 
-def test_configure_logging_writes_to_stderr_and_to_a_file(
+def test_configure_logging_writes_to_stdout_and_to_a_file(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     directories: list[Path] = []
 
-    @nematocyte.main(Config, config_dir=empty_config_dir())
+    @nematocyte.main(Config, config_path=empty_config_dir())
     def main(config: Config) -> None:
         del config
         nematocyte.configure_logging()
@@ -105,9 +105,10 @@ def test_configure_logging_writes_to_stderr_and_to_a_file(
         directories.append(nematocyte.output_dir())
 
     main([])
-    err = capsys.readouterr().err
-    assert "[train][INFO] - epoch 1" in err
-    assert "hidden" not in err
+    captured = capsys.readouterr()
+    assert "[train][INFO] - epoch 1" in captured.out
+    assert "hidden" not in captured.out
+    assert "epoch 1" not in captured.err
     (directory,) = directories
     assert directory.is_relative_to(tmp_path / "outputs")
     text = (directory / "run.log").read_text()
@@ -118,7 +119,7 @@ def test_configure_logging_writes_to_stderr_and_to_a_file(
 def test_configure_logging_with_the_level_of_the_setting(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    @nematocyte.main(Config, config_dir=empty_config_dir())
+    @nematocyte.main(Config, config_path=empty_config_dir())
     def main(config: Config) -> None:
         del config
         nematocyte.configure_logging(file=False)
@@ -126,22 +127,22 @@ def test_configure_logging_with_the_level_of_the_setting(
         logging.getLogger("train").info("progress")
 
     main(["nematocyte.log=debug"])
-    assert "details" in capsys.readouterr().err
+    assert "details" in capsys.readouterr().out
     main(["nematocyte.log=warn"])
-    assert "progress" not in capsys.readouterr().err
+    assert "progress" not in capsys.readouterr().out
 
 
 def test_configure_logging_without_a_file_leaves_no_directory(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    @nematocyte.main(Config, config_dir=empty_config_dir())
+    @nematocyte.main(Config, config_path=empty_config_dir())
     def main(config: Config) -> None:
         del config
         nematocyte.configure_logging(file=False)
         logging.getLogger("train").warning("careful")
 
     main([])
-    assert "careful" in capsys.readouterr().err
+    assert "careful" in capsys.readouterr().out
     assert not (tmp_path / "outputs").exists()
 
 
@@ -150,7 +151,7 @@ def test_configure_logging_gives_each_job_its_own_file(
 ) -> None:
     directories: list[Path] = []
 
-    @nematocyte.main(Config, config_dir=empty_config_dir())
+    @nematocyte.main(Config, config_path=empty_config_dir())
     def main(config: Config) -> None:
         nematocyte.configure_logging()
         logging.getLogger("train").info("seed %d", config.seed)

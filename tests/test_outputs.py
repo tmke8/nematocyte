@@ -24,7 +24,7 @@ def fixed_time(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def make_main(directories: list[Path], *, ask: bool = True) -> nematocyte.EntryPoint:
-    @nematocyte.main(Config, config_dir=empty_config_dir())
+    @nematocyte.main(Config, config_path=empty_config_dir())
     def main(config: Config) -> None:
         if ask and config.flag:
             directories.append(nematocyte.output_dir())
@@ -49,7 +49,7 @@ def test_directory_is_created_when_it_is_first_asked_for(tmp_path: Path) -> None
 def test_asking_twice_gives_the_same_directory() -> None:
     directories: list[Path] = []
 
-    @nematocyte.main(Config, config_dir=empty_config_dir())
+    @nematocyte.main(Config, config_path=empty_config_dir())
     def main(config: Config) -> None:  # noqa: ARG001
         directories.append(nematocyte.output_dir())
         (nematocyte.output_dir() / "checkpoints").mkdir()
@@ -141,7 +141,7 @@ def test_multirun_has_one_directory_per_job(
 ) -> None:
     directories: list[Path] = []
 
-    @nematocyte.main(Config, config_dir=empty_config_dir())
+    @nematocyte.main(Config, config_path=empty_config_dir())
     def main(config: Config) -> None:
         # Only the jobs that ask get a directory.
         if config.seed != 2:
@@ -184,3 +184,33 @@ def test_single_run_and_multirun_share_the_root(
     ]
     # Every run is at the same depth.
     assert len(list(tmp_path.glob("outputs/*/*/*/.nematocyte"))) == 3
+
+
+def test_job_num_of_a_single_run() -> None:
+    numbers: list[int] = []
+
+    @nematocyte.main(Config, config_path=empty_config_dir())
+    def main(config: Config) -> None:  # noqa: ARG001
+        numbers.append(nematocyte.job_num())
+
+    main([])
+    assert numbers == [0]
+
+
+def test_job_num_is_the_name_of_the_directory(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    seen: list[tuple[int, int, str]] = []
+
+    @nematocyte.main(Config, config_path=empty_config_dir())
+    def main(config: Config) -> None:
+        seen.append((config.seed, nematocyte.job_num(), nematocyte.output_dir().name))
+
+    main(["--multirun", "seed=1,2,3"])
+    capsys.readouterr()
+    assert seen == [(1, 0, "0"), (2, 1, "1"), (3, 2, "2")]
+
+
+def test_job_num_outside_a_run_is_an_error() -> None:
+    with pytest.raises(ConfigError, match=r"nematocyte\.job_num"):
+        nematocyte.job_num()

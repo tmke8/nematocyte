@@ -6,15 +6,15 @@ from src.run import Config
 # Meaning of the arguments to @nematocyte.main():
 #     Config: The dataclass that defines which keys and values are valid in the
 #         configuration. The function below receives an instance of it.
-#     config_dir: The path to the directory containing the yaml config files,
+#     config_path: The path to the directory containing the yaml config files,
 #         relative to this file.
 # There is no default config file: if you run the script without `--config-name`,
 # all values come from the defaults in the `Config` class.
 
 
-@nematocyte.main(Config, config_dir="configs")
+@nematocyte.main(Config, config_path="configs")
 def main(config: Config) -> float:
-    # Set up Python's `logging` module: messages go to standard error and to
+    # Set up Python's `logging` module: messages go to standard output and to
     # `run.log` in the output directory of the run. The level comes from the
     # setting `nematocyte.log`, which is `info` unless you change it, for
     # example with `nematocyte.log=debug` on the command line.

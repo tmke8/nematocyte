@@ -62,7 +62,7 @@ def use_groups(config: Config) -> None:
 # -- the entry point -----------------------------------------------------------
 
 
-@nematocyte.main(Config, config_dir="configs")
+@nematocyte.main(Config, config_path="configs")
 def main(config: Config) -> float:
     assert_type(config, Config)
     return config.opt.lr
@@ -73,14 +73,14 @@ assert_type(main(), None)
 assert_type(main(["seed=1"]), None)
 
 
-@nematocyte.main(Config, config_dir=Path("configs"), config_name="primary")
+@nematocyte.main(Config, config_path=Path("configs"), config_name="primary")
 def main_without_result(config: Config) -> None:
     del config
 
 
 # The decorator returns something that takes a function of `Config`.
 assert_type(
-    nematocyte.main(Config, config_dir="configs"),
+    nematocyte.main(Config, config_path="configs"),
     Callable[[Callable[[Config], object]], nematocyte.EntryPoint],
 )
 
@@ -90,7 +90,7 @@ def takes_another_class(config: Opt) -> None:
 
 
 # A function that does not take `Config` is an error.
-nematocyte.main(Config, config_dir="configs")(takes_another_class)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
+nematocyte.main(Config, config_path="configs")(takes_another_class)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
 
 # -- compose ----------------------------------------------------------------------
 
@@ -105,6 +105,7 @@ assert_type(nematocyte.compose(Opt, Path("configs"), config_name="primary"), Opt
 assert_type(nematocyte.to_dict(nematocyte.compose(Config)), dict[str, Any])
 assert_type(nematocyte.output_dir(), Path)
 assert_type(nematocyte.log_level(), int)
+assert_type(nematocyte.job_num(), int)
 assert_type(nematocyte.configure_logging(), None)
 assert_type(nematocyte.configure_logging(file=False), None)
 assert_type(

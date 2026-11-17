@@ -46,7 +46,7 @@ def test_compose_takes_a_config_name(config_dir: Path) -> None:
     assert config.seed == 1
 
 
-def test_config_dir_is_relative_to_the_file_of_the_function(
+def test_config_path_is_relative_to_the_file_of_the_function(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     project = tmp_path / "project"
@@ -66,7 +66,7 @@ class Config:
     seed: int = 0
 
 
-@nematocyte.main(Config, config_dir="conf", config_name="primary")
+@nematocyte.main(Config, config_path="conf", config_name="primary")
 def main(config: Config) -> None:
     seen.append(config.seed)
 """,
@@ -88,10 +88,10 @@ def main(config: Config) -> None:
     assert app.seen == [11, 12, 0]
 
 
-def test_entry_point_with_a_missing_config_dir(
+def test_entry_point_with_a_missing_config_path(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    @nematocyte.main(Config, config_dir="no_such_directory")
+    @nematocyte.main(Config, config_path="no_such_directory")
     def main(config: Config) -> None:
         del config
 
@@ -102,7 +102,7 @@ def test_entry_point_with_a_missing_config_dir(
 
 
 def test_decorated_function_keeps_its_name() -> None:
-    @nematocyte.main(Config, config_dir=empty_config_dir())
+    @nematocyte.main(Config, config_path=empty_config_dir())
     def my_entry_point(config: Config) -> float:
         """Docstring."""
         return float(config.seed)
@@ -228,7 +228,7 @@ def test_logging_is_not_set_up() -> None:
     root = logging.getLogger()
     before = (root.level, list(root.handlers))
 
-    @nematocyte.main(Config, config_dir=empty_config_dir())
+    @nematocyte.main(Config, config_path=empty_config_dir())
     def main(config: Config) -> None:
         del config
 
