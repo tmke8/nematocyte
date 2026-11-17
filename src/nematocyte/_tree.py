@@ -52,6 +52,12 @@ class Node:
         """Where each of the values was set, for error messages."""
         self.touched = False
         """Whether a config file or an override selected or set something here."""
+        self.checked = False
+        """Whether the values were checked already, when the tree was composed.
+
+        True for the tree of a multirun job, which holds every value as set,
+        defaults included.
+        """
         if expand:
             for info in self.fields.values():
                 if info.kind is not Kind.VALUE and info.name not in self.children:
@@ -142,6 +148,7 @@ def node_from_plain(
 ) -> Node:
     """Rebuild a node from the output of :meth:`Node.to_plain_tree`."""
     node = Node(cls, path, option=option, expand=False)
+    node.checked = True
     for info in node.fields.values():
         if info.name not in plain:
             continue

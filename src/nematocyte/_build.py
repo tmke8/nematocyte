@@ -21,30 +21,35 @@ from ._types import type_text
 __all__ = ["build"]
 
 _FAILED = sentinel("_FAILED")
-_ADAPTERS: dict[tuple[type | None, str], TypeAdapter[Any]] = {}
+_ADAPTERS: dict[tuple[type | None, str], tuple[TypeAdapter[Any], bool]] = {}
 
 
-def _adapter(info: FieldInfo) -> TypeAdapter[Any]:
+def _adapter(info: FieldInfo) -> tuple[TypeAdapter[Any], bool]:
+    """The adapter for a field, and whether pydantic can read its type."""
     key = (info.owner, info.name)
-    adapter = _ADAPTERS.get(key)
-    if adapter is None:
+    cached = _ADAPTERS.get(key)
+    if cached is not None:
+        return cached
+    try:
+        cached = (TypeAdapter(info.annotation), True)
+    except (PydanticSchemaGenerationError, PydanticUserError) as first:
+        # A type that pydantic does not know. A value of it cannot be read
+        # from a config file, but a default of that type is still accepted.
+        # pydantic checks the default with `isinstance` if the type is a
+        # class, and not at all if it is not one, such as a sentinel.
         try:
-            adapter = TypeAdapter(info.annotation)
-        except (PydanticSchemaGenerationError, PydanticUserError) as first:
-            # A type that pydantic does not know. A value of it cannot be read
-            # from a config file, but a default of that type is still accepted.
-            try:
-                adapter = TypeAdapter(
-                    info.annotation, config=ConfigDict(arbitrary_types_allowed=True)
-                )
-            except Exception:
-                owner = info.owner.__name__ if info.owner is not None else "?"
-                raise SchemaError(
-                    f"{owner}.{info.name}: pydantic cannot handle the type "
-                    f"{info.annotation!r}:\n{first}"
-                ) from first
-        _ADAPTERS[key] = adapter
-    return adapter
+            adapter = TypeAdapter(
+                info.annotation, config=ConfigDict(arbitrary_types_allowed=True)
+            )
+        except Exception:
+            owner = info.owner.__name__ if info.owner is not None else "?"
+            raise SchemaError(
+                f"{owner}.{info.name}: pydantic cannot handle the type "
+                f"{info.annotation!r}:\n{first}"
+            ) from first
+        cached = (adapter, False)
+    _ADAPTERS[key] = cached
+    return cached
 
 
 def _quote_hint(node: Node, info: FieldInfo, value: Any) -> str:
@@ -74,8 +79,17 @@ def _check_value(node: Node, info: FieldInfo, errors: list[str]) -> object | _FA
         origin = f"the default of {node.class_name}.{info.name}"
     described = f"{node.class_name}.{info.name} ({type_text(info.annotation)})"
     field_line = f"\n    Field: {described}{'. ' + info.doc if info.doc else ''}"
+    adapter, readable = _adapter(info)
+    if not readable and info.name in node.sources and not node.checked:
+        errors.append(
+            f"{path}: this field cannot be set in a config file or on the command "
+            f"line, because pydantic cannot read its type. Only the default in "
+            f"the class can be used."
+            f"\n    Value: {value!r} ({origin}){field_line}"
+        )
+        return _FAILED
     try:
-        result = _adapter(info).validate_python(value, extra="forbid")
+        result = adapter.validate_python(value, extra="forbid")
     except ValidationError as exc:
         lines: list[str] = []
         hint = ""

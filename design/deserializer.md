@@ -161,7 +161,13 @@ validation behaviour we would own.
   leaves them out, since a config file could not hold them.
 - A type that pydantic cannot handle (such as `torch.device`) is accepted
   for a default value, by an `isinstance` check. It cannot be set from a
-  config file, since registered converters are not in the first version.
+  config file, since registered converters are not in the first version: a
+  value for it in a config file or an override is an error, which names
+  the field and where the value was set. Where the type is not a class at
+  all, such as a sentinel from `typing_extensions`, pydantic does not check
+  the default either. A multirun job does not repeat the error for its
+  rebuilt tree, which holds the defaults as set values; the main process
+  has checked every job before the first one runs.
 - An invalid value names the class and the type of the field in its error,
   next to the doc: `Field: Opt.lr (float). Learning rate.`
 

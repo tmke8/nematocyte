@@ -4,6 +4,7 @@ from dataclasses import InitVar, dataclass, field, make_dataclass
 import enum
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from typing_extensions import sentinel
 
 from pydantic import Field
 import pytest
@@ -297,3 +298,71 @@ def test_default_values_are_validated_too() -> None:
     message = str(excinfo.value)
     assert "size" in message
     assert "default" in message
+
+
+# -- types that pydantic cannot read -----------------------------------------
+
+
+class Device:
+    """A class that pydantic does not know, like `torch.device`."""
+
+
+CPU = Device()
+BN = sentinel("BN")
+LN = sentinel("LN")
+
+
+@dataclass
+class Opaque:
+    device: Device = field(default=CPU, doc="Where to run.")
+    norm: BN | LN | None = LN
+    seed: int = 0
+
+
+def test_default_of_a_type_pydantic_cannot_read_is_kept() -> None:
+    config = nematocyte.compose(Opaque)
+    assert config.device is CPU
+    assert config.norm is LN
+
+
+@pytest.mark.parametrize(
+    ("override", "type_name"),
+    [("device=cpu", "Device"), ("norm=BN", "BN | LN | null"), ("norm=3", "BN")],
+)
+def test_type_pydantic_cannot_read_cannot_be_overridden(
+    override: str, type_name: str
+) -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Opaque, overrides=[override])
+    message = str(excinfo.value)
+    key = override.split("=", maxsplit=1)[0]
+    assert f"{key}:" in message
+    assert f"Opaque.{key} ({type_name}" in message
+    assert override in message
+    assert "cannot be set" in message
+
+
+def test_type_pydantic_cannot_read_cannot_be_set_in_a_file(tmp_path: Path) -> None:
+    (tmp_path / "primary.yaml").write_text("device: cuda\n")
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Opaque, tmp_path, config_name="primary")
+    message = str(excinfo.value)
+    assert "device:" in message
+    assert "primary.yaml" in message
+    assert "Opaque.device (Device). Where to run." in message
+
+
+def test_multirun_job_keeps_a_default_pydantic_cannot_read(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A job rebuilds its config from the resolved tree, where the default is
+    # set like any other value.
+    seen: list[Opaque] = []
+
+    @nematocyte.main(Opaque, config_path=tmp_path)
+    def main(config: Opaque) -> None:
+        seen.append(config)
+
+    main(["-m", "seed=1,2"])
+    capsys.readouterr()
+    assert [(c.seed, c.device, c.norm) for c in seen] == [(1, CPU, LN), (2, CPU, LN)]
