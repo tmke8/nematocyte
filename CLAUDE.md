@@ -30,7 +30,7 @@ Read these before writing code. They are the specification.
 | `design/helptext.md` | `--help` and `--cfg` output, from `field(doc=...)` |
 | `design/multirun.md` | `--multirun`, sweepers and launchers (submitit, Optuna) |
 | `design/outputs.md` | Per-run output directories |
-| `design/logging.md` | Why nematocyte does not set up logging |
+| `design/logging.md` | `nematocyte.log` and the opt-in `nematocyte.configure_logging()` |
 | `design/guesses.md` | What the implementation decided on its own, to be reviewed |
 
 `example/` is a complete project written against the designed API. It is the

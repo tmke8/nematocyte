@@ -1,6 +1,7 @@
 """Main run function and config class."""
 
 from dataclasses import dataclass, field
+import logging
 from typing import Annotated, Any
 
 from nematocyte import option
@@ -12,6 +13,10 @@ from src.models import FcnFactory, SimpleCNNFactory
 from src.optimisation import OptimisationCfg
 
 __all__ = ["Config"]
+
+# Each module gets its own logger, named after the module (here `src.run`). The
+# name appears in every message, so you can tell where a message comes from.
+log = logging.getLogger(__name__)
 
 
 @dataclass(kw_only=True)
@@ -67,7 +72,9 @@ class Config:
             )
 
         device = f"GPU {gpu}" if (gpu := self.gpu) >= 0 else "CPU"
-        print(f"Starting a run with seed {self.seed} on {device}.")
+        log.info("Starting a run with seed %d on %s.", self.seed, device)
+        # Debug messages are only shown with `nematocyte.log=debug`.
+        log.debug("The config of this run: %s", config_for_logging)
         # Set the seed for reproducibility.
         torch.manual_seed(self.seed)
 
@@ -82,8 +89,7 @@ class Config:
         # Build the model.
         model = self.model.build(in_dim=self.dm.in_dim, out_dim=self.dm.out_dim)
 
-        print("Model architecture:")
-        print(model)
+        log.info("Model architecture:\n%s", model)
 
         # At the end, we return a value representing how well the model performed on the
         # validation set. That can be the validation loss or validation accuracy, for

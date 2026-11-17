@@ -97,6 +97,18 @@ Returns the directory of the current job as a `Path`, and creates it if it
 does not exist yet; see [outputs.md](outputs.md). Outside a run, such as
 after `nematocyte.compose(...)`, it is an error.
 
+### Logging
+
+```python
+nematocyte.configure_logging()
+level = nematocyte.log_level()
+```
+
+`configure_logging(*, file=True)` sets up `logging` for the current job,
+with the level of `nematocyte.log`; `log_level()` returns that level as a
+level of `logging`. Both are only for use inside a run; see
+[logging.md](logging.md).
+
 ### Declaring a group
 
 `nematocyte.option("name")` names a member of an annotated union; see

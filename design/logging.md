@@ -31,23 +31,37 @@ Output of `print` is not captured by either.
 
 ## Decided
 
-### nematocyte does not set up logging
+### The level is a setting of nematocyte, and the setup is opt-in
 
-A program that uses `logging` configures it itself. Of the things Hydra sets
-up, only the level is worth changing from the command line, and that needs
-nothing from nematocyte: it can be a field of the program's own config.
+The level of log messages is not part of the experiment; it is orthogonal
+to it, like the launcher or the output directory. So it is one of
+nematocyte's own settings ([cli.md](cli.md)):
+
+| Key | Values | Default |
+| --- | --- | --- |
+| `nematocyte.log` | `debug`, `info`, `warn` | `info` |
+
+`python main.py nematocyte.log=debug` is then an ordinary override, the key
+is shown by `--help` with its doc ([helptext.md](helptext.md)), and a
+config file can set it under `nematocyte:`. Like the other settings, it is
+the same for every job of a multirun and cannot be swept.
+
+nematocyte does not set up `logging` by itself. A program that wants the
+setup that Hydra makes calls a function for it, inside the decorated
+function:
 
 ```python
-@dataclass(kw_only=True)
-class Config:
-    log_level: Literal["DEBUG", "INFO", "WARNING"] = field(
-        default="INFO", doc="Level for log messages."
-    )
+@nematocyte.main(Config, config_dir="configs")
+def main(config: Config) -> float:
+    nematocyte.configure_logging()
+    ...
 ```
+
+`nematocyte.configure_logging()` does what this does:
 
 ```python
 logging.basicConfig(
-    level=config.log_level,
+    level=nematocyte.log_level(),
     format="[%(asctime)s][%(name)s][%(levelname)s] - %(message)s",
     handlers=[
         logging.StreamHandler(),
@@ -57,31 +71,34 @@ logging.basicConfig(
 )
 ```
 
-`python main.py log_level=DEBUG` is then an ordinary override, and the field
-is shown by `--help` with its doc ([helptext.md](helptext.md)).
-
-The format and the log file are chosen once for a program, so they are
-written in Python.
-
-Two things to know about the snippet:
-
+- The root logger gets the level, so the messages of libraries are shown at
+  that level too.
+- The messages go to standard error, and to `run.log` in the output
+  directory of the job ([outputs.md](outputs.md)). The file handler creates
+  the output directory. `configure_logging(file=False)` leaves the file out,
+  for example on SLURM, where submitit keeps the output of each job.
 - **`force=True` is needed for multiruns.** With the basic launcher the jobs
   run one after another in the same process ([multirun.md](multirun.md)).
   Without `force=True` the second call to `basicConfig` does nothing. Tested
   with two jobs: the messages of the second job went into the log file of
   the first, and its level was ignored.
-- **The file handler creates the output directory.** A run that calls
-  `nematocyte.output_dir()` always leaves a directory behind
-  ([outputs.md](outputs.md)). On SLURM the handler can be left out, since
-  submitit stores the standard output of the job.
+
+A program that sets up `logging` in its own way reads the level with
+`nematocyte.log_level()`. It returns a level of `logging`: `logging.DEBUG`,
+`logging.INFO` or `logging.WARNING`, for `debug`, `info` and `warn`.
+
+Both functions work only while the decorated function is running, as
+`nematocyte.output_dir()` does; outside a run they are an error. The level
+is not part of the config object that the function receives, which holds
+only the program's own config. It is passed to each job next to the config,
+also to a job on SLURM.
 
 ## Not in the first version
 
-- **A logging setup by nematocyte**, configured through the config as with
-  Hydra's `hydra/job_logging`. Perhaps later.
-- **A built-in `nematocyte.log_level`**, so that a program does not have to
-  declare the field itself.
+- **A logging setup configured through the config**, as with Hydra's
+  `hydra/job_logging`: the format, the handlers and the name of the file.
+  Perhaps later.
 - **`DEBUG` for named loggers only**, as with `hydra.verbose=[train]`.
-  Setting the root level to `DEBUG` also shows the debug messages of every
-  library. A program that needs this can make its field a list of logger
-  names.
+  `nematocyte.log=debug` also shows the debug messages of every library.
+  A program that needs this can call `logging.getLogger(name).setLevel(...)`
+  itself.

@@ -24,6 +24,8 @@ def test_public_names() -> None:
         "compose",
         "to_dict",
         "output_dir",
+        "log_level",
+        "configure_logging",
         "option",
         "validate_configs",
         "validate_config",

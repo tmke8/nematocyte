@@ -6,6 +6,8 @@ from ._api import main as main
 from ._errors import ConfigError as ConfigError
 from ._errors import SchemaError as SchemaError
 from ._plain import to_dict as to_dict
+from ._run import configure_logging as configure_logging
+from ._run import log_level as log_level
 from ._run import output_dir as output_dir
 from ._schema import Option as Option
 from ._schema import option as option
@@ -20,6 +22,8 @@ __all__ = [
     "SchemaError",
     "ValidationResult",
     "compose",
+    "configure_logging",
+    "log_level",
     "main",
     "option",
     "output_dir",

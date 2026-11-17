@@ -150,7 +150,12 @@ class Multirun:
             raise ConfigError(f"In job #{number} ({shown}):\n{exc}") from None
         config = root.to_plain_tree()
         config.pop(RESERVED_KEY, None)
-        return Job(number, [override.text for override in overrides], config)
+        return Job(
+            number,
+            [override.text for override in overrides],
+            config,
+            self.settings.log,
+        )
 
     def launch(self, jobs: list[Job]) -> list[JobResult]:
         """Run a batch of jobs with the launcher that is selected."""

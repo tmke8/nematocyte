@@ -220,7 +220,8 @@ unchanged:
 The user's root dataclass must not have a field called `nematocyte`.
 
 The output directory is set under the same key, as `nematocyte.output_dir`
-([outputs.md](outputs.md)).
+([outputs.md](outputs.md)), and so is the level of log messages, as
+`nematocyte.log` ([logging.md](logging.md)).
 
 ### No slash in keys
 

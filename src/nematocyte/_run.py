@@ -4,11 +4,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from ._build import build
 from ._errors import ConfigError
+from ._settings import LogLevel
 from ._tree import node_from_plain
 
 __all__ = [
@@ -17,6 +19,8 @@ __all__ = [
     "Job",
     "JobResult",
     "StartDir",
+    "configure_logging",
+    "log_level",
     "output_dir",
     "run_job",
 ]
@@ -47,6 +51,8 @@ class Job:
     number: int
     overrides: list[str]
     config: dict[str, Any]
+    log: LogLevel = "info"
+    """The value of `nematocyte.log`, which is the same for every job."""
 
 
 @dataclass(frozen=True)
@@ -130,6 +136,16 @@ def _write_json(path: Path, content: Any) -> None:
 _current: _Context | None = None
 
 
+def _context(function: str) -> _Context:
+    if _current is None:
+        raise ConfigError(
+            f"nematocyte.{function}() was called outside a run. It can only "
+            "be called while the function decorated with @nematocyte.main is "
+            "running."
+        )
+    return _current
+
+
 def output_dir() -> Path:
     """Return the output directory of the current job, creating it if needed.
 
@@ -137,13 +153,54 @@ def output_dir() -> Path:
     are saved in it, under `.nematocyte/`. Outside a run, such as after
     `nematocyte.compose(...)`, this is an error.
     """
-    if _current is None:
-        raise ConfigError(
-            "nematocyte.output_dir() was called outside a run. There is an "
-            "output directory only while the function decorated with "
-            "@nematocyte.main is running."
+    return _context("output_dir").directory()
+
+
+_LEVELS: dict[LogLevel, int] = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warn": logging.WARNING,
+}
+
+LOG_FILE = "run.log"
+LOG_FORMAT = "[%(asctime)s][%(name)s][%(levelname)s] - %(message)s"
+
+
+def log_level() -> int:
+    """Return the level that `nematocyte.log` sets, as a level of `logging`.
+
+    `logging.DEBUG`, `logging.INFO` or `logging.WARNING`, for the values
+    `debug`, `info` and `warn`. Outside a run this is an error.
+    """
+    return _LEVELS[_context("log_level").job.log]
+
+
+def configure_logging(*, file: bool = True) -> None:
+    """Set up `logging` for the current job, with the level of `nematocyte.log`.
+
+    The root logger gets the level, and a handler that writes to standard
+    error. With `file`, a second handler writes to `run.log` in the output
+    directory of the job, which creates the directory. Any earlier setup of
+    the root logger is replaced, so that each job of a multirun gets its own.
+    Outside a run this is an error.
+
+    Args:
+        file: Whether to write the messages to `run.log` as well. On SLURM
+            the file can be left out, since submitit keeps the output of
+            each job.
+    """
+    context = _context("configure_logging")
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if file:
+        handlers.append(
+            logging.FileHandler(context.directory() / LOG_FILE, encoding="utf-8")
         )
-    return _current.directory()
+    logging.basicConfig(
+        level=_LEVELS[context.job.log],
+        format=LOG_FORMAT,
+        handlers=handlers,
+        force=True,
+    )
 
 
 def run_job(entry: Entry, job: Job, start: StartDir) -> Any:

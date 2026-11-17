@@ -20,17 +20,19 @@ python main.py
 
 The output should be something like this:
 ```
-Starting a run with seed 42 on CPU.
-Model architecture:
+[2026-11-17 11:50:24,875][src.run][INFO] - Starting a run with seed 42 on CPU.
+[2026-11-17 11:50:24,932][src.run][INFO] - Model architecture:
 Sequential(
   (0): Sequential(
     (0): Linear(in_features=28, out_features=28, bias=True)
-    (1): LayerNorm((28,), eps=1e-05, elementwise_affine=True)
+    (1): LayerNorm((28,), eps=1e-05, elementwise_affine=True, bias=True)
     (2): GELU(approximate='none')
   )
   (1): Linear(in_features=28, out_features=10, bias=True)
 )
 ```
+
+The program reports what it does through Python's `logging` module; see [Logging](#logging) below.
 
 No config file is involved here: the default values all come from the `Config` class in `src/run.py`.
 
@@ -127,6 +129,9 @@ nematocyte.sweeper.params=null  [dict[str, any] | null] Sweeps by key, written a
 nematocyte.output_dir=null      [path | null] Directory of this start of the program,
                                 which holds one directory per job. If not set, it is
                                 outputs/DATE/TIME.
+nematocyte.log=info             [debug|info|warn] Level of log messages, for
+                                nematocyte.configure_logging() and
+                                nematocyte.log_level().
 
 Flags:
 --help, -h               Print this help. It reflects the other arguments.
@@ -137,7 +142,7 @@ Flags:
 
 </details>
 
-Every line shows a key with its current value, in the form in which you would set it on the command line, followed by the type of the value and a description. The descriptions come from the dataclasses in `src/` (see [Describing config values](#describing-config-values) below). The lines `From files:` and `Presets:` list the configs that are defined in YAML files. At the end come nematocyte's own settings, which are used for [multiruns](#multiruns), and the flags.
+Every line shows a key with its current value, in the form in which you would set it on the command line, followed by the type of the value and a description. The descriptions come from the dataclasses in `src/` (see [Describing config values](#describing-config-values) below). The lines `From files:` and `Presets:` list the configs that are defined in YAML files. At the end come nematocyte's own settings, which are used for [multiruns](#multiruns) and for the output directory and logging, and the flags.
 
 We can see that `seed` and `gpu` are "top-level" config values, but there are also a lot of values in subconfigs. For example, we can change the `num_hidden` value in the `model` config:
 ```bash
@@ -211,6 +216,24 @@ python main.py 'wandb.tags=[baseline,cnn]' 'opt.optimizer_kwargs={eps:1e-8,amsgr
 ```
 A dictionary given like this replaces the previous value as a whole.
 
+### Logging
+The program uses Python's `logging` module instead of `print()`. Each module gets a logger named after it, as in `src/run.py`:
+```python
+log = logging.getLogger(__name__)
+
+log.info("Starting a run with seed %d on %s.", self.seed, device)
+```
+
+`main.py` sets up `logging` at the start of the run, by calling `nematocyte.configure_logging()`. The messages then go to standard error, and to the file `run.log` in the output directory of the run, such as `outputs/2026-11-17/11-50-24/0/run.log`. If you don't want the file, call `nematocyte.configure_logging(file=False)`. If you don't call `configure_logging()` at all, nematocyte leaves `logging` alone.
+
+How much is logged is not part of the experiment, so it is not a field of `Config`. It is one of nematocyte's own settings, `nematocyte.log`, which is `info` by default. To also see the debug messages, such as the full config of the run:
+```bash
+python main.py nematocyte.log=debug
+```
+This also shows the debug messages of the libraries that the program uses. With `nematocyte.log=warn`, only warnings and errors are shown.
+
+If you set up `logging` in your own way, `nematocyte.log_level()` gives you the level, as `logging.DEBUG`, `logging.INFO` or `logging.WARNING`.
+
 ## Basics of config files
 Let's say you are often working with a configuration of the CelebA dataset which looks like this:
 ```bash
@@ -274,32 +297,34 @@ Often, we want to run the same experiment with only slightly different configura
 ```bash
 python main.py --multirun seed=42,43
 ```
-The output should look like this (the lines that start with `[nematocyte]` go to standard error):
+The output should look like this (the lines that start with `[nematocyte]` come from nematocyte, the others are the log messages of the program):
 ```
 [nematocyte] Launching 2 jobs locally
 [nematocyte]        #0 : seed=42
-Starting a run with seed 42 on CPU.
-Model architecture:
+[2026-11-17 11:50:32,455][src.run][INFO] - Starting a run with seed 42 on CPU.
+[2026-11-17 11:50:32,508][src.run][INFO] - Model architecture:
 Sequential(
   (0): Sequential(
     (0): Linear(in_features=28, out_features=28, bias=True)
-    (1): LayerNorm((28,), eps=1e-05, elementwise_affine=True)
+    (1): LayerNorm((28,), eps=1e-05, elementwise_affine=True, bias=True)
     (2): GELU(approximate='none')
   )
   (1): Linear(in_features=28, out_features=10, bias=True)
 )
 [nematocyte]        #1 : seed=43
-Starting a run with seed 43 on CPU.
-Model architecture:
+[2026-11-17 11:50:32,509][src.run][INFO] - Starting a run with seed 43 on CPU.
+[2026-11-17 11:50:32,512][src.run][INFO] - Model architecture:
 Sequential(
   (0): Sequential(
     (0): Linear(in_features=28, out_features=28, bias=True)
-    (1): LayerNorm((28,), eps=1e-05, elementwise_affine=True)
+    (1): LayerNorm((28,), eps=1e-05, elementwise_affine=True, bias=True)
     (2): GELU(approximate='none')
   )
   (1): Linear(in_features=28, out_features=10, bias=True)
 )
 ```
+
+Each job writes its log messages to its own `run.log`, in `outputs/DATE/TIME/0/` and `outputs/DATE/TIME/1/`.
 
 By default, nematocyte simply runs the code with the different config values sequentially. But if you have access to a SLURM cluster, you can also run the jobs in parallel. To do this, we need to set `nematocyte.launcher=...` to the appropriate value. nematocyte's own settings live under the key `nematocyte`, next to the settings of your program, and are set in the same way. In this code base, there is a config file at `configs/nematocyte/launcher/slurm_kyiv.yaml` that has the correct settings for the Kyiv machine. To use it, we can run:
 ```bash
@@ -545,7 +570,7 @@ wandb:
 
 ## Structure of the code
 
-- `main.py`: The main entry point of the code. It sets up nematocyte and then calls the main `run()` function.
+- `main.py`: The main entry point of the code. It sets up nematocyte and logging, and then calls the main `run()` function.
 - `src/`
   - `run.py`: Contains the main `Config` class that is used to define valid config values, including the options of the config groups. It also contains the `run()` function that is called by `main.py`.
   - `datasets.py`: Contains the data module classes that are used to load the data.

@@ -132,7 +132,7 @@ def _run(
     settings = _built_settings(root.children[RESERVED_KEY])
     config = root.to_plain_tree()
     config.pop(RESERVED_KEY, None)
-    job = Job(0, [override.text for override in overrides], config)
+    job = Job(0, [override.text for override in overrides], config, settings.log)
     run_job(entry, job, _start_dir(settings, now))
     return 0
 

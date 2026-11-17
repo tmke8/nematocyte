@@ -12,6 +12,7 @@ __all__ = [
     "BasicLauncher",
     "BasicSweeper",
     "Direction",
+    "LogLevel",
     "OptunaSweeper",
     "RandomSampler",
     "Settings",
@@ -189,6 +190,9 @@ class OptunaSweeper:
     )
 
 
+type LogLevel = Literal["debug", "info", "warn"]
+
+
 @dataclass(kw_only=True)
 class Settings:
     """nematocyte's own settings."""
@@ -208,4 +212,9 @@ class Settings:
         default=None,
         doc="Directory of this start of the program, which holds one "
         "directory per job. If not set, it is outputs/DATE/TIME.",
+    )
+    log: LogLevel = field(
+        default="info",
+        doc="Level of log messages, for nematocyte.configure_logging() and "
+        "nematocyte.log_level().",
     )

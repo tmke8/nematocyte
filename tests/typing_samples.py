@@ -104,6 +104,9 @@ assert_type(nematocyte.compose(Opt, Path("configs"), config_name="primary"), Opt
 
 assert_type(nematocyte.to_dict(nematocyte.compose(Config)), dict[str, Any])
 assert_type(nematocyte.output_dir(), Path)
+assert_type(nematocyte.log_level(), int)
+assert_type(nematocyte.configure_logging(), None)
+assert_type(nematocyte.configure_logging(file=False), None)
 assert_type(
     nematocyte.validate_configs(Config, "configs"), list[nematocyte.ValidationResult]
 )

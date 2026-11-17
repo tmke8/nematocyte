@@ -137,9 +137,9 @@ since the choices are in `_option_` keys and not in `defaults`
 ([unions.md](unions.md)). If a flag to run a job again is ever added, it can
 read this file, which holds every value and every choice.
 
-There is no log file. nematocyte does not configure `logging`; a program
-that wants a log file adds one itself ([logging.md](logging.md)). On SLURM,
-the standard output of a job is in the files of submitit, under
+A log file, `run.log`, is only written if the program calls
+`nematocyte.configure_logging()` ([logging.md](logging.md)). On SLURM, the
+standard output of a job is in the files of submitit, under
 `.submitit/JOBID/`.
 
 ### A directory is never shared
