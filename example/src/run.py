@@ -9,7 +9,7 @@ from nematocyte import option
 import torch
 
 from src.datasets import CelebADataModule, ColoredMNISTDataModule
-from src.logging import WandbCfg
+from src.logging import WandbKwargs, init_wandb
 from src.models import FcnFactory, SimpleCNNFactory
 from src.optimisation import OptimisationCfg
 
@@ -41,7 +41,14 @@ class Config:
     # These are normal subconfigs. Note that in dataclasses, the default must not be
     # mutable, so we use `default_factory`.
     opt: OptimisationCfg = field(default_factory=OptimisationCfg)
-    wandb: WandbCfg = field(default_factory=WandbCfg)
+    wandb: WandbKwargs = field(
+        default_factory=lambda: {
+            "dir": "./local_logging",
+            "project": "nematocyte-example",
+            "entity": "example-org",
+            "mode": "disabled",
+        }
+    )
 
     # These are normal fields. The `doc` of a field is shown by `--help`.
     seed: int = field(default=42, doc="Random seed.")
@@ -84,7 +91,7 @@ class Config:
         torch.manual_seed(self.seed)
 
         # Initialize the logger.
-        wandb_run = self.wandb.init(config_for_logging, reinit=True)
+        wandb_run = init_wandb(self.wandb, config_for_logging, reinit=True)
         if wandb_run is not None:
             wandb_run.log({"accuracy": 0.5})
 

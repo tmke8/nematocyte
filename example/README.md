@@ -54,70 +54,67 @@ It should look like this:
 ```
 Main configuration class for the code base.
 
-dm=cmnist                              The dataset to train on.
-                                         celeba   Data-module for the CelebA dataset.
-                                       * cmnist   Data-module for the ColoredMNIST dataset.
-                                       From files: celeba_male_blond,
-                                       celeba_male_smiling, celeba_male_smiling_small
-dm.root=/srv/galene0/shared/data       [path] Directory in which the datasets are
-                                       stored.
-dm.default_res=28                      [int] Resolution of the images.
-dm.label_map=null                      [dict[int, int] | null] Mapping from the original
-                                       labels to new labels.
-dm.colors=null                         [list[int] | null] Indices of the colors to use.
-dm.num_colors=10                       [int] Number of colors.
-dm.val_prop=0.2                        [float] Proportion of the data that is used for
-                                       validation.
+dm=cmnist                            The dataset to train on.
+                                       celeba   Data-module for the CelebA dataset.
+                                     * cmnist   Data-module for the ColoredMNIST dataset.
+                                     From files: celeba_male_blond,
+                                     celeba_male_smiling, celeba_male_smiling_small
+dm.root=/srv/galene0/shared/data     [path] Directory in which the datasets are
+                                     stored.
+dm.default_res=28                    [int] Resolution of the images.
+dm.label_map=null                    [dict[int, int] | null] Mapping from the original
+                                     labels to new labels.
+dm.colors=null                       [list[int] | null] Indices of the colors to use.
+dm.num_colors=10                     [int] Number of colors.
+dm.val_prop=0.2                      [float] Proportion of the data that is used for
+                                     validation.
 
-model=fcn                              The model architecture.
-                                       * fcn      Factory for fully-connected neural networks.
-                                         cnn      Factory for a very simple CNN.
-                                       From files: single_linear_layer
-model.num_hidden=1                     [int] Number of hidden layers.
-model.hidden_dim=null                  [int | null] Width of the hidden layers. If not
-                                       set, the input dimension is used.
-model.activation=gelu                  [relu|gelu|selu|silu] Activation function.
+model=fcn                            The model architecture.
+                                     * fcn      Factory for fully-connected neural networks.
+                                       cnn      Factory for a very simple CNN.
+                                     From files: single_linear_layer
+model.num_hidden=1                   [int] Number of hidden layers.
+model.hidden_dim=null                [int | null] Width of the hidden layers. If not
+                                     set, the input dimension is used.
+model.activation=gelu                [relu|gelu|selu|silu] Activation function.
 
-model.norm=LN                          Normalization layer to use.
-                                         BN       Batch normalization.
-                                       * LN       Layer normalization.
-                                         none     No normalization layer.
-                                       From files: slow_bn
-model.norm.eps=                        [float] (not set)
-model.norm.elementwise_affine=         [bool] (not set)
+model.norm=LN                        Normalization layer to use.
+                                       BN       Batch normalization.
+                                     * LN       Layer normalization.
+                                       none     No normalization layer.
+                                     From files: slow_bn
+model.norm.eps=                      [float] (not set)
+model.norm.elementwise_affine=       [bool] (not set)
 
-model.dropout_prob=0.0                 [float] Dropout probability. No dropout is
-                                       applied if this is 0.
-model.final_bias=true                  [bool] Whether the final linear layer has a bias.
-model.input_norm=false                 [bool] Whether to also apply the normalization
-                                       layer to the input.
+model.dropout_prob=0.0               [float] Dropout probability. No dropout is
+                                     applied if this is 0.
+model.final_bias=true                [bool] Whether the final linear layer has a bias.
+model.input_norm=false               [bool] Whether to also apply the normalization
+                                     layer to the input.
 
-opt:                                   Config class for the optimisation.
-                                       Presets: strong_weight_decay, weight_decay_adamw
-opt.lr=5e-05                           [float] Learning rate.
-opt.weight_decay=0.0                   [float] Weight decay.
-opt.optimizer_cls=torch.optim.AdamW    [str] Import path of the optimizer class.
-opt.optimizer_kwargs=null              [dict[str, any] | null] Further keyword arguments
-                                       for the optimizer.
+opt:                                 Config class for the optimisation.
+                                     Presets: strong_weight_decay, weight_decay_adamw
+opt.lr=5e-05                         [float] Learning rate.
+opt.weight_decay=0.0                 [float] Weight decay.
+opt.optimizer_cls=torch.optim.AdamW  [str] Import path of the optimizer class.
+opt.optimizer_kwargs=null            [dict[str, any] | null] Further keyword arguments
+                                     for the optimizer.
 
-wandb:                                 Dataclass wrapper around the parameters for
-                                       `wandb.init()`.
-wandb.name=null                        [str | null] Name of the run.
-wandb.dir=./local_logging              [str] Directory in which W&B stores its files.
-wandb.id=null                          [str | null] ID of the run.
-wandb.project=nematocyte-example       [str] W&B project to log to.
-wandb.group=null                       [str | null] Group to put the run in.
-wandb.entity=predictive-analytics-lab  [str] W&B user or team to log to.
-wandb.tags=null                        [list[str] | null] Tags for the run.
-wandb.job_type=null                    [str | null] Type of the run.
-wandb.mode=disabled                    [online|offline|disabled] Whether to log online,
-                                       offline or not at all.
-wandb.resume=null                      [str | null] Whether and how to resume a previous
-                                       run.
+wandb:                               Dictionary of the parameters for `wandb.init()`.
+wandb.name=                          [str | null] (not set)
+wandb.dir=./local_logging            [str]
+wandb.id=                            [str | null] (not set)
+wandb.project=nematocyte-example     [str]
+wandb.group=                         [str | null] (not set)
+wandb.entity=example-org             [str]
+wandb.tags=                          [list[str] | null] (not set)
+wandb.job_type=                      [str | null] (not set)
+wandb.mode=disabled                  [online|offline|disabled]
+wandb.resume=                        [bool | allow|never|must|auto | null] (not set)
 
-seed=42                                [int] Random seed.
-gpu=-1                                 [int] Index of the GPU to use. Set to -1 to use
-                                       the CPU.
+seed=42                              [int] Random seed.
+gpu=-1                               [int] Index of the GPU to use. Set to -1 to use
+                                     the CPU.
 
 nematocyte:                     nematocyte's own settings.
 

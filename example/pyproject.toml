@@ -29,7 +29,7 @@ possibly-missing-import = "warn"
 possibly-unresolved-reference = "warn"
 truthiness-test-of-none-union = "warn"
 unsound-assignment = "warn"
-unsound-return-statement = "warn"
+unsound-return = "warn"
 
 [tool.ruff]
 line-length = 88
