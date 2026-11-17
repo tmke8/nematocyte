@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import os
 from pathlib import Path
+from typing import Any
+from typing_extensions import TypeForm
 
 from ._build import build
 from ._compose import Composer
@@ -12,7 +14,7 @@ from ._files import SUFFIXES
 from ._interpolation import resolve
 from ._multirun import check_params, parse_params
 from ._overrides import Override
-from ._schema import RESERVED_KEY, FieldInfo, Kind, class_fields
+from ._schema import RESERVED_KEY, FieldInfo, Kind, class_fields, config_class
 from ._settings import Settings
 from ._tree import Path as KeyPath
 
@@ -177,7 +179,7 @@ def _validate(
 
 
 def validate_config(
-    config_cls: type,
+    config_cls: TypeForm[Any],
     config_dir: str | os.PathLike[str],
     path: str | os.PathLike[str],
     *,
@@ -187,12 +189,12 @@ def validate_config(
     """Check one config file, in the same way as when the program runs.
 
     Args:
-        config_cls: The root dataclass.
+        config_cls: The root config class, a dataclass or a TypedDict.
         config_dir: The directory with the config files.
         path: The file to check, relative to `config_dir`.
         config_name: A primary config that supplies the rest of the tree
             when a named config is checked. Only needed if some field of the
-            root dataclass has no default.
+            root config class has no default.
         construct: With `False`, the dataclasses are not constructed, so no
             `__post_init__` runs. Every other check is still made.
     """
@@ -201,7 +203,7 @@ def validate_config(
     if relative.is_absolute():
         relative = relative.relative_to(directory.absolute())
     try:
-        composer = Composer(config_cls, directory, Settings)
+        composer = Composer(config_class(config_cls), directory, Settings)
         _validate(composer, relative, config_name, construct=construct)
     except ConfigError as exc:
         return ValidationResult(relative, exc)
@@ -209,7 +211,7 @@ def validate_config(
 
 
 def validate_configs(
-    config_cls: type,
+    config_cls: TypeForm[Any],
     config_dir: str | os.PathLike[str],
     *,
     config_name: str | None = None,

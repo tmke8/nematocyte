@@ -195,6 +195,60 @@ definition.
   is built as the declared class. The default of a group field has to be an
   instance of exactly one of the option classes.
 
+### TypedDicts as options
+
+The options of a group can be TypedDicts
+([deserializer.md](deserializer.md#typeddict-configs)). A dict does not
+know its class, so a TypedDict that is an option names itself, in the key
+`_option_`, and nematocyte fills it in:
+
+```python
+class BatchNorm(TypedDict):
+    _option_: Literal["BN"]
+    momentum: NotRequired[float]
+
+
+class LayerNorm(TypedDict):
+    _option_: Literal["LN"]
+    eps: NotRequired[float]
+
+
+@dataclass
+class Model:
+    norm: BatchNorm | LayerNorm = field(
+        default_factory=lambda: LayerNorm(_option_="LN")
+    )
+```
+
+`model.norm=BN model.norm.momentum=0.2` gives
+`{"_option_": "BN", "momentum": 0.2}`, and the program tells the options
+apart by that key, which type checkers use to narrow the union:
+`match norm: case {"_option_": "BN"}: ...`.
+
+- The key is a `Literal` of one string, which is the option name and follows
+  the rules for one. It cannot be `NotRequired`; `ReadOnly` is allowed.
+- In the built dict, `_option_` is the first key, as it is in the output of
+  `to_dict` for a dataclass option.
+- `nematocyte.option()` is not used for a TypedDict; it is an error there.
+  The union of TypedDicts is written without `Annotated`.
+- A TypedDict in a group without the key is an error. A single TypedDict
+  with the key, as the type of a field, is a group with one option, like a
+  single `Annotated[X, option("x")]`; one without the key is a plain
+  subconfig. The root cannot have the key.
+- `_option_` is not a config key. A config file or an override cannot set
+  it; the option is selected as for any group, and a file in the group's
+  directory gets the name of the option its `_self_` chain ends at.
+- A group's options are either all dataclasses or all TypedDicts. A mix is
+  an error.
+- A group field of TypedDicts can have a default in the class, a dict that
+  names its option in `_option_`:
+  `field(default_factory=lambda: LayerNorm(_option_="LN"))`. That option is
+  used when nothing selects one, and the other keys of the dict are the
+  default instance ([Defaults](#defaults)): they apply until an option is
+  named. A default without the key, or with a name that is not an option,
+  is an error.
+- A dataclass option still cannot have a field called `_option_`.
+
 ## No tagging
 
 No tagging strategy is needed. In Hydra the choice of class never lives in the
@@ -210,6 +264,9 @@ Two things follow:
 - The same group can appear at several paths with different choices
   (`encoder: Model`, `decoder: Model`); the choice is keyed by path, not by
   type. Tested with both cattrs and pydantic.
+- The `_option_` key of a TypedDict option is not a tag in this sense: it
+  is written by nematocyte into the built dict, after composition chose the
+  option, and is never read from a config.
 - Because the data carries no tag, a dumped config is not self-describing.
   Whatever is written out for reproducibility has to record the choices next
   to the values, e.g. in `defaults`, so that it can be loaded again.

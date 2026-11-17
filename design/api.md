@@ -18,7 +18,11 @@ if __name__ == "__main__":
 
 - The root dataclass is passed to the decorator. It is the schema that every
   config is checked against ([composition.md](composition.md)), and a type
-  checker can verify that the function takes that class.
+  checker can verify that the function takes that class. The root can also
+  be a `TypedDict` ([deserializer.md](deserializer.md#typeddict-configs)).
+  `main` and `compose` take the class as a `TypeForm[C]`
+  (`typing_extensions`), which every checker accepts for a TypedDict as
+  well as a dataclass; anything else is a `SchemaError` at run time.
 - `config_path` is required, and is relative to the file that defines the
   function. Its name and its meaning are Hydra's. The directory has to
   exist, even if it is empty.
@@ -73,6 +77,16 @@ for a group field records it under the key `_option_`:
 - A plain subconfig such as `opt` gets no `_option_` key.
 - A class that is an option of a group cannot have a field called
   `_option_`.
+- The root has to be a dataclass; a TypedDict root is a `TypeError`.
+- A TypedDict below it, whether a plain subconfig or an option of a group,
+  is kept as it is, apart from converting its values as in the table below.
+  An option of a group already holds its `_option_`
+  ([unions.md](unions.md#typeddicts-as-options)), and a `NotRequired` key
+  that was not set is not there.
+- So every TypedDict that can be reached from the root may hold only
+  values. One with a subconfig or a group is a `TypeError`, which names the
+  TypedDict and the key. The schema is checked before anything is
+  converted.
 
 Values that are not plain YAML types are converted, so that the dict can
 always be dumped as YAML or JSON:
@@ -140,7 +154,7 @@ See [validation.md](validation.md).
 
 - The names that the other documents do not give: `nematocyte.ConfigError`
   for every error in a configuration, `nematocyte.SchemaError` (a subclass)
-  for a dataclass that is declared in an unsupported way,
+  for a config class that is declared in an unsupported way,
   `nematocyte.ValidationResult` with `path`, `error` and `ok`,
   `nematocyte.EntryPoint` for the type of the decorated function, and
   `nematocyte.Option` for what `option()` returns.

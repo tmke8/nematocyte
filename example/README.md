@@ -77,8 +77,15 @@ model.num_hidden=1                     [int] Number of hidden layers.
 model.hidden_dim=null                  [int | null] Width of the hidden layers. If not
                                        set, the input dimension is used.
 model.activation=gelu                  [relu|gelu|selu|silu] Activation function.
-model.norm=LN                          [BN|LN | null] Normalization layer to use, if
-                                       any.
+
+model.norm=LN                          Normalization layer to use.
+                                         BN       Batch normalization.
+                                       * LN       Layer normalization.
+                                         none     No normalization layer.
+                                       From files: slow_bn
+model.norm.eps=                        [float] (not set)
+model.norm.elementwise_affine=         [bool] (not set)
+
 model.dropout_prob=0.0                 [float] Dropout probability. No dropout is
                                        applied if this is 0.
 model.final_bias=true                  [bool] Whether the final linear layer has a bias.
@@ -582,6 +589,7 @@ wandb:
   - `experiments/`: Contains more primary configs.
   - `dm/`: Contains the config files for the different datasets.
   - `model/`: Contains the config files for the different model architectures.
+    - `norm/`: Contains the config files for the normalization layer of the FCN.
   - `opt/`: Contains the presets for the optimiser.
   - `nematocyte/`
     - `launcher/`: Contains the SLURM launcher config files.

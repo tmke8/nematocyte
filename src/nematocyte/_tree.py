@@ -1,12 +1,19 @@
-"""The composed config, as a tree of nodes that mirrors the dataclasses."""
+"""The composed config, as a tree of nodes that mirrors the config classes."""
 
 from dataclasses import MISSING
 import difflib
-from typing import Any
+from typing import Any, cast
 
 from ._errors import ConfigError, SchemaError
 from ._plain import to_plain
-from ._schema import OPTION_KEY, RESERVED_KEY, FieldInfo, Kind, class_fields
+from ._schema import (
+    OPTION_KEY,
+    RESERVED_KEY,
+    FieldInfo,
+    Kind,
+    class_fields,
+    is_typeddict_class,
+)
 
 __all__ = ["Node", "Path", "format_path", "make_root", "unknown_key_message"]
 
@@ -18,7 +25,7 @@ def format_path(path: Path) -> str:
 
 
 class Node:
-    """One dataclass in the composed config.
+    """One config class (a dataclass or a `TypedDict`) in the composed config.
 
     A node knows its class, the values that config files and overrides set
     on it, and where every other value comes from: the default instance of
@@ -64,15 +71,16 @@ class Node:
                     self.expand_field(info)
 
     def expand_field(self, info: FieldInfo) -> None:
-        if self.default is not MISSING and not info.initvar:
-            default = getattr(self.default, info.name)
-        else:
-            default = info.class_default()
+        default = self.default_value(info)
         where = f"{self.class_name}.{info.name}"
         path = (*self.path, info.name)
         if info.kind is Kind.CONFIG:
             assert info.config_cls is not None
-            if default is not MISSING and type(default) is not info.config_cls:
+            if is_typeddict_class(info.config_cls):
+                fits = isinstance(default, dict)
+            else:
+                fits = type(default) is info.config_cls
+            if default is not MISSING and not fits:
                 raise SchemaError(
                     f"{where}: the default is an instance of "
                     f"{type(default).__name__}, but the field is declared as "
@@ -80,16 +88,32 @@ class Node:
                 )
             self.children[info.name] = Node(info.config_cls, path, default=default)
         elif default is not MISSING:
-            name = info.option_of(type(default))
-            if name is None:
+            name = self._default_option(info, default, where)
+            cls = info.options[name] if isinstance(default, dict) else type(default)
+            self.children[info.name] = Node(cls, path, default=default, option=name)
+
+    @staticmethod
+    def _default_option(info: FieldInfo, default: Any, where: str) -> str:
+        """The option that the default of a group field is."""
+        typeddicts = any(is_typeddict_class(cls) for cls in info.options.values())
+        if typeddicts and isinstance(default, dict):
+            # A TypedDict's dict names its option in its key `_option_`.
+            name = cast("dict[str, Any]", default).get(OPTION_KEY)
+            if not isinstance(name, str) or name not in info.options:
                 raise SchemaError(
-                    f"{where}: the default is an instance of "
-                    f"{type(default).__name__}, which is not an option of the "
-                    f"group. Options: {', '.join(info.options)}."
+                    f"{where}: the default has to name one of the options in its "
+                    f"key {OPTION_KEY!r}, not {name!r}. Options: "
+                    f"{', '.join(info.options)}."
                 )
-            self.children[info.name] = Node(
-                type(default), path, default=default, option=name
+            return name
+        name = info.option_of(type(default))
+        if name is None:
+            raise SchemaError(
+                f"{where}: the default is an instance of "
+                f"{type(default).__name__}, which is not an option of the "
+                f"group. Options: {', '.join(info.options)}."
             )
+        return name
 
     @property
     def class_name(self) -> str:
@@ -106,6 +130,9 @@ class Node:
 
     def default_value(self, info: FieldInfo) -> Any:
         """The value of a field that nothing has set, or ``MISSING``."""
+        if isinstance(self.default, dict):
+            # The default of a `TypedDict` node; a key it leaves out is not set.
+            return cast("dict[str, Any]", self.default).get(info.name, MISSING)
         if self.default is not MISSING and not info.initvar:
             return getattr(self.default, info.name)
         return info.class_default()

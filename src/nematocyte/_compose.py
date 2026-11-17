@@ -43,7 +43,7 @@ def _did_you_mean(name: str, names: Sequence[str]) -> str:
 
 
 class Composer:
-    """Builds the config tree for one root dataclass and one config directory."""
+    """Builds the config tree for one root config class and one config directory."""
 
     def __init__(
         self, config_cls: type, config_dir: Path | None, settings_cls: type

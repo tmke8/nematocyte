@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Literal, override
+from typing import Literal, NotRequired, TypedDict, cast, override
 
 from torch import nn
 
@@ -21,15 +21,51 @@ def _get_activation(activation: Activation) -> nn.Module:
             return nn.SiLU()
 
 
-type NormType = Literal["BN", "LN"]
+# A config group can also be made of TypedDicts. Each one names its option in the
+# key `_option_` (`model.norm=BN`), which nematocyte fills in, so that the code can
+# tell the options apart. A key that is `NotRequired` and not set in the config is
+# left out of the dict, so PyTorch's own default applies.
+type NormType = BatchNorm | LayerNorm | NoNorm
 
 
-def _get_norm(norm_type: NormType, num_features: int) -> nn.Module:
-    match norm_type:
-        case "BN":
-            return nn.BatchNorm1d(num_features)
-        case "LN":
-            return nn.LayerNorm(num_features)
+class BatchNormArgs(TypedDict):
+    eps: NotRequired[float]
+    momentum: NotRequired[float]
+
+
+class BatchNorm(BatchNormArgs):
+    """Batch normalization."""
+
+    _option_: Literal["BN"]
+
+
+class LayerNormArgs(TypedDict):
+    eps: NotRequired[float]
+    elementwise_affine: NotRequired[bool]
+
+
+class LayerNorm(LayerNormArgs):
+    """Layer normalization."""
+
+    _option_: Literal["LN"]
+
+
+class NoNorm(TypedDict):
+    """No normalization layer."""
+
+    _option_: Literal["none"]
+
+
+def _get_norm(norm: NormType, num_features: int) -> nn.Module | None:
+    # `kwargs` holds the keys other than `_option_`, which PyTorch does not take.
+    # A type checker only knows that its values are objects, hence the cast.
+    match norm:
+        case {"_option_": "BN", **kwargs}:
+            return nn.BatchNorm1d(num_features, **cast(BatchNormArgs, kwargs))
+        case {"_option_": "LN", **kwargs}:
+            return nn.LayerNorm(num_features, **cast(LayerNormArgs, kwargs))
+        case _:
+            return None
 
 
 # The following abstract class is not needed for the configuration to work: the options
@@ -55,8 +91,9 @@ class FcnFactory(ModelFactory):
         doc="Width of the hidden layers. If not set, the input dimension is used.",
     )
     activation: Activation = field(default="gelu", doc="Activation function.")
-    norm: NormType | None = field(
-        default="LN", doc="Normalization layer to use, if any."
+    norm: NormType = field(
+        default_factory=lambda: {"_option_": "LN"},
+        doc="Normalization layer to use.",
     )
     dropout_prob: float = field(
         default=0.0, doc="Dropout probability. No dropout is applied if this is 0."
@@ -71,8 +108,8 @@ class FcnFactory(ModelFactory):
     def _make_block(self, in_features: int, *, out_features: int) -> nn.Sequential:
         block = nn.Sequential()
         block.append(nn.Linear(in_features, out_features))
-        if self.norm is not None:
-            block.append(_get_norm(self.norm, out_features))
+        if (norm := _get_norm(self.norm, out_features)) is not None:
+            block.append(norm)
         block.append(_get_activation(self.activation))
         if self.dropout_prob > 0:
             block.append(nn.Dropout(p=self.dropout_prob))
@@ -85,8 +122,8 @@ class FcnFactory(ModelFactory):
         predictor = nn.Sequential()
         if with_flatten:
             predictor.append(nn.Flatten())
-        if self.input_norm and (self.norm is not None):
-            predictor.append(_get_norm(self.norm, in_dim))
+        if self.input_norm and (norm := _get_norm(self.norm, in_dim)) is not None:
+            predictor.append(norm)
         curr_dim = in_dim
         if self.num_hidden > 0:
             hidden_dim = in_dim if self.hidden_dim is None else self.hidden_dim

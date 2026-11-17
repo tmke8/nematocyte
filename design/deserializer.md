@@ -171,6 +171,49 @@ validation behaviour we would own.
 - An invalid value names the class and the type of the field in its error,
   next to the doc: `Field: Opt.lr (float). Learning rate.`
 
+### TypedDict configs
+
+A config class can also be a `TypedDict`. Its keys are config keys, as the
+fields of a dataclass are.
+
+```python
+class Opt(TypedDict):
+    """The optimizer."""
+
+    lr: float
+    wd: NotRequired[float]
+```
+
+- A TypedDict can be used wherever a dataclass can: as the root, as a plain
+  subconfig, or as an option of a group. Dataclasses and TypedDicts can be
+  mixed in one tree, but not within a group. An option of a group names
+  itself in a key `_option_`, not with `nematocyte.option()`; see
+  [unions.md](unions.md#typeddicts-as-options).
+- `typing.TypedDict` and `typing_extensions.TypedDict` are both accepted;
+  the second is a class of its own, which `typing.is_typeddict` does not
+  recognise, and is needed for features such as `closed=True`.
+- A TypedDict node is built as a plain `dict`. There is no constructor and
+  no `__post_init__` to run.
+- A TypedDict has no defaults. A `Required` key that nothing sets is an
+  error ("a value is required"), as for a dataclass field without a
+  default. A `NotRequired` key that nothing sets is left out of the dict.
+  `total=False` and inheritance are read through `__required_keys__`.
+- `NotRequired` is only for values. A subconfig or a group cannot be
+  `NotRequired`, for the reasons in
+  [unions.md](unions.md#no-optional-dataclass-fields-for-now).
+- `Required`, `NotRequired` and `ReadOnly` are stripped before the type is
+  read; pydantic sees the type inside them. `ReadOnly` has no other effect.
+- A TypedDict key has no doc; see [helptext.md](helptext.md).
+- The default of a dataclass field typed as a TypedDict is a dict, such as
+  `field(default_factory=lambda: Opt(lr=0.1))`. It is the default instance
+  of the node ([unions.md](unions.md#defaults)): a key it leaves out is not
+  set, so it is an error if the key is `Required`.
+- A program whose TypedDicts have `Required` keys, or a group of TypedDicts,
+  that no default fills in needs a primary config (`config_name`) or
+  overrides to run.
+- `to_dict` keeps a TypedDict as it is, so every TypedDict in a config given
+  to it may hold only values ([api.md](api.md#a-dict-for-logging)).
+
 ## Rejected ideas
 
 ### Strict validation through JSON

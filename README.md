@@ -2,7 +2,8 @@
 
 A configuration library for Python programs: a replacement for Hydra with
 fewer features and more focus on usability. The config is a tree of stdlib
-dataclasses, filled from YAML files and command-line overrides.
+dataclasses (or `TypedDict`s), filled from YAML files and command-line
+overrides.
 
 ```python
 from dataclasses import dataclass, field

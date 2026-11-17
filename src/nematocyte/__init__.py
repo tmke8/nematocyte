@@ -1,4 +1,7 @@
-"""nematocyte: configuration for Python programs, as a tree of dataclasses."""
+"""nematocyte: configuration for Python programs, as a tree of dataclasses.
+
+A node of the tree can also be a `TypedDict`.
+"""
 
 from ._api import EntryPoint as EntryPoint
 from ._api import compose as compose
