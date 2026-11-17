@@ -225,7 +225,7 @@ nematocyte:
 
 
 def make_main(config_dir: Path, seen: list[Config]) -> nematocyte.EntryPoint:
-    @nematocyte.main(Config, config_dir=config_dir)
+    @nematocyte.main(Config, config_path=config_dir)
     def main(config: Config) -> None:
         seen.append(config)
 
@@ -351,7 +351,7 @@ def test_launcher_or_sweeper_without_multirun_is_an_error(
 
 
 def test_exception_of_the_function_is_not_caught(config_dir: Path) -> None:
-    @nematocyte.main(Config, config_dir=config_dir)
+    @nematocyte.main(Config, config_path=config_dir)
     def main(config: Config) -> None:
         raise RuntimeError(f"seed {config.seed}")
 

@@ -36,7 +36,7 @@ class Config:
     seed: int = field(default=42, doc="Random seed.")
 
 
-@nematocyte.main(Config, config_dir="configs")
+@nematocyte.main(Config, config_path="configs")
 def main(config: Config) -> None:
     print(config)
 

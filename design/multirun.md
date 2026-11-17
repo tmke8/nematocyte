@@ -131,8 +131,8 @@ A multirun has a directory under `outputs/`, and each job has a numbered
 directory in it. The working directory is not changed. The details are in
 [outputs.md](outputs.md).
 
-The function is not told its job number, other than through the name of its
-directory.
+The function reads the number of its job with `nematocyte.job_num()`
+([api.md](api.md)). It is also the name of the job's directory.
 
 ### The `basic` sweeper
 

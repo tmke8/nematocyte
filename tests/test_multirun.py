@@ -37,7 +37,7 @@ def make_main(
     seen: list[Config],
     result: Callable[[Config], Any] = lambda config: config.seed,
 ) -> nematocyte.EntryPoint:
-    @nematocyte.main(Config, config_dir=config_dir)
+    @nematocyte.main(Config, config_path=config_dir)
     def main(config: Config) -> Any:
         seen.append(config)
         return result(config)
@@ -321,7 +321,7 @@ def fake_slurm(monkeypatch: pytest.MonkeyPatch) -> type[FakeExecutor]:
 
 def slurm_main(config_dir: Path) -> nematocyte.EntryPoint:
     # The jobs run from a pickle, so the results come back as return values.
-    @nematocyte.main(Config, config_dir=config_dir)
+    @nematocyte.main(Config, config_path=config_dir)
     def main(config: Config) -> Any:
         if config.seed == 13:
             raise RuntimeError("unlucky")

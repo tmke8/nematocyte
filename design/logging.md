@@ -51,7 +51,7 @@ setup that Hydra makes calls a function for it, inside the decorated
 function:
 
 ```python
-@nematocyte.main(Config, config_dir="configs")
+@nematocyte.main(Config, config_path="configs")
 def main(config: Config) -> float:
     nematocyte.configure_logging()
     ...
@@ -64,7 +64,7 @@ logging.basicConfig(
     level=nematocyte.log_level(),
     format="[%(asctime)s][%(name)s][%(levelname)s] - %(message)s",
     handlers=[
-        logging.StreamHandler(),
+        logging.StreamHandler(sys.stdout),
         logging.FileHandler(nematocyte.output_dir() / "run.log"),
     ],
     force=True,
@@ -73,8 +73,8 @@ logging.basicConfig(
 
 - The root logger gets the level, so the messages of libraries are shown at
   that level too.
-- The messages go to standard error, and to `run.log` in the output
-  directory of the job ([outputs.md](outputs.md)). The file handler creates
+- The messages go to standard output, as in Hydra, and to `run.log` in the
+  output directory of the job ([outputs.md](outputs.md)). The file handler creates
   the output directory. `configure_logging(file=False)` leaves the file out,
   for example on SLURM, where submitit keeps the output of each job.
 - **`force=True` is needed for multiruns.** With the basic launcher the jobs

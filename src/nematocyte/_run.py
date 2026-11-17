@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 import logging
 from pathlib import Path
+import sys
 from typing import Any
 
 from ._build import build
@@ -20,6 +21,7 @@ __all__ = [
     "JobResult",
     "StartDir",
     "configure_logging",
+    "job_num",
     "log_level",
     "output_dir",
     "run_job",
@@ -156,6 +158,16 @@ def output_dir() -> Path:
     return _context("output_dir").directory()
 
 
+def job_num() -> int:
+    """Return the number of the current job.
+
+    The jobs of a multirun are numbered from 0, and a single run is job 0.
+    The number is also the name of the job's output directory. Outside a run
+    this is an error.
+    """
+    return _context("job_num").job.number
+
+
 _LEVELS: dict[LogLevel, int] = {
     "debug": logging.DEBUG,
     "info": logging.INFO,
@@ -179,7 +191,7 @@ def configure_logging(*, file: bool = True) -> None:
     """Set up `logging` for the current job, with the level of `nematocyte.log`.
 
     The root logger gets the level, and a handler that writes to standard
-    error. With `file`, a second handler writes to `run.log` in the output
+    output. With `file`, a second handler writes to `run.log` in the output
     directory of the job, which creates the directory. Any earlier setup of
     the root logger is replaced, so that each job of a multirun gets its own.
     Outside a run this is an error.
@@ -190,7 +202,7 @@ def configure_logging(*, file: bool = True) -> None:
             each job.
     """
     context = _context("configure_logging")
-    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
     if file:
         handlers.append(
             logging.FileHandler(context.directory() / LOG_FILE, encoding="utf-8")

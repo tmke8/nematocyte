@@ -7,7 +7,7 @@ What a program imports from nematocyte.
 ### The entry point
 
 ```python
-@nematocyte.main(Config, config_dir="configs")
+@nematocyte.main(Config, config_path="configs")
 def main(config: Config) -> float:
     return config.run()
 
@@ -19,8 +19,9 @@ if __name__ == "__main__":
 - The root dataclass is passed to the decorator. It is the schema that every
   config is checked against ([composition.md](composition.md)), and a type
   checker can verify that the function takes that class.
-- `config_dir` is required, and is relative to the file that defines the
-  function, as in Hydra. The directory has to exist, even if it is empty.
+- `config_path` is required, and is relative to the file that defines the
+  function. Its name and its meaning are Hydra's. The directory has to
+  exist, even if it is empty.
 - `config_name` is optional and names the default primary config. Without
   it there is none, and the tree comes from the root dataclass alone
   ([composition.md](composition.md)).
@@ -44,8 +45,8 @@ config = nematocyte.compose(Config, config_dir, overrides=["model=cnn", "seed=1"
 Returns the config object, for tests and notebooks. It takes the same
 `config_name` as the entry point.
 
-Unlike in the entry point, `config_dir` is optional here; without it there
-are no config files. A relative path is relative to the working directory.
+Unlike `config_path` in the entry point, `config_dir` is optional here;
+without it there are no config files. A relative path is relative to the working directory.
 
 ### A dict for logging
 
@@ -96,6 +97,18 @@ checkpoint_dir = nematocyte.output_dir() / "checkpoints"
 Returns the directory of the current job as a `Path`, and creates it if it
 does not exist yet; see [outputs.md](outputs.md). Outside a run, such as
 after `nematocyte.compose(...)`, it is an error.
+
+### The number of the job
+
+```python
+number = nematocyte.job_num()
+```
+
+Returns the number of the current job as an `int`. The jobs of a multirun
+are numbered from 0, in the order described in
+[multirun.md](multirun.md), and a single run is job 0. The number is the
+name of the job's output directory ([outputs.md](outputs.md)). It plays the
+part of Hydra's `HydraConfig.get().job.num`. Outside a run it is an error.
 
 ### Logging
 
