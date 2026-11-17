@@ -19,6 +19,7 @@ Read these before writing code. They are the specification.
 | File | What it covers |
 | --- | --- |
 | `FEATURES.md` | The scope: the Hydra features the example project relies on |
+| `DIFFERENCES.md` | What works differently from Hydra, for users. Add an entry when a change makes nematocyte behave differently from Hydra in a way a user would notice |
 | `design/deserializer.md` | Building dataclass instances from the config tree, with pydantic for field values |
 | `design/unions.md` | Config groups as annotated unions, `nematocyte.option`, and how defaults work |
 | `design/composition.md` | How config files are found and merged into one tree |

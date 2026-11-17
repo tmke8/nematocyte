@@ -57,6 +57,8 @@ python main.py --multirun seed=1,2,3
   implementation had to decide on its own.
 - [`FEATURES.md`](FEATURES.md) is the scope, as a list of the Hydra features
   that are covered.
+- [`DIFFERENCES.md`](DIFFERENCES.md) lists what works differently from
+  Hydra, for someone who knows it.
 
 ## Installing
 
