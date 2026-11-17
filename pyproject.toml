@@ -1,13 +1,26 @@
 [project]
 name = "nematocyte"
 version = "0.1.0"
-description = "Add your description here"
+description = "Configuration for Python programs, as a tree of dataclasses filled from YAML files and the command line"
+license = "MIT"
+license-files = ["LICENSE"]
 readme = "README.md"
 authors = [
     { name = "Thomas M Kehrenberg", email = "tmke8@posteo.net" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "pydantic>=2.12",
+    "ruamel-yaml>=0.18",
+]
+
+[project.optional-dependencies]
+submitit = [
+    "submitit>=1.5",
+]
+optuna = [
+    "optuna>=4",
+]
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]
@@ -17,15 +30,21 @@ build-backend = "uv_build"
 dev = [
     { include-group = "test" },
     { include-group = "lint" },
+    { include-group = "typecheck" },
     { include-group = "reference" },
 ]
-test = ["pytest>=8"]
+# The tests of the launchers and sweepers need the optional extras.
+test = ["pytest>=8", "submitit>=1.5", "optuna>=4"]
 lint = ["ruff>=0.14", "ty"]
 # Not used by nematocyte; installed to compare behaviour during development.
 reference = [
     "hydra-core==1.4.0rc3",
     "hydra-qol>=0.2.3",
     "tyro>=1.0.17",
+]
+typecheck = [
+    "mypy>=2.4.1",
+    "pyright>=1.1.414",
 ]
 
 [tool.pytest.ini_options]

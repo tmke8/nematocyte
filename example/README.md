@@ -2,13 +2,7 @@
 
 This code base is meant to show-case how to use nematocyte to manage configuration in a project.
 
-> **Status:** nematocyte is not implemented yet. This example shows how it is meant to be used, following the documents in [`../design/`](../design/), and does not run. The program output shown below is illustrative.
-
-### Things this example had to invent
-
-The design documents do not cover the following, so treat them as proposals:
-
-- **The program output shown below:** the wording of the error messages and the log lines of a multirun. In the output of `--help`, the lines `From files:` and `Presets:` are this example's way of listing the configs that are defined in YAML files.
+> **Status:** nematocyte is implemented as described in the documents in [`../design/`](../design/), and everything on this page runs. The wording of the program output shown below may differ in details.
 
 ## Installing dependencies
 
@@ -115,11 +109,35 @@ wandb.resume=null                      [str | null] Whether and how to resume a 
 seed=42                                [int] Random seed.
 gpu=-1                                 [int] Index of the GPU to use. Set to -1 to use
                                        the CPU.
+
+nematocyte:                     nematocyte's own settings.
+
+nematocyte.launcher=basic       How the jobs of a multirun are run.
+                                * basic            Runs the jobs one after another, in the process that was started.
+                                  submitit_slurm   Submits the jobs to a SLURM cluster as one job array, through submitit.
+                                From files: slurm_dipc, slurm_kyiv
+
+nematocyte.sweeper=basic        How a multirun turns the swept values into jobs.
+                                * basic    Runs one job for every combination of the swept values.
+                                  optuna   Searches for the best values with Optuna.
+                                From files: fcn_params
+nematocyte.sweeper.params=null  [dict[str, any] | null] Sweeps by key, written as on the
+                                command line: {seed: '42,43'}.
+
+nematocyte.output_dir=null      [path | null] Directory of this start of the program,
+                                which holds one directory per job. If not set, it is
+                                outputs/DATE/TIME.
+
+Flags:
+--help, -h               Print this help. It reflects the other arguments.
+--cfg, -c {job,all}      Print the composed config instead of running.
+--config-name, -cn NAME  Use the primary config called NAME.
+--multirun, -m           Run one job per combination of the swept values.
 ```
 
 </details>
 
-Every line shows a key with its current value, in the form in which you would set it on the command line, followed by the type of the value and a description. The descriptions come from the dataclasses in `src/` (see [Describing config values](#describing-config-values) below).
+Every line shows a key with its current value, in the form in which you would set it on the command line, followed by the type of the value and a description. The descriptions come from the dataclasses in `src/` (see [Describing config values](#describing-config-values) below). The lines `From files:` and `Presets:` list the configs that are defined in YAML files. At the end come nematocyte's own settings, which are used for [multiruns](#multiruns), and the flags.
 
 We can see that `seed` and `gpu` are "top-level" config values, but there are also a lot of values in subconfigs. For example, we can change the `num_hidden` value in the `model` config:
 ```bash
@@ -256,7 +274,7 @@ Often, we want to run the same experiment with only slightly different configura
 ```bash
 python main.py --multirun seed=42,43
 ```
-The output should look like this:
+The output should look like this (the lines that start with `[nematocyte]` go to standard error):
 ```
 [nematocyte] Launching 2 jobs locally
 [nematocyte]        #0 : seed=42

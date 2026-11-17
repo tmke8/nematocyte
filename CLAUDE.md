@@ -6,9 +6,11 @@ dataclasses, filled from YAML files and command-line overrides.
 
 ## Status
 
-The design is finished and written down. Nothing is implemented:
-`src/nematocyte/__init__.py` is empty. The job is to implement the library as
-designed.
+The library is implemented as designed, in `src/nematocyte/`, with tests in
+`tests/`. Where the design documents were silent or ambiguous, the
+implementation guessed; every guess is listed in `design/guesses.md` and has
+not been reviewed yet. A guess that is confirmed should move into the
+"Decided" section of the document it belongs to.
 
 ## Where the design is
 
@@ -28,6 +30,7 @@ Read these before writing code. They are the specification.
 | `design/multirun.md` | `--multirun`, sweepers and launchers (submitit, Optuna) |
 | `design/outputs.md` | Per-run output directories |
 | `design/logging.md` | Why nematocyte does not set up logging |
+| `design/guesses.md` | What the implementation decided on its own, to be reviewed |
 
 `example/` is a complete project written against the designed API. It is the
 target: when the library is done, `python main.py` and `pytest` have to work

@@ -1,0 +1,148 @@
+"""Turning the composed tree into dataclass instances, with pydantic per value."""
+
+from dataclasses import MISSING
+from typing import Any
+
+from pydantic import (
+    ConfigDict,
+    PydanticSchemaGenerationError,
+    PydanticUserError,
+    TypeAdapter,
+    ValidationError,
+)
+
+from ._errors import ConfigError, SchemaError
+from ._overrides import format_value
+from ._schema import FieldInfo, Kind
+from ._tree import Node, format_path
+from ._types import type_text
+
+__all__ = ["build"]
+
+_FAILED: Any = object()
+_ADAPTERS: dict[tuple[type | None, str], TypeAdapter[Any]] = {}
+
+
+def _adapter(info: FieldInfo) -> TypeAdapter[Any]:
+    key = (info.owner, info.name)
+    adapter = _ADAPTERS.get(key)
+    if adapter is None:
+        try:
+            adapter = TypeAdapter(info.annotation)
+        except (PydanticSchemaGenerationError, PydanticUserError) as first:
+            # A type that pydantic does not know. A value of it cannot be read
+            # from a config file, but a default of that type is still accepted.
+            try:
+                adapter = TypeAdapter(
+                    info.annotation, config=ConfigDict(arbitrary_types_allowed=True)
+                )
+            except Exception:
+                owner = info.owner.__name__ if info.owner is not None else "?"
+                raise SchemaError(
+                    f"{owner}.{info.name}: pydantic cannot handle the type "
+                    f"{info.annotation!r}:\n{first}"
+                ) from first
+        _ADAPTERS[key] = adapter
+    return adapter
+
+
+def _quote_hint(node: Node, info: FieldInfo, value: Any) -> str:
+    source = node.sources.get(info.name, "")
+    if not source.startswith("the override"):
+        return ""
+    text = format_value(value)
+    key = format_path((*node.path, info.name))
+    return (
+        f"\n    To pass a string that looks like something else, quote it, and "
+        f"protect the quotes from the shell: \"{key}='{text}'\""
+    )
+
+
+def _check_value(node: Node, info: FieldInfo, errors: list[str]) -> Any:
+    path = format_path((*node.path, info.name))
+    value = node.value(info)
+    if value is MISSING:
+        errors.append(
+            f"{path}: a value is required. The field {info.name!r} of "
+            f"{node.describe()} has no default."
+        )
+        return _FAILED
+    try:
+        return _adapter(info).validate_python(value, extra="forbid")
+    except ValidationError as exc:
+        if info.name in node.sources:
+            origin = f"set in {node.sources[info.name]}"
+        else:
+            origin = f"the default of {node.class_name}.{info.name}"
+        lines: list[str] = []
+        hint = ""
+        for error in exc.errors():
+            inner = ".".join(str(part) for part in error["loc"])
+            location = f" (at {inner})" if inner else ""
+            lines.append(f"{error['msg']}{location}")
+            scalar = isinstance(value, (bool, int, float))
+            if error["type"] == "string_type" and not inner and scalar:
+                hint = _quote_hint(node, info, value)
+        if len(lines) == 1:
+            message = f"{path}: {lines[0]}."
+        else:
+            message = f"{path}: the value fits none of the allowed types:" + "".join(
+                f"\n    - {line}" for line in lines
+            )
+        message += f"\n    Value: {value!r} ({origin})"
+        described = f"{node.class_name}.{info.name} ({type_text(info.annotation)})"
+        message += f"\n    Field: {described}{'. ' + info.doc if info.doc else ''}"
+        errors.append(message + hint)
+        return _FAILED
+
+
+def _build(node: Node, errors: list[str], *, construct: bool, skip: str | None) -> Any:
+    kwargs: dict[str, Any] = {}
+    failed = False
+    for info in node.fields.values():
+        if info.name == skip:
+            continue
+        if info.kind is Kind.VALUE:
+            value = _check_value(node, info, errors)
+        else:
+            child = node.children.get(info.name)
+            if child is None:
+                path = format_path((*node.path, info.name))
+                errors.append(
+                    f"{path}: no option is selected for this group. Select one "
+                    f"with {path}=NAME, or in the 'defaults' of a config file. "
+                    f"Options: {', '.join(info.options)}"
+                )
+                value = _FAILED
+            else:
+                value = _build(child, errors, construct=construct, skip=None)
+        if value is _FAILED:
+            failed = True
+        else:
+            kwargs[info.name] = value
+    if failed or not construct:
+        return _FAILED
+    assert node.cls is not None
+    try:
+        return node.cls(**kwargs)
+    except Exception as exc:
+        where = f"{format_path(node.path)} ({node.class_name}): " if node.path else ""
+        errors.append(f"{where}{exc}")
+        return _FAILED
+
+
+def build(node: Node, *, construct: bool = True, skip: str | None = None) -> Any:
+    """Build the instance for `node`, and for everything under it.
+
+    Every value is checked by pydantic against the type of its field, and
+    then the constructors run, which runs every `__post_init__`. All the
+    errors in the tree are collected and reported together.
+
+    With `construct=False` the constructors are skipped, and the result is
+    `None`. `skip` names a field of `node` to leave out.
+    """
+    errors: list[str] = []
+    result = _build(node, errors, construct=construct, skip=skip)
+    if errors:
+        raise ConfigError("Error in the configuration:\n" + "\n".join(errors))
+    return None if result is _FAILED else result

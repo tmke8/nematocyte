@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Add your description here"
 authors = [{ name = "Thomas M Kehrenberg", email = "tmke8@posteo.net" }]
 dependencies = [
-    "nematocyte",
+    # The extras are needed for the SLURM launcher and the Optuna sweeper.
+    "nematocyte[optuna,submitit]",
     "torch~=2.14.1",
     "wandb~=0.30.0",
 ]

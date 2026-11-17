@@ -14,3 +14,6 @@ wheels/
 
 # wandb
 /local_logging/
+
+# output directories of runs
+/outputs/

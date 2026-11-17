@@ -1,0 +1,85 @@
+---
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Install dependencies
+        run: |
+          uv sync --locked --only-group lint
+      - name: Lint with ruff
+        run: |
+          uv run --no-sync ruff check --output-format=github
+      - name: Format with ruff
+        run: |
+          uv run --no-sync ruff format --diff .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Install dependencies
+        run: |
+          uv sync --locked --group lint --group test --group typecheck
+      - name: Type check with ty
+        run: |
+          uv run ty check --output-format=github
+      # The public API has to be understood by every type checker.
+      - name: Check the API usage samples with pyright
+        run: |
+          uv run pyright tests/typing_samples.py
+      - name: Check the API usage samples with mypy
+        run: |
+          uv run mypy tests/typing_samples.py
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.14"]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          uv sync --locked --group test
+      - name: Run tests
+        run: |
+          uv run pytest
+
+  example:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: example
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Install dependencies
+        run: |
+          uv sync --locked
+      - name: Check that all config files are valid
+        run: |
+          uv run pytest
+      - name: Run the example
+        run: |
+          uv run python main.py
