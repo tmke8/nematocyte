@@ -10,7 +10,7 @@ from torch.optim import Optimizer
 __all__ = ["OptimisationCfg"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class OptimisationCfg:
     """Config class for the optimisation."""
 

@@ -1,8 +1,7 @@
 """Neural network models definitions."""
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Literal, NotRequired, TypedDict, cast, override
+from typing import Literal, NotRequired, TypedDict, cast
 
 from torch import nn
 
@@ -68,21 +67,8 @@ def _get_norm(norm: NormType, num_features: int) -> nn.Module | None:
             return None
 
 
-# The following abstract class is not needed for the configuration to work: the options
-# of the `model` config group are listed in the `Config` class. It is here to describe
-# what all model factories have in common.
-
-
-class ModelFactory(ABC):
-    """Interface for model factories."""
-
-    @abstractmethod
-    def build(self, in_dim: int, *, out_dim: int) -> nn.Module:
-        raise NotImplementedError()
-
-
-@dataclass(kw_only=True)
-class FcnFactory(ModelFactory):
+@dataclass(kw_only=True, frozen=True)
+class FcnFactory:
     """Factory for fully-connected neural networks."""
 
     num_hidden: int = field(default=1, doc="Number of hidden layers.")
@@ -115,7 +101,6 @@ class FcnFactory(ModelFactory):
             block.append(nn.Dropout(p=self.dropout_prob))
         return block
 
-    @override
     def build(
         self, in_dim: int, *, out_dim: int, with_flatten: bool = False
     ) -> nn.Sequential:
@@ -138,15 +123,14 @@ class FcnFactory(ModelFactory):
         return predictor
 
 
-@dataclass(kw_only=True)
-class SimpleCNNFactory(ModelFactory):
+@dataclass(kw_only=True, frozen=True)
+class SimpleCNNFactory:
     """Factory for a very simple CNN."""
 
     kernel_size: int = field(default=5, doc="Kernel size of the convolutions.")
     pool_stride: int = field(default=2, doc="Stride of the max-pooling layers.")
     activation: Activation = field(default="relu", doc="Activation function.")
 
-    @override
     def build(self, in_dim: int, *, out_dim: int) -> nn.Sequential:
         return nn.Sequential(
             nn.Conv2d(in_channels=in_dim, out_channels=6, kernel_size=self.kernel_size),

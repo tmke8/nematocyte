@@ -1,6 +1,7 @@
 """Main run function and config class."""
 
 from dataclasses import dataclass, field
+from functools import cached_property
 import logging
 from typing import Annotated, Any
 
@@ -8,7 +9,7 @@ from nematocyte import option
 import torch
 
 from src.datasets import CelebADataModule, ColoredMNISTDataModule
-from src.logging import WandbCfg
+from src.logging import WandbKwargs, init_wandb
 from src.models import FcnFactory, SimpleCNNFactory
 from src.optimisation import OptimisationCfg
 
@@ -19,7 +20,7 @@ __all__ = ["Config"]
 log = logging.getLogger(__name__)
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, frozen=True)
 class Config:
     """Main configuration class for the code base."""
 
@@ -40,7 +41,14 @@ class Config:
     # These are normal subconfigs. Note that in dataclasses, the default must not be
     # mutable, so we use `default_factory`.
     opt: OptimisationCfg = field(default_factory=OptimisationCfg)
-    wandb: WandbCfg = field(default_factory=WandbCfg)
+    wandb: WandbKwargs = field(
+        default_factory=lambda: {
+            "dir": "./local_logging",
+            "project": "nematocyte-example",
+            "entity": "example-org",
+            "mode": "disabled",
+        }
+    )
 
     # These are normal fields. The `doc` of a field is shown by `--help`.
     seed: int = field(default=42, doc="Random seed.")
@@ -61,6 +69,10 @@ class Config:
                 "Must be -1 (to use the CPU) or the index of a GPU."
             )
 
+    @cached_property
+    def device(self) -> str:
+        return f"GPU {gpu}" if (gpu := self.gpu) >= 0 else "CPU"
+
     def run(self, config_for_logging: dict[str, Any]) -> float:
         """Run the experiment."""
         # Checks that depend on the machine we are running on belong here, and not
@@ -71,7 +83,7 @@ class Config:
                 f"This machine has {torch.cuda.device_count()} GPU(s)."
             )
 
-        device = f"GPU {gpu}" if (gpu := self.gpu) >= 0 else "CPU"
+        device = self.device
         log.info("Starting a run with seed %d on %s.", self.seed, device)
         # Debug messages are only shown with `nematocyte.log=debug`.
         log.debug("The config of this run: %s", config_for_logging)
@@ -79,7 +91,7 @@ class Config:
         torch.manual_seed(self.seed)
 
         # Initialize the logger.
-        wandb_run = self.wandb.init(config_for_logging, reinit=True)
+        wandb_run = init_wandb(self.wandb, config_for_logging, reinit=True)
         if wandb_run is not None:
             wandb_run.log({"accuracy": 0.5})
 
