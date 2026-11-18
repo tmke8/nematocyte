@@ -233,10 +233,10 @@ selects none. See [composition.md](design/composition.md).
 
 ## Command line
 
-### No `+`, `++` or `~`
+### No `++` or `~`, and `+` takes no `=`
 
-Only `key=value` remains. An unknown key under a dataclass is still an error.
-`+` is not needed where Hydra asks for it:
+Besides `key=value`, only `+NAME` remains. An unknown key under a dataclass
+is still an error. `+` is not needed where Hydra asks for it to add a key:
 
 | Hydra | nematocyte |
 | --- | --- |
@@ -246,6 +246,22 @@ Only `key=value` remains. An unknown key under a dataclass is still an error.
 Whether `key=name` selects a config or sets a value follows from the type of
 the field: a dataclass or a group is a selection. See
 [cli.md](design/cli.md).
+
+### A preset for the whole config is `+presets/debug`
+
+Hydra's `+presets=debug`, with `# @package _global_` in
+`configs/presets/debug.yaml`, applies a file on top of the experiment. In
+nematocyte the file needs no header, and is named as `--config-name` names
+it, with a slash and no `=`:
+
+```sh
+python main.py --config-name good_run +presets/debug
+```
+
+This composes as if `debug.yaml` had `_self_: good_run`. The values on the
+command line still win, as in Hydra. Several of them are applied in the
+order given. `+NAME` only exists on the command line; in a file, `_self_`
+says what it builds on. See [cli.md](design/cli.md).
 
 ### No slash in keys, and `hydra` is `nematocyte`
 

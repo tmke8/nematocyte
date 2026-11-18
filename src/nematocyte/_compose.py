@@ -16,7 +16,7 @@ from ._files import (
     list_names,
     load_file,
 )
-from ._overrides import Override, last_wins
+from ._overrides import AddedConfig, Override, last_wins
 from ._schema import (
     RESERVED_KEY,
     SELF_KEY,
@@ -86,12 +86,22 @@ class Composer:
     # -- the public steps -------------------------------------------------
 
     def compose(
-        self, config_name: str | None = None, overrides: Sequence[Override] = ()
+        self,
+        config_name: str | None = None,
+        overrides: Sequence[Override] = (),
+        added: Sequence[AddedConfig] = (),
     ) -> Node:
-        """The tree for a primary config (or none) and a list of overrides."""
+        """The tree for a primary config (or none), added configs and overrides.
+
+        Each added config (`+NAME`) is a primary config that is applied on top
+        of the tree so far, in the order given, as if it extended the primary
+        config with `_self_`. The overrides come last.
+        """
         root = make_root(self.config_cls, self.settings_cls)
         if config_name is not None and config_name != "":
             self._apply_primary(root, config_name, "--config-name", ())
+        for config in added:
+            self._apply_primary(root, config.name, repr(config.text), ())
         self.apply_overrides(root, overrides)
         return root
 
@@ -172,10 +182,18 @@ class Composer:
                 if available
                 else f"\nThere are no primary configs in {self.config_dir}."
             )
+            dotted = ""
+            if "." in clean:
+                slashed = clean.replace(".", "/")
+                dotted = (
+                    f"\nA primary config in a subdirectory is named with "
+                    f"slashes, as in {slashed!r}."
+                )
             raise _error(
                 source,
                 f"There is no primary config called {name!r} in "
-                f"{self.config_dir}.{listing}{_did_you_mean(clean, available)}",
+                f"{self.config_dir}.{listing}{dotted}"
+                f"{_did_you_mean(clean, available)}",
             )
         return found
 

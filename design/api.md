@@ -47,7 +47,9 @@ config = nematocyte.compose(Config, config_dir, overrides=["model=cnn", "seed=1"
 ```
 
 Returns the config object, for tests and notebooks. It takes the same
-`config_name` as the entry point.
+`config_name` as the entry point. `overrides` takes the arguments as they
+are written on the command line, `+NAME` included
+([cli.md](cli.md#name-applies-a-primary-config-on-top)).
 
 Unlike `config_path` in the entry point, `config_dir` is optional here;
 without it there are no config files. A relative path is relative to the working directory.

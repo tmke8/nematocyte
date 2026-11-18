@@ -141,6 +141,7 @@ Flags:
 --help, -h               Print this help. It reflects the other arguments.
 --cfg, -c {job,all}      Print the composed config instead of running.
 --config-name, -cn NAME  Use the primary config called NAME.
++NAME                    Apply the primary config called NAME on top.
 --multirun, -m           Run one job per combination of the swept values.
 ```
 
@@ -439,6 +440,21 @@ dm:
 The `_self_` entry names the primary config to start from, in the same way as `--config-name` does. Here, `good_run.yaml` is loaded first, and then this file is applied on top: it selects a different option for `dm` and changes the seed. What `good_run.yaml` sets for `model` and `opt` is kept.
 
 Selecting an option for a config group always starts that group afresh: `dm` is now `celeba_male_blond` with its own values, and what `good_run.yaml` set under `dm` is gone. That is why `download: false` is set again here. The same happens on the command line: `python main.py -cn good_run model=cnn` gives you a CNN with its default values, without the `activation: selu` from `good_run.yaml`.
+
+Some settings are not part of an experiment, but you want them for many experiments: while debugging, for example, you may not want to log to the wandb servers. For this, a primary config can be applied on top of another one with a `+` on the command line. The file `configs/presets/debug.yaml` looks like this:
+```yaml
+wandb:
+  mode: offline
+  dir: /tmp
+
+nematocyte:
+  log: debug
+```
+and is applied on top of any experiment with:
+```bash
+python main.py -cn experiments/cmnist_cnn +presets/debug
+```
+This works as if `debug.yaml` had `_self_: experiments/cmnist_cnn`: it only changes the values that it names. The name after the `+` is written as for `--config-name`, with a slash and no `=` (Hydra writes `+presets=debug`). Values on the command line still win over it, and if you give several such presets, they are applied in the order in which you give them.
 
 **Note**: It's very easy to fall into the trap of defining *everything* in these global configs, but that leads to lots of duplication. Try to put as much configuration as possible into the component-specific config files (i.e., those in `configs/dm/` and `configs/model` and so on), because those configs are easy to reuse across different experiments.
 

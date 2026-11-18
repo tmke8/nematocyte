@@ -129,7 +129,7 @@ When the directory of a job is created, two files are written into
 | File | Content |
 | --- | --- |
 | `config.json` | The resolved config of the job, as `nematocyte.run_config()` returns it, with `_option_` for the groups ([api.md](api.md#the-config-of-a-run-as-plain-dicts)) |
-| `overrides.json` | The overrides of the job, including its values of the sweep |
+| `overrides.json` | The arguments of the job: the added configs (`+NAME`) in their order, then the overrides, including its values of the sweep |
 
 The files are JSON, not YAML as in Hydra. The saved config is a record of
 what ran, not a config file: it cannot be passed back as a primary config,

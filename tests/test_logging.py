@@ -66,6 +66,15 @@ def test_log_level_in_every_job_of_a_multirun(
     assert levels == [logging.DEBUG, logging.DEBUG]
 
 
+def test_log_level_from_an_added_config_in_a_multirun(
+    config_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # nematocyte's own settings of a multirun include the added configs.
+    levels = run(["-m", "+presets/debug", "seed=1,2"], config_dir)
+    capsys.readouterr()
+    assert levels == [logging.DEBUG, logging.DEBUG]
+
+
 def test_log_level_other_than_the_three_is_an_error(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

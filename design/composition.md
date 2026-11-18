@@ -42,7 +42,8 @@ and is gone from the command line too; see [cli.md](cli.md).
 
 - A file named by `--config-name`, or named as the default in the entry
   point, is a **primary config**. It describes the root of the tree, wherever
-  the file is.
+  the file is. So is a file named by `+NAME` on the command line, which is
+  applied on top of the primary config ([cli.md](cli.md)).
 - A file in a directory whose path matches a field whose type is a dataclass
   or a group (see [unions.md](unions.md)) is a named config for that field:
   `configs/dm/` holds the options of the group `dm`, and `configs/opt/` the
@@ -163,10 +164,15 @@ always wins. For one file, from lowest to highest:
 4. The values in the file.
 
 The command line comes on top of the primary config, in the same way: first
-its selections, shortest path first, then its values.
+the added configs (`+NAME`), then its selections, shortest path first, then
+its values. An added config is composed as if it extended the primary config
+with `_self_` ([cli.md](cli.md)): its own `_self_` chain, its `defaults` and
+its values apply on top of the tree so far, without going back to the
+defaults of the dataclasses.
 
 The order in which things are written, in a file or on the command line,
-never matters.
+never matters, with one exception: several added configs are applied in the
+order given.
 
 **Shortest path first.** `model.norm` is inside `model`, so it is the more
 specific entry and is applied later. In the example above, `my_batchnorm`

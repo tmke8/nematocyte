@@ -23,6 +23,7 @@ _FLAGS = [
     ("--help, -h", "Print this help. It reflects the other arguments."),
     ("--cfg, -c {job,all}", "Print the composed config instead of running."),
     ("--config-name, -cn NAME", "Use the primary config called NAME."),
+    ("+NAME", "Apply the primary config called NAME on top."),
     ("--multirun, -m", "Run one job per combination of the swept values."),
 ]
 

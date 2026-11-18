@@ -85,6 +85,22 @@ def test_what_nematocyte_writes(tmp_path: Path) -> None:
     assert [path.name for path in internal.parent.iterdir()] == [".nematocyte"]
 
 
+def test_saved_overrides_include_the_added_configs(
+    tmp_path: Path, config_dir: Path
+) -> None:
+    @nematocyte.main(Config, config_path=config_dir)
+    def main(config: Config) -> None:  # noqa: ARG001
+        nematocyte.output_dir()
+
+    main(["flag=true", "+presets/debug"])
+    internal = tmp_path / "outputs/2026-11-16/16-49-10/0/.nematocyte"
+    assert json.loads((internal / "overrides.json").read_text()) == [
+        "+presets/debug",
+        "flag=true",
+    ]
+    assert json.loads((internal / "config.json").read_text())["seed"] == 0
+
+
 def test_output_dir_outside_a_run_is_an_error() -> None:
     nematocyte.compose(Config)
     with pytest.raises(ConfigError, match="outside a run"):

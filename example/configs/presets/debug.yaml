@@ -1,0 +1,8 @@
+# A preset for the whole config, applied on top of any primary config with
+# `+presets/debug`. It only changes the values that it names.
+wandb:
+  mode: offline
+  dir: /tmp
+
+nematocyte:
+  log: debug

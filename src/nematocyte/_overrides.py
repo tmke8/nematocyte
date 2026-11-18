@@ -2,6 +2,7 @@
 
 The grammar is Hydra's, less what nematocyte leaves out (`design/cli.md`)::
 
+    argument:  '+' NAME | override               '+' NAME adds a primary config
     override:  key '=' value?
     key:       ID ('.' ID)*
     value:     element (',' element)*          more than one is a choice sweep
@@ -25,6 +26,7 @@ from typing import Any
 from ._errors import ConfigError
 
 __all__ = [
+    "AddedConfig",
     "ChoiceSweep",
     "IntervalSweep",
     "Override",
@@ -32,8 +34,10 @@ __all__ = [
     "Sweep",
     "format_value",
     "last_wins",
+    "parse_argument",
     "parse_override",
     "parse_value",
+    "split_arguments",
 ]
 
 
@@ -105,6 +109,16 @@ class Override:
     @property
     def is_sweep(self) -> bool:
         return isinstance(self.value, (ChoiceSweep, RangeSweep, IntervalSweep))
+
+
+@dataclass(frozen=True)
+class AddedConfig:
+    """A parsed `+NAME` argument: a primary config applied on top of the tree."""
+
+    name: str
+    """The name of the primary config, as `--config-name` takes it."""
+    text: str = field(compare=False)
+    """The argument as it was written."""
 
 
 _KEY_SEGMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -479,10 +493,20 @@ def parse_override(text: str) -> Override:
         raise ConfigError(f"Cannot parse {text!r}: an override has the form key=value.")
     key_text = key_text.strip(_WHITESPACE)
     problem = None
-    if key_text.startswith("+"):
+    if key_text.startswith("++"):
         problem = (
-            "the '+' prefix is not supported, and not needed: a key is added "
+            "the '++' prefix is not supported, and not needed: a key is added "
             "or changed with a plain key=value"
+        )
+    elif key_text.startswith("+"):
+        bare = key_text[1:]
+        value_text = text.partition("=")[2].strip(_WHITESPACE)
+        name = f"{bare.replace('.', '/')}/{value_text}"
+        problem = (
+            f"'+' takes the name of a primary config, without '=': +{name} "
+            f"applies the primary config {name!r} on top of the one from "
+            f"--config-name. To set or select a key, no '+' is needed: "
+            f"{bare}={value_text}"
         )
     elif key_text.startswith("~"):
         problem = "deleting a key with '~' is not supported"
@@ -506,6 +530,45 @@ def parse_override(text: str) -> Override:
     except _ParseError as exc:
         raise _fail(text, exc) from None
     return Override(tuple(key_text.split(".")), value, text)
+
+
+def parse_argument(text: str) -> Override | AddedConfig:
+    """Parse one command-line argument: `+NAME` or `key=value`."""
+    if text.startswith("+") and "=" not in text:
+        name = text[1:].strip(_WHITESPACE)
+        if name.startswith("+"):
+            raise ConfigError(
+                f"Cannot parse {text!r}: '+' is followed by the name of a "
+                "primary config; '++' is not supported."
+            )
+        if not name:
+            raise ConfigError(
+                f"Cannot parse {text!r}: '+' is followed by the name of a "
+                "primary config, as in +presets/debug."
+            )
+        return AddedConfig(name, text)
+    return parse_override(text)
+
+
+def split_arguments(
+    texts: Sequence[str],
+) -> tuple[list[AddedConfig], list[Override]]:
+    """Parse the arguments into the added configs and the overrides.
+
+    The added configs keep their order, which is the order in which they are
+    applied. A config or a key that is given more than once keeps only its
+    last occurrence.
+    """
+    added: list[AddedConfig] = []
+    overrides: list[Override] = []
+    for text in texts:
+        argument = parse_argument(text)
+        if isinstance(argument, AddedConfig):
+            added = [a for a in added if a != argument]
+            added.append(argument)
+        else:
+            overrides.append(argument)
+    return added, last_wins(overrides)
 
 
 def last_wins(overrides: Sequence[Override]) -> list[Override]:

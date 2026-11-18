@@ -140,7 +140,8 @@ the docs as comments.
 - An option that exists only as a YAML file, such as `single_linear_layer`,
   is listed by its name, without a description. The same goes for the presets
   of a plain subconfig.
-- `--help` also shows nematocyte's own settings and the flags, after the
+- `--help` also shows nematocyte's own settings and the flags (with
+  `+NAME`), after the
   program's keys, as a block of their own, so that their keys do not widen
   the left column. The left column is at most 40 characters wide, and the
   text is wrapped at the width of the terminal, between 60 and 100 columns

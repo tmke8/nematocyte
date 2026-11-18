@@ -16,6 +16,7 @@ from ._compose import Composer
 from ._errors import ConfigError
 from ._interpolation import resolve
 from ._overrides import (
+    AddedConfig,
     ChoiceSweep,
     IntervalSweep,
     Override,
@@ -119,6 +120,8 @@ class Multirun:
     wrapper: Callable[..., Any]
     composer: Composer
     config_name: str | None
+    added: list[AddedConfig]
+    """The primary configs from `+NAME` arguments, in the order given."""
     fixed: list[Override]
     """The overrides from the command line that are not sweeps."""
     sweeps: dict[KeyPath, Sweep]
@@ -142,17 +145,20 @@ class Multirun:
             fixed[path] = Override(path, value, f"{key}={format_value(value)}")
         overrides = list(fixed.values())
         try:
-            root = self.composer.compose(self.config_name, overrides)
+            root = self.composer.compose(self.config_name, overrides, self.added)
             resolve(root, self.now)
             build(root, skip=RESERVED_KEY)
         except ConfigError as exc:
-            shown = " ".join(o.text for o in overrides if o.key[0] != RESERVED_KEY)
+            shown = " ".join(
+                [a.text for a in self.added]
+                + [o.text for o in overrides if o.key[0] != RESERVED_KEY]
+            )
             raise ConfigError(f"In job #{number} ({shown}):\n{exc}") from None
         config = root.to_plain_tree()
         config.pop(RESERVED_KEY, None)
         return Job(
             number,
-            [override.text for override in overrides],
+            [a.text for a in self.added] + [o.text for o in overrides],
             config,
             self.settings.log,
         )
@@ -385,7 +391,7 @@ def _check_exact(
     for path, value in fixed:
         text = f"{'.'.join(path)}={format_value(value)}"
         overrides[path] = Override(path, value, text)
-    root = run.composer.compose(run.config_name, list(overrides.values()))
+    root = run.composer.compose(run.config_name, list(overrides.values()), run.added)
     swept_groups: list[KeyPath] = []
     for path in sorted(keys, key=len):
         if any(path[: len(group)] == group for group in swept_groups):
