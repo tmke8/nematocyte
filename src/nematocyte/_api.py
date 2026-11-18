@@ -13,7 +13,7 @@ from ._build import build
 from ._cli import run_cli
 from ._compose import Composer
 from ._interpolation import resolve
-from ._overrides import parse_override
+from ._overrides import split_arguments
 from ._run import ENTRY_ATTRIBUTE, Entry
 from ._schema import RESERVED_KEY, config_class, validate_schema
 from ._settings import Settings
@@ -98,14 +98,16 @@ def compose[C](
         config_dir: The directory with the config files. A relative path is
             relative to the working directory.
         config_name: The primary config, as `--config-name` takes it.
-        overrides: Overrides as they are written on the command line.
+        overrides: The arguments as they are written on the command line:
+            `key=value`, and `+NAME` for a primary config to apply on top.
 
     Returns:
         An instance of `config_cls`; a dict for a TypedDict.
     """
     directory = Path(config_dir) if config_dir is not None else None
     composer = Composer(config_class(config_cls), directory, Settings)
-    root = composer.compose(config_name, [parse_override(text) for text in overrides])
+    added, parsed = split_arguments(overrides)
+    root = composer.compose(config_name, parsed, added)
     resolve(root, datetime.now())
     return cast("C", build(root, skip=RESERVED_KEY))
 

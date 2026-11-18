@@ -141,6 +141,7 @@ Flags:
 --help, -h               Print this help. It reflects the other arguments.
 --cfg, -c {job,all}      Print the composed config instead of running.
 --config-name, -cn NAME  Use the primary config called NAME.
++NAME                    Apply the primary config called NAME on top.
 --multirun, -m           Run one job per combination of the swept values.
 ```
 
@@ -408,22 +409,22 @@ opt:
 
 The `defaults` section selects options for config groups, in the same way as `model=...` and `dm=...` on the command line. Everything the file does not mention keeps its default from the `Config` class.
 
-And then we can run the code with these config values by running:
+And then we can run the code with these config values by naming the file, without `.yaml`, after a `+`:
 ```bash
-python main.py --config-name good_run
+python main.py +good_run
 ```
-
-Instead of `--config-name` you can also use the shorthand `-cn`.
 
 You can still override values:
 ```bash
-python main.py -cn good_run model.final_bias=false
+python main.py +good_run model.final_bias=false
 ```
+Values on the command line always win over the file, whether you write them before or after `+good_run`. (Only the order of several `+` files among themselves matters; see below.)
 
 Primary configs can also be kept in a subdirectory, as long as the directory does not have the name of a field of the `Config` class. For example, `configs/experiments/cmnist_cnn.yaml` is selected with:
 ```bash
-python main.py -cn experiments/cmnist_cnn
+python main.py +experiments/cmnist_cnn
 ```
+The name after the `+` is the path of the file in `configs/`, with a slash and no `=`. (In Hydra, you would select such a file with `--config-name experiments/cmnist_cnn`.)
 
 A primary config can also be based on another primary config, so that an experiment only has to say what is different about it. The file `configs/experiments/good_run_blond.yaml` looks like this:
 ```yaml
@@ -436,9 +437,24 @@ seed: 2
 dm:
   download: false
 ```
-The `_self_` entry names the primary config to start from, in the same way as `--config-name` does. Here, `good_run.yaml` is loaded first, and then this file is applied on top: it selects a different option for `dm` and changes the seed. What `good_run.yaml` sets for `model` and `opt` is kept.
+The `_self_` entry names the primary config to start from, written in the same way as after the `+`. Here, `good_run.yaml` is loaded first, and then this file is applied on top: it selects a different option for `dm` and changes the seed. What `good_run.yaml` sets for `model` and `opt` is kept.
 
-Selecting an option for a config group always starts that group afresh: `dm` is now `celeba_male_blond` with its own values, and what `good_run.yaml` set under `dm` is gone. That is why `download: false` is set again here. The same happens on the command line: `python main.py -cn good_run model=cnn` gives you a CNN with its default values, without the `activation: selu` from `good_run.yaml`.
+Selecting an option for a config group always starts that group afresh: `dm` is now `celeba_male_blond` with its own values, and what `good_run.yaml` set under `dm` is gone. That is why `download: false` is set again here. The same happens on the command line: `python main.py +good_run model=cnn` gives you a CNN with its default values, without the `activation: selu` from `good_run.yaml`.
+
+You can also give more than one primary config, and each one is applied on top of the ones before it. This is useful for settings that are not part of an experiment, but that you want for many experiments: while debugging, for example, you may not want to log to the wandb servers. The file `configs/presets/debug.yaml` looks like this:
+```yaml
+wandb:
+  mode: offline
+  dir: /tmp
+
+nematocyte:
+  log: debug
+```
+and is applied on top of any experiment with:
+```bash
+python main.py +experiments/cmnist_cnn +presets/debug
+```
+This works as if `debug.yaml` had `_self_: experiments/cmnist_cnn`: it only changes the values that it names. Unlike the other arguments, the order of the `+` arguments matters: they are applied from left to right, so where two of them set the same value, the later one wins. Values on the command line still win over all of them.
 
 **Note**: It's very easy to fall into the trap of defining *everything* in these global configs, but that leads to lots of duplication. Try to put as much configuration as possible into the component-specific config files (i.e., those in `configs/dm/` and `configs/model` and so on), because those configs are easy to reuse across different experiments.
 
@@ -543,6 +559,20 @@ This text is shown by `--help`, next to the key, its type and its current value.
 
 The description of an option of a config group is the docstring of its class, and the description of a group is the `doc` of its field in the `Config` class.
 
+### A default primary config
+This example has no default primary config: whatever no file sets comes from the defaults in the `Config` class, so `python main.py` runs without naming a file. But if your `Config` is a `TypedDict` instead of a dataclass, there is no place in Python for default values. Then the defaults go in a YAML file, say `configs/base.yaml`, which you name in the entry point:
+
+```python
+@nematocyte.main(Config, config_path="configs", config_name="base")
+def main(config: Config) -> float: ...
+```
+
+`base.yaml` is then the primary config of every run, and a file that you name with `+` is applied on top of it: `python main.py +experiments/cmnist_cnn` starts from `base.yaml`. That is usually what you want. If you don't want to inherit from `base.yaml`, name the primary config with `--config-name` (or the shorthand `-cn`) instead, which replaces the default:
+```bash
+python main.py --config-name experiments/cmnist_cnn
+```
+Everything that has no default then has to come from that file, or from a file that it extends with `_self_`. `--config-name ''` means no primary config at all. Files named with `+` are still applied on top, as in `python main.py -cn experiments/cmnist_cnn +presets/debug`.
+
 ## Using the current date in config values
 nematocyte comes with a built-in `now` resolver which formats the current date and time with a [`strftime`](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes) pattern. This is useful, for example, for grouping W&B runs by the day they were started:
 ```bash
@@ -570,6 +600,7 @@ wandb:
 - `configs/`
   - `good_run.yaml`: A primary config.
   - `experiments/`: Contains more primary configs.
+  - `presets/`: Contains primary configs to apply on top of an experiment, such as `debug.yaml`.
   - `dm/`: Contains the config files for the different datasets.
   - `model/`: Contains the config files for the different model architectures.
     - `norm/`: Contains the config files for the normalization layer of the FCN.

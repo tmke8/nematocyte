@@ -7,12 +7,15 @@ import pytest
 
 from nematocyte import ConfigError
 from nematocyte._overrides import (
+    AddedConfig,
     ChoiceSweep,
     IntervalSweep,
     RangeSweep,
     format_value,
+    parse_argument,
     parse_override,
     parse_value,
+    split_arguments,
 )
 
 
@@ -180,6 +183,55 @@ def test_rejected(text: str) -> None:
     with pytest.raises(ConfigError) as excinfo:
         parse_override(text)
     assert text in str(excinfo.value)
+
+
+# -- +NAME ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["+presets/debug", "+good_run", "+presets/debug.yaml"])
+def test_plus_names_a_primary_config(text: str) -> None:
+    assert parse_argument(text) == AddedConfig(text[1:], text)
+
+
+def test_other_arguments_are_overrides() -> None:
+    assert parse_argument("seed=1") == parse_override("seed=1")
+
+
+@pytest.mark.parametrize(
+    ("text", "added", "key"),
+    [
+        ("+presets=debug", "+presets/debug", "presets=debug"),
+        (
+            "+opt=weight_decay_adamw",
+            "+opt/weight_decay_adamw",
+            "opt=weight_decay_adamw",
+        ),
+        ("+a.b=c", "+a/b/c", "a.b=c"),
+    ],
+)
+def test_plus_with_equals_shows_both_forms(text: str, added: str, key: str) -> None:
+    # Hydra's `+presets=debug`: the name of the file is written without `=`.
+    with pytest.raises(ConfigError) as excinfo:
+        parse_argument(text)
+    message = str(excinfo.value)
+    assert repr(text) in message
+    assert added in message
+    assert f"{key}" in message
+
+
+@pytest.mark.parametrize("text", ["+", "++presets/debug", "+ "])
+def test_plus_needs_a_name(text: str) -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        parse_argument(text)
+    assert repr(text) in str(excinfo.value)
+
+
+def test_split_arguments_keeps_the_order_of_added_configs() -> None:
+    added, overrides = split_arguments(
+        ["+b", "seed=1", "+a", "+b", "seed=2", "model=cnn"]
+    )
+    assert [config.name for config in added] == ["a", "b"]
+    assert [override.text for override in overrides] == ["seed=2", "model=cnn"]
 
 
 def test_error_for_slash_shows_the_dotted_key() -> None:

@@ -122,6 +122,20 @@ def test_key_given_twice_in_a_multirun_the_last_one_wins(
     assert [config.seed for config in seen] == seeds
 
 
+def test_added_config_applies_to_every_job(
+    config_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[Config] = []
+    args = ["-m", "+presets/debug", "model=fcn,cnn"]
+    assert run(make_main(config_dir, seen), args) == 0
+    err = capsys.readouterr().err
+    assert [(type(c.model), c.seed, c.opt.lr) for c in seen] == [
+        (Fcn, 0, 0.1),
+        (Cnn, 0, 0.1),
+    ]
+    assert "#0 : +presets/debug model=fcn" in err
+
+
 def test_multirun_without_a_sweep_is_one_job(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

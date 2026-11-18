@@ -5,8 +5,10 @@ How command-line arguments are parsed and applied to the config.
 ## Goal
 
 Keep Hydra's command-line syntax as it is, with one removal: the `+key=value`,
-`++key=value` and `~key` overrides. They are not used in `hydra-example` and
-are confusing.
+`++key=value` and `~key` overrides. They are confusing, and apart from one
+use of `+` they are not used in `hydra-example`. That one use, adding a
+preset such as `+presets=debug` on top of an experiment, keeps the `+`, in a
+simpler form: `+presets/debug`.
 
 ## How Hydra does it
 
@@ -60,9 +62,51 @@ Unlike YAML 1.1, `1e-3` is a float here.
 
 ## Decided
 
-### No `+`, `++` or `~`
+### No `++` or `~`, and `+` only adds a primary config
 
-The grammar's top-level rule keeps only `key=value` and `key=`.
+The grammar's top-level rule keeps `key=value` and `key=`, and adds
+`+NAME`, with no `=` (next section). `+key=value`, `++key=value` and `~key`
+are errors. For `+presets=debug`, the error shows both forms that may have
+been meant: `+presets/debug` and `presets=debug`.
+
+### `+NAME` applies a primary config on top
+
+`+NAME` names a primary config, as `--config-name` takes it, and applies it
+on top of the primary config. `--config-name good_run +presets/debug`
+composes as if `configs/presets/debug.yaml` had `_self_: good_run`. The
+command line's selections and values come after that, as always.
+
+In Hydra this is `+presets=debug`, which appends the group `presets` to the
+defaults list, and the file needs `# @package _global_` so that its content
+lands at the root. In nematocyte `configs/presets/` matches no field, so its
+files are primary configs already ([composition.md](composition.md)), and
+the `=` would only split the name of the file in two. Observed in
+`hydra-example`, with a `presets/debug.yaml` that sets `opt.epochs: 1`:
+
+| Command | Hydra |
+| --- | --- |
+| `+presets=debug` | `epochs: 1` |
+| `+presets=debug opt.epochs=5`, or the other way round | `epochs: 5`; the command line wins |
+| `presets=debug` | "Could not override 'presets'. No match in the defaults list." |
+
+The rules:
+
+- The primary config goes at the bottom of the `_self_` chain of the added
+  file. If `debug.yaml` has `_self_: presets/base`, the chain is `good_run`,
+  then `presets/base`, then `presets/debug`. `_self_` means the same in
+  every primary config, and presets can extend each other.
+- Values on the command line win over an added config, whatever the order
+  of the arguments. A selection on the command line replaces the node, as
+  always ([composition.md](composition.md#layers)).
+- Several added configs are applied in the order in which they are given,
+  so the later one wins. A config that is given twice counts once, at its
+  last place.
+- `+NAME` has to name a primary config. `+model/single_linear_layer` is an
+  error that points to `model=single_linear_layer`.
+- `+NAME` exists only on the command line (and in the overrides of
+  `nematocyte.compose`). A file says what it builds on with `_self_`.
+- Without a primary config (`--config-name ''`), the added config applies on
+  top of the dataclass defaults.
 
 ### Dict-typed fields are open
 
@@ -174,10 +218,11 @@ so `seed=123` is a value.
 
 The order of the arguments has no meaning: `model.kernel_size=3 model=cnn`
 is the same as `model=cnn model.kernel_size=3`. Selections are applied
-first, shortest path first, and then the values. The one exception is a key
-that is given more than once: the last one wins, and the earlier ones are
-dropped before anything is applied (`seed=1 seed=2` sets `2`; with
-`--multirun`, `seed=1,2 seed=3` is one job). What a selection does to
+first, shortest path first, and then the values. There are two exceptions.
+A key that is given more than once: the last one wins, and the earlier ones
+are dropped before anything is applied (`seed=1 seed=2` sets `2`; with
+`--multirun`, `seed=1,2 seed=3` is one job). And the added configs
+(`+NAME`) are applied in the order given, before all selections and values. What a selection does to
 the values that the config files set is described in
 [composition.md](composition.md#layers).
 
@@ -319,8 +364,25 @@ For reference, the flags Hydra has beyond these (`hydra/_internal/utils.py`):
 - **Shell tab completion**, which Hydra installs with `--shell-completion`.
   Perhaps later.
 - **`--resolve`**, to print the resolved values with `--cfg`.
+- **Sweeping over added configs**, as in `+presets/a,presets/b`. With
+  `--multirun`, the added configs are the same for every job.
 
 ## Rejected ideas
+
+### An added config as a list of command-line arguments
+
+Read `+presets/debug` as if the content of the file had been typed on the
+command line: `opt.lr: 0.1` as `opt.lr=0.1`, an entry `dm: cmnist` in
+`defaults` as `dm=cmnist`, and `_self_: base` as `+base`.
+
+**Rejected because** the arguments of the command line are applied as one
+set, selections first and then values, and a repeated key goes by order.
+The order of the arguments would then decide between the file and an
+explicit `opt.lr=3.0`, where Hydra lets the command line win either way.
+And a selection would no longer replace what the layer below set: with a
+`_self_` whose config sets `model.activation: selu`, and a file that selects
+`model: cnn`, the value would be applied to the CNN after the selection,
+instead of being dropped with the old model.
 
 ### Converting numbers to strings for `str` fields
 

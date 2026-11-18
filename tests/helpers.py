@@ -11,7 +11,7 @@ from nematocyte import option
 from nematocyte._build import build
 from nematocyte._compose import Composer
 from nematocyte._interpolation import resolve
-from nematocyte._overrides import parse_override
+from nematocyte._overrides import split_arguments
 from nematocyte._settings import OptunaSweeper, Settings, SubmititSlurmLauncher
 from nematocyte._tree import Node
 
@@ -171,6 +171,26 @@ defaults:
 
 seed: 2
 """,
+    "presets/debug.yaml": """\
+# Applied on top of any primary config with +presets/debug.
+seed: 0
+
+opt:
+  lr: 0.1
+
+nematocyte:
+  log: debug
+""",
+    "presets/debug_cnn.yaml": """\
+defaults:
+  _self_: presets/debug
+  model: cnn
+
+seed: 5
+
+model:
+  stride: 1
+""",
     "dm/celeba_smiling.yaml": """\
 defaults:
   _self_: celeba
@@ -274,7 +294,8 @@ def compose_tree(
 ) -> Node:
     """The composed tree, before interpolations are resolved."""
     composer = Composer(config_cls, config_dir, Settings)
-    return composer.compose(config_name, [parse_override(text) for text in overrides])
+    added, parsed = split_arguments(overrides)
+    return composer.compose(config_name, parsed, added)
 
 
 def compose_settings(

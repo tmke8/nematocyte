@@ -8,8 +8,9 @@ from src.run import Config
 #         configuration. The function below receives an instance of it.
 #     config_path: The path to the directory containing the yaml config files,
 #         relative to this file.
-# There is no default config file: if you run the script without `--config-name`,
-# all values come from the defaults in the `Config` class.
+# There is no default config file: unless you name one on the command line, as in
+# `python main.py +good_run`, all values come from the defaults in the `Config`
+# class.
 
 
 @nematocyte.main(Config, config_path="configs")

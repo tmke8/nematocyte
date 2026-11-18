@@ -13,7 +13,7 @@ from ._errors import ConfigError
 from ._help import format_cfg, format_help
 from ._interpolation import resolve
 from ._multirun import Multirun, run_multirun
-from ._overrides import Override, last_wins, parse_override
+from ._overrides import AddedConfig, Override, split_arguments
 from ._run import Entry, Job, StartDir, default_start_dir, run_job
 from ._schema import RESERVED_KEY
 from ._settings import Settings
@@ -28,7 +28,7 @@ def _parser(program: str) -> argparse.ArgumentParser:
         add_help=False,
         allow_abbrev=False,
         usage="%(prog)s [--help] [--cfg {job,all}] [--config-name NAME] "
-        "[--multirun] [key=value ...]",
+        "[--multirun] [+NAME ...] [key=value ...]",
     )
     parser.add_argument("--help", "-h", action="store_true")
     parser.add_argument("--multirun", "-m", action="store_true")
@@ -87,7 +87,7 @@ def _run(
     entry: Entry, wrapper: Callable[..., Any], args: argparse.Namespace, program: str
 ) -> int:
     now = datetime.now()
-    overrides = last_wins([parse_override(text) for text in args.overrides])
+    added, overrides = split_arguments(args.overrides)
     config_name = entry.config_name
     if args.config_name is not None:
         config_name = str(args.config_name)
@@ -100,7 +100,7 @@ def _run(
         # With --multirun, the swept values are left out: there is one config
         # per job. Without it, a sweep is the error that it always is.
         shown = fixed if args.multirun else overrides
-        root = composer.compose(config_name, shown)
+        root = composer.compose(config_name, shown, added)
         if args.help:
             sys.stdout.write(format_help(composer, root))
             return 0
@@ -119,20 +119,22 @@ def _run(
             wrapper,
             composer=composer,
             config_name=config_name,
+            added=added,
             fixed=fixed,
             sweeps=sweeps,
             now=now,
             program=program,
         )
 
-    root = composer.compose(config_name, overrides)
+    root = composer.compose(config_name, overrides, added)
     _require_multirun(root)
     resolve(root, now)
     build(root, skip=RESERVED_KEY)
     settings = _built_settings(root.children[RESERVED_KEY])
     config = root.to_plain_tree()
     config.pop(RESERVED_KEY, None)
-    job = Job(0, [override.text for override in overrides], config, settings.log)
+    arguments = [a.text for a in added] + [o.text for o in overrides]
+    job = Job(0, arguments, config, settings.log)
     run_job(entry, job, _start_dir(settings, now))
     return 0
 
@@ -143,6 +145,7 @@ def _multirun(
     *,
     composer: Composer,
     config_name: str | None,
+    added: list[AddedConfig],
     fixed: list[Override],
     sweeps: list[Override],
     now: datetime,
@@ -154,15 +157,17 @@ def _multirun(
                 f"Error in {override.text!r}:\nnematocyte's own settings cannot be swept."
             )
     # nematocyte's own settings are the same for every job. They are read
-    # from the primary config and from the overrides under the reserved key.
+    # from the primary config, the added configs, and the overrides under the
+    # reserved key.
     own = [override for override in fixed if override.key[0] == RESERVED_KEY]
-    root = composer.compose(config_name, own)
+    root = composer.compose(config_name, own, added)
     settings = _settings(root, now)
     run = Multirun(
         entry=entry,
         wrapper=wrapper,
         composer=composer,
         config_name=config_name,
+        added=added,
         fixed=fixed,
         sweeps={override.key: override.value for override in sweeps},
         settings=settings,

@@ -268,6 +268,9 @@ is in the launching process.
 - A value under `params` that is not a string (`seed: 1`) is a fixed value
   for every job.
 - nematocyte's own settings cannot be swept (`nematocyte.launcher=a,b`).
+- An added config (`+presets/debug`, see [cli.md](cli.md)) is applied in
+  every job, and its values under `nematocyte` count for the launcher and the
+  sweeper. Added configs cannot be swept.
 - Exit code of a multirun: with the basic sweeper, 1 if any job failed; the
   traceback of each is printed at the end. With Optuna, 0 while the failures
   stay within `max_failure_rate`, and 1 when a batch exceeds it, after which

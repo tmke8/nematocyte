@@ -12,6 +12,7 @@ from nematocyte import ConfigError, option
 from nematocyte._files import load_file
 
 from .helpers import (
+    CONFIG_FILES,
     BatchNorm,
     Celeba,
     Cmnist,
@@ -20,6 +21,7 @@ from .helpers import (
     Fcn,
     LayerNorm,
     Opt,
+    compose_settings,
     write_files,
 )
 
@@ -501,3 +503,145 @@ def test_subconfig_key_with_nothing_under_it_is_ignored(config_dir: Path) -> Non
     write_files(config_dir, {"empty.yaml": "model:\n  # nothing yet\nseed: 3\n"})
     config = nematocyte.compose(Config, config_dir, config_name="empty")
     assert config == Config(seed=3)
+
+
+# -- added configs: +NAME ----------------------------------------------------
+
+
+def test_added_config_applies_on_top_of_the_primary_config(config_dir: Path) -> None:
+    config = nematocyte.compose(
+        Config, config_dir, config_name="good_run", overrides=["+presets/debug"]
+    )
+    assert config.seed == 0
+    # Only what the added config names changes: `weight_decay` of `good_run`
+    # stays, and so does the model.
+    assert config.opt == Opt(lr=0.1, weight_decay=0.001)
+    assert config.model == Fcn(num_hidden=0, activation="selu")
+
+
+def test_added_config_without_a_primary_config(config_dir: Path) -> None:
+    config = nematocyte.compose(Config, config_dir, overrides=["+presets/debug"])
+    assert config == Config(seed=0, opt=Opt(lr=0.1))
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [["+presets/debug", "opt.lr=3.0"], ["opt.lr=3.0", "+presets/debug"]],
+)
+def test_command_line_values_win_over_an_added_config(
+    config_dir: Path, overrides: list[str]
+) -> None:
+    config = nematocyte.compose(Config, config_dir, overrides=overrides)
+    assert config.opt.lr == 3.0
+    assert config.seed == 0
+
+
+def test_added_config_composes_as_if_it_extended_the_primary_config(
+    config_dir: Path,
+) -> None:
+    # `presets/debug_cnn` extends `presets/debug`; the primary config goes at
+    # the bottom of that chain: good_run, then presets/debug, then
+    # presets/debug_cnn.
+    config = nematocyte.compose(
+        Config, config_dir, config_name="good_run", overrides=["+presets/debug_cnn"]
+    )
+    assert config.seed == 5
+    assert config.opt == Opt(lr=0.1, weight_decay=0.001)
+    # The selection replaces the node: `activation: selu` of `good_run` is gone.
+    assert config.model == Cnn(stride=1)
+    # The same chain, written out with `_self_`.
+    write_files(
+        config_dir,
+        {
+            "explicit/debug.yaml": "defaults:\n  _self_: good_run\n"
+            + CONFIG_FILES["presets/debug.yaml"],
+            "explicit/debug_cnn.yaml": CONFIG_FILES["presets/debug_cnn.yaml"].replace(
+                "_self_: presets/debug", "_self_: explicit/debug"
+            ),
+        },
+    )
+    assert config == nematocyte.compose(
+        Config, config_dir, config_name="explicit/debug_cnn"
+    )
+
+
+def test_command_line_selection_replaces_what_an_added_config_set(
+    config_dir: Path,
+) -> None:
+    config = nematocyte.compose(
+        Config, config_dir, overrides=["model=fcn", "+presets/debug_cnn"]
+    )
+    assert config.model == Fcn()
+
+
+@pytest.mark.parametrize(
+    ("overrides", "seed"),
+    [
+        (["+presets/debug", "+presets/seven"], 7),
+        (["+presets/seven", "+presets/debug"], 0),
+        # Given twice, only the last one counts.
+        (["+presets/seven", "+presets/debug", "+presets/seven"], 7),
+    ],
+)
+def test_several_added_configs_apply_in_order(
+    config_dir: Path, overrides: list[str], seed: int
+) -> None:
+    write_files(config_dir, {"presets/seven.yaml": "seed: 7\n"})
+    config = nematocyte.compose(Config, config_dir, overrides=overrides)
+    assert config.seed == seed
+    assert config.opt.lr == 0.1
+
+
+def test_added_config_that_extends_the_primary_config_itself(
+    config_dir: Path,
+) -> None:
+    write_files(
+        config_dir,
+        {"presets/good.yaml": "defaults:\n  _self_: good_run\nseed: 3\n"},
+    )
+    config = nematocyte.compose(
+        Config, config_dir, config_name="good_run", overrides=["+presets/good"]
+    )
+    assert config == nematocyte.compose(
+        Config, config_dir, config_name="good_run", overrides=["seed=3"]
+    )
+
+
+def test_added_config_can_set_nematocytes_settings(config_dir: Path) -> None:
+    assert compose_settings(config_dir, ["+presets/debug"]).log == "debug"
+    assert compose_settings(
+        config_dir, ["+presets/debug", "nematocyte.log=warn"]
+    ).log == ("warn")
+
+
+def test_added_config_from_a_field_directory_is_an_error(config_dir: Path) -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, overrides=["+model/single_linear_layer"])
+    message = str(excinfo.value)
+    assert "'+model/single_linear_layer'" in message
+    assert "'model'" in message
+    assert "model=single_linear_layer" in message
+
+
+def test_unknown_added_config_lists_the_primary_configs(config_dir: Path) -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, overrides=["+presets/debgu"])
+    message = str(excinfo.value)
+    assert "'+presets/debgu'" in message
+    assert "presets/debug_cnn" in message
+    assert "Did you mean 'presets/debug'?" in message
+
+
+def test_dotted_name_of_an_added_config_suggests_slashes(config_dir: Path) -> None:
+    with pytest.raises(ConfigError, match="'presets/debug'"):
+        nematocyte.compose(Config, config_dir, overrides=["+presets.debug"])
+
+
+def test_error_in_an_added_config_names_key_file_and_class(config_dir: Path) -> None:
+    write_files(config_dir, {"presets/bad.yaml": "model:\n  hiden_dim: 10\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, overrides=["+presets/bad"])
+    message = str(excinfo.value)
+    assert "presets/bad.yaml" in message
+    assert "'hiden_dim'" in message
+    assert "Fcn" in message

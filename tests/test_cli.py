@@ -290,6 +290,41 @@ def test_cfg_all(config_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert "output_dir: null" in out
 
 
+def test_added_config(config_dir: Path) -> None:
+    seen: list[Config] = []
+    make_main(config_dir, seen)(["-cn", "good_run", "+presets/debug", "seed=3"])
+    assert seen[0].seed == 3
+    assert seen[0].opt == Opt(lr=0.1, weight_decay=0.001)
+
+
+def test_cfg_with_an_added_config(
+    config_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    make_main(config_dir, [])(["--cfg", "all", "+presets/debug"])
+    out = capsys.readouterr().out
+    assert "seed: 0" in out
+    assert "log: debug" in out
+
+
+def test_help_with_an_added_config(
+    config_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    make_main(config_dir, [])(["+presets/debug_cnn", "--help"])
+    out = capsys.readouterr().out
+    assert "seed=5" in out
+    assert "model.stride=1" in out
+    assert "+NAME" in out
+
+
+def test_hydras_plus_form_is_explained(
+    config_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        make_main(config_dir, [])(["+presets=debug"])
+    assert excinfo.value.code == 1
+    assert "+presets/debug" in capsys.readouterr().err
+
+
 def test_cfg_needs_its_argument(config_dir: Path) -> None:
     with pytest.raises(SystemExit) as excinfo:
         make_main(config_dir, [])(["--cfg"])
