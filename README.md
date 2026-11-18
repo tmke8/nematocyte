@@ -54,10 +54,7 @@ python main.py --multirun seed=1,2,3
 
 - [`example/`](example/) is a complete project with an annotated README.
 - [`design/`](design/) holds the design documents, which are the
-  specification. [`design/guesses.md`](design/guesses.md) lists what the
-  implementation had to decide on its own.
-- [`FEATURES.md`](FEATURES.md) is the scope, as a list of the Hydra features
-  that are covered.
+  specification.
 - [`DIFFERENCES.md`](DIFFERENCES.md) lists what works differently from
   Hydra, for someone who knows it.
 
