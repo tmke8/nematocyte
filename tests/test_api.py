@@ -30,7 +30,7 @@ def test_public_names() -> None:
         "configure_logging",
         "option",
         "validate_configs",
-        "validate_config",
+        "Validator",
     ):
         assert name in nematocyte.__all__
         assert callable(getattr(nematocyte, name))

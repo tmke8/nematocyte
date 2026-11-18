@@ -141,8 +141,16 @@ assert_type(nematocyte.configure_logging(file=False), None)
 assert_type(
     nematocyte.validate_configs(Config, "configs"), list[nematocyte.ValidationResult]
 )
-result = nematocyte.validate_config(Config, Path("configs"), Path("primary.yaml"))
+validator = nematocyte.Validator(Config, Path("configs"))
+assert_type(validator, nematocyte.Validator)
+result = validator.validate(Path("primary.yaml"))
 assert_type(result, nematocyte.ValidationResult)
+assert_type(
+    nematocyte.Validator(Config, "configs", config_name="x", construct=False).validate(
+        "dm/a.yaml"
+    ),
+    nematocyte.ValidationResult,
+)
 assert_type(result.path, Path)
 assert_type(result.error, nematocyte.ConfigError | None)
 assert_type(result.ok, bool)
@@ -245,3 +253,7 @@ class WithClosed(typing_extensions.TypedDict):
 
 assert_type(nematocyte.compose(WithClosed), WithClosed)
 assert_type(nematocyte.compose(WithClosed)["closed"], Closed | Sgd)
+assert_type(
+    nematocyte.Validator(TypedConfig, "configs").validate("primary.yaml"),
+    nematocyte.ValidationResult,
+)
