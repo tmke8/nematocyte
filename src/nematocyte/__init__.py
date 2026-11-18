@@ -19,7 +19,7 @@ from ._schema import Option as Option
 from ._schema import option as option
 from ._types import JSONValue as JSONValue
 from ._validation import ValidationResult as ValidationResult
-from ._validation import validate_config as validate_config
+from ._validation import Validator as Validator
 from ._validation import validate_configs as validate_configs
 
 __all__ = [
@@ -29,6 +29,7 @@ __all__ = [
     "Option",
     "SchemaError",
     "ValidationResult",
+    "Validator",
     "compose",
     "configure_logging",
     "from_run_config",
@@ -39,6 +40,5 @@ __all__ = [
     "output_dir",
     "run_config",
     "to_dict",
-    "validate_config",
     "validate_configs",
 ]

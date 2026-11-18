@@ -20,6 +20,13 @@ from src.run import Config
 CONFIG_DIR = Path(__file__).parent.parent / "configs"
 
 
+# The schema of `Config` is checked once, when the validator is made; each test case
+# then checks one file.
+@pytest.fixture(scope="module")
+def validator() -> nematocyte.Validator:
+    return nematocyte.Validator(Config, CONFIG_DIR)
+
+
 # One test case per config file, so that every broken file is reported separately.
 # What kind of config a file is follows from where it is: `configs/dm/` holds configs
 # for the `dm` field of `Config`, and a directory that matches no field, such as
@@ -29,7 +36,7 @@ CONFIG_DIR = Path(__file__).parent.parent / "configs"
     sorted(path.relative_to(CONFIG_DIR) for path in CONFIG_DIR.rglob("*.y*ml")),
     ids=Path.as_posix,
 )
-def test_config(path: Path) -> None:
-    result = nematocyte.validate_config(Config, CONFIG_DIR, path)
+def test_config(validator: nematocyte.Validator, path: Path) -> None:
+    result = validator.validate(path)
     if result.error is not None:
         raise result.error

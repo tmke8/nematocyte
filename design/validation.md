@@ -131,12 +131,24 @@ dataclass nodes itself ([deserializer.md](deserializer.md)).
 The function returns one result per file, with the path and the error if
 there is one, so that a test can report each broken file separately.
 
-A function for a single file is available too, for parametrised tests such as
-the one in `hydra-example`:
+For parametrised tests such as the one in `hydra-example`, with one test case
+per file, a validator checks one file at a time:
 
 ```python
-nematocyte.validate_config(Config, config_dir, path)
+validator = nematocyte.Validator(Config, config_dir)
+result = validator.validate(path)
 ```
+
+The work that does not depend on the file is done once, when the validator is
+made: the check of the config classes and the check of the files at the top
+of the config directory. A test makes the validator once, in a fixture with
+`scope="module"`, and calls `validate` in each test case. `validate_configs`
+uses one validator for all the files.
+
+Errors in that shared work are raised by the constructor, and by
+`validate_configs`, instead of being returned as a result: a config class
+declared in an unsupported way, a config directory that does not exist, or a
+file at the top named after a field. They are not the fault of any one file.
 
 ### Sweeper parameters are checked
 
@@ -161,8 +173,8 @@ of a multirun, before any job is submitted ([multirun.md](multirun.md)).
 
 ### Details
 
-- `validate_configs` and `validate_config` take `config_name`, for the
-  primary config that supplies the rest of the tree, and `construct`.
+- `validate_configs` and `Validator` take `config_name`, for the primary
+  config that supplies the rest of the tree, and `construct`.
 
 ## Rejected ideas
 

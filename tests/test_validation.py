@@ -2,12 +2,13 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import pytest
 
 import nematocyte
-from nematocyte import ConfigError, option
+from nematocyte import ConfigError, SchemaError, option
+import nematocyte._validation as nematocyte_validation
 
 from .helpers import CONFIG_FILES, Config, write_files
 
@@ -32,15 +33,15 @@ def test_one_result_per_file(config_dir: Path) -> None:
 @pytest.mark.parametrize("path", sorted(CONFIG_FILES))
 def test_single_file(config_dir: Path, path: str) -> None:
     # As in the example: one test case per file, with a relative path.
-    result = nematocyte.validate_config(Config, config_dir, Path(path))
+    result = nematocyte.Validator(Config, config_dir).validate(Path(path))
     assert result.path == Path(path)
     if result.error is not None:
         raise result.error
 
 
 def test_absolute_path(config_dir: Path) -> None:
-    result = nematocyte.validate_config(
-        Config, config_dir, config_dir / "good_run.yaml"
+    result = nematocyte.Validator(Config, config_dir).validate(
+        config_dir / "good_run.yaml"
     )
     assert result.path == Path("good_run.yaml")
     assert result.ok
@@ -108,8 +109,8 @@ def test_files_under_the_reserved_key(config_dir: Path) -> None:
 
 def test_named_config_for_a_nested_field_of_another_option(config_dir: Path) -> None:
     # `norm` is a field of `cnn` only, and the default option of `model` is `fcn`.
-    result = nematocyte.validate_config(
-        Config, config_dir, "model/norm/my_batchnorm.yaml"
+    result = nematocyte.Validator(Config, config_dir).validate(
+        "model/norm/my_batchnorm.yaml"
     )
     assert result.ok
     write_files(
@@ -238,6 +239,9 @@ def test_construct_false_skips_post_init_only(config_dir: Path) -> None:
     )
     found = errors(config_dir, construct=False)
     assert sorted(found) == ["bad_key.yaml", "bad_type.yaml"]
+    validator = nematocyte.Validator(Config, config_dir, construct=False)
+    assert validator.validate("bad_gpu.yaml").ok
+    assert not validator.validate("bad_key.yaml").ok
 
 
 @dataclass
@@ -262,18 +266,78 @@ def test_field_without_default_needs_a_primary_config(tmp_path: Path) -> None:
     # The counterpart of `config_with_defaults` in hydra-qol.
     results = nematocyte.validate_configs(NeedsName, directory, config_name="base")
     assert all(result.ok for result in results)
+    validator = nematocyte.Validator(NeedsName, directory, config_name="base")
+    assert validator.validate("sub/big.yaml").ok
 
 
 def test_error_is_a_config_error(config_dir: Path) -> None:
     write_files(config_dir, {"bad.yaml": "nope: 1\n"})
-    result = nematocyte.validate_config(Config, config_dir, "bad.yaml")
+    result = nematocyte.Validator(Config, config_dir).validate("bad.yaml")
     assert isinstance(result.error, ConfigError)
     assert not result.ok
 
 
 def test_missing_file(config_dir: Path) -> None:
-    result = nematocyte.validate_config(Config, config_dir, "nope.yaml")
+    result = nematocyte.Validator(Config, config_dir).validate("nope.yaml")
     assert "nope.yaml" in str(result.error)
+
+
+# -- one validator for many files ---------------------------------------------
+
+
+def test_validator_agrees_with_validate_configs(config_dir: Path) -> None:
+    write_files(config_dir, {"experiments/broken.yaml": "model:\n  num_hiden: 1\n"})
+    validator = nematocyte.Validator(Config, config_dir)
+    expected = nematocyte.validate_configs(Config, config_dir)
+    found = [validator.validate(result.path) for result in expected]
+    assert [(r.path, str(r.error)) for r in found] == [
+        (r.path, str(r.error)) for r in expected
+    ]
+    assert not all(result.ok for result in expected)
+
+
+def test_validator_composes_with_one_composer(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    made: list[object] = []
+    real = nematocyte_validation.Composer
+
+    def counting(*args: Any, **kwargs: Any) -> object:
+        composer = real(*args, **kwargs)
+        made.append(composer)
+        return composer
+
+    monkeypatch.setattr(nematocyte_validation, "Composer", counting)
+    validator = nematocyte.Validator(Config, config_dir)
+    assert all(validator.validate(path).ok for path in sorted(CONFIG_FILES))
+    assert len(made) == 1
+    made.clear()
+    nematocyte.validate_configs(Config, config_dir)
+    assert len(made) == 1
+
+
+def test_validator_for_a_missing_directory(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="nowhere"):
+        nematocyte.Validator(Config, tmp_path / "nowhere")
+
+
+def test_validator_for_a_top_level_file_named_after_a_field(
+    config_dir: Path,
+) -> None:
+    # A problem with the directory, not with one file: it is raised once.
+    write_files(config_dir, {"model.yaml": "num_hidden: 1\n"})
+    with pytest.raises(ConfigError, match=r"model\.yaml") as info:
+        nematocyte.Validator(Config, config_dir)
+    assert "'model'" in str(info.value)
+
+
+def test_validator_for_an_unsupported_class(config_dir: Path) -> None:
+    @dataclass
+    class Reserved:
+        nematocyte: int = 1
+
+    with pytest.raises(SchemaError, match=r"Reserved\.nematocyte"):
+        nematocyte.Validator(Reserved, config_dir)
 
 
 # -- sweeper parameters -------------------------------------------------------

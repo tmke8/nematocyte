@@ -18,7 +18,7 @@ from ._schema import RESERVED_KEY, FieldInfo, Kind, class_fields, config_class
 from ._settings import Settings
 from ._tree import Path as KeyPath
 
-__all__ = ["ValidationResult", "validate_config", "validate_configs"]
+__all__ = ["ValidationResult", "Validator", "validate_configs"]
 
 
 @dataclass(frozen=True)
@@ -178,36 +178,62 @@ def _validate(
         )
 
 
-def validate_config(
-    config_cls: TypeForm[Any],
-    config_dir: str | os.PathLike[str],
-    path: str | os.PathLike[str],
-    *,
-    config_name: str | None = None,
-    construct: bool = True,
-) -> ValidationResult:
-    """Check one config file, in the same way as when the program runs.
+class Validator:
+    """Checks config files one at a time, in the same way as when the program runs.
+
+    The schema of the config class and the top of the config directory are
+    checked once, when the validator is made; each call to :meth:`validate`
+    then checks one file. This suits a parametrised test with one case per
+    file.
 
     Args:
         config_cls: The root config class, a dataclass or a TypedDict.
         config_dir: The directory with the config files.
-        path: The file to check, relative to `config_dir`.
         config_name: A primary config that supplies the rest of the tree
             when a named config is checked. Only needed if some field of the
             root config class has no default.
         construct: With `False`, the dataclasses are not constructed, so no
             `__post_init__` runs. Every other check is still made.
+
+    Raises:
+        SchemaError: If the config class is declared in an unsupported way.
+        ConfigError: If the config directory does not exist, or a file at
+            its top is named after a subconfig or a group.
     """
-    directory = Path(config_dir)
-    relative = Path(path)
-    if relative.is_absolute():
-        relative = relative.relative_to(directory.absolute())
-    try:
-        composer = Composer(config_class(config_cls), directory, Settings)
-        _validate(composer, relative, config_name, construct=construct)
-    except ConfigError as exc:
-        return ValidationResult(relative, exc)
-    return ValidationResult(relative, None)
+
+    def __init__(
+        self,
+        config_cls: TypeForm[Any],
+        config_dir: str | os.PathLike[str],
+        *,
+        config_name: str | None = None,
+        construct: bool = True,
+    ) -> None:
+        self._directory = Path(config_dir)
+        self._composer = Composer(config_class(config_cls), self._directory, Settings)
+        self._config_name = config_name
+        self._construct = construct
+
+    def validate(self, path: str | os.PathLike[str]) -> ValidationResult:
+        """Check one config file.
+
+        Args:
+            path: The file to check, relative to the config directory, or an
+                absolute path inside it.
+        """
+        relative = Path(path)
+        if relative.is_absolute():
+            relative = relative.relative_to(self._directory.absolute())
+        try:
+            _validate(
+                self._composer,
+                relative,
+                self._config_name,
+                construct=self._construct,
+            )
+        except ConfigError as exc:
+            return ValidationResult(relative, exc)
+        return ValidationResult(relative, None)
 
 
 def validate_configs(
@@ -219,19 +245,18 @@ def validate_configs(
 ) -> list[ValidationResult]:
     """Check every YAML file in the config directory; one result per file.
 
-    The arguments are those of :func:`validate_config`.
+    The arguments are those of :class:`Validator`, which also says what is
+    raised instead of being returned as a result.
     """
     directory = Path(config_dir)
     if not directory.is_dir():
         raise ConfigError(f"The config directory {directory} does not exist.")
+    validator = Validator(
+        config_cls, directory, config_name=config_name, construct=construct
+    )
     files = sorted(
         path.relative_to(directory)
         for path in directory.rglob("*")
         if path.is_file() and path.suffix in SUFFIXES
     )
-    return [
-        validate_config(
-            config_cls, directory, path, config_name=config_name, construct=construct
-        )
-        for path in files
-    ]
+    return [validator.validate(path) for path in files]

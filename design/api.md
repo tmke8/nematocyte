@@ -222,7 +222,7 @@ level of `logging`. Both are only for use inside a run; see
 
 ```python
 nematocyte.validate_configs(Config, config_dir)
-nematocyte.validate_config(Config, config_dir, path)
+nematocyte.Validator(Config, config_dir).validate(path)
 ```
 
 See [validation.md](validation.md).
