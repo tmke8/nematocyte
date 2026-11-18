@@ -78,8 +78,11 @@ float before too. See [composition.md](design/composition.md).
 ### `???` does not mark a required value
 
 A dataclass field without a default is required, and a missing value is
-reported with its path. In a config file, `???` is an ordinary string. See
-[deserializer.md](design/deserializer.md).
+reported with its path. In a config file, `???` is an ordinary string.
+In order to have fields without defaults after fields with defaults,
+use `@dataclass(kw_only=True)`.
+
+See [deserializer.md](design/deserializer.md).
 
 ### Dict fields are open, and replaced as a whole
 
@@ -91,6 +94,9 @@ For a field typed `dict[...]`, such as
 | `opt.optimizer_kwargs={eps:1e-6}` | Error, asks for `+` | Sets the dict |
 | ... when the field already holds `{amsgrad: true}` | Merges the two | Replaces it: only `eps` is left |
 | `opt.optimizer_kwargs.eps=1e-6` | Error | Error; give the whole dict |
+
+If possible, use `TypedDict` instead. Then you can set
+`opt.optimizer_kwargs.eps=1e-6` on the commandline.
 
 See [cli.md](design/cli.md).
 
