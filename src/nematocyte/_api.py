@@ -1,6 +1,6 @@
-"""The public functions: the entry point and `compose`."""
+"""The public functions: the entry point, `compose` and `from_run_config`."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 import functools
 import os
@@ -15,10 +15,12 @@ from ._compose import Composer
 from ._interpolation import resolve
 from ._overrides import parse_override
 from ._run import ENTRY_ATTRIBUTE, Entry
-from ._schema import RESERVED_KEY, config_class
+from ._schema import RESERVED_KEY, config_class, validate_schema
 from ._settings import Settings
+from ._tree import node_from_plain
+from ._types import JSONValue
 
-__all__ = ["EntryPoint", "compose", "main"]
+__all__ = ["EntryPoint", "compose", "from_run_config", "main"]
 
 
 class EntryPoint(Protocol):
@@ -106,3 +108,35 @@ def compose[C](
     root = composer.compose(config_name, [parse_override(text) for text in overrides])
     resolve(root, datetime.now())
     return cast("C", build(root, skip=RESERVED_KEY))
+
+
+def from_run_config[C](config_cls: TypeForm[C], data: Mapping[str, JSONValue]) -> C:
+    """Build the config object from plain dicts, such as a saved `config.json`.
+
+    This is how a run's `.nematocyte/config.json` becomes the object that the
+    function of the run received:
+
+        config = nematocyte.from_run_config(Config, json.loads(path.read_text()))
+
+    It reads what `config.json` holds, the resolved tree of the run. It also
+    takes the output of `to_dict`, which leaves out the values of `InitVar`
+    fields; those then take the default in the class.
+
+    The mapping of a group names its option under the key ``_option_``. A
+    key that is left out takes the default in the class. Every value is checked as a value from a
+    config file is, but no interpolation is resolved and no config file is
+    read.
+
+    Args:
+        config_cls: The root config class, a dataclass or a TypedDict.
+        data: The config, as plain dicts, lists and scalars.
+
+    Returns:
+        An instance of `config_cls`; a dict for a TypedDict.
+    """
+    cls = config_class(config_cls)
+    validate_schema(cls)
+    root = node_from_plain(
+        cls, data, source="the dict given to from_run_config()", checked=False
+    )
+    return cast("C", build(root))

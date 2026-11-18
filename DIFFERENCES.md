@@ -379,8 +379,10 @@ See [outputs.md](design/outputs.md).
 `.nematocyte/config.json` and `.nematocyte/overrides.json`, in place of
 `.hydra/config.yaml`, `.hydra/overrides.yaml` and `.hydra/hydra.yaml`. The
 saved config is resolved, and records the option of each group under
-`_option_`. It cannot be passed back as a primary config. See
-[outputs.md](design/outputs.md).
+`_option_`. It cannot be passed back as a primary config, but
+`nematocyte.from_run_config(Config, data)` turns it back into the config
+object of the run, with the schema applied. Hydra's saved config only loads
+as plain dicts. See [outputs.md](design/outputs.md).
 
 ## Logging
 
@@ -440,4 +442,6 @@ overrides, has no counterpart. See [api.md](design/api.md).
 
 `nematocyte.to_dict(config)` replaces `OmegaConf.to_container`. It records
 the option of each group under `_option_`, and writes enums as their values
-and paths as strings. See [api.md](design/api.md).
+and paths as strings. Inside a run, `nematocyte.run_config()` returns the
+same from the job's resolved tree, as it is saved in `config.json`. See
+[api.md](design/api.md).

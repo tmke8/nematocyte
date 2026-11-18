@@ -1,5 +1,6 @@
 """How the type of a value is shown, in `--help` and in error messages."""
 
+from collections.abc import Mapping
 import enum
 import pathlib
 import types
@@ -7,7 +8,12 @@ from typing import Annotated, Any, Literal, TypeAliasType, Union, get_args, get_
 
 from ._overrides import format_value
 
-__all__ = ["type_text"]
+__all__ = ["JSONValue", "type_text"]
+
+type JSONValue = (
+    Mapping[str, JSONValue] | list[JSONValue] | str | int | float | bool | None
+)
+"""A value as `json.load` returns it. A mapping need not be a `dict`."""
 
 
 def _class_text(tp: type) -> str:

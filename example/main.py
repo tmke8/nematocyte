@@ -20,9 +20,10 @@ def main(config: Config) -> float:
     # example with `nematocyte.log=debug` on the command line.
     nematocyte.configure_logging()
 
-    # `to_dict` turns the config object into plain dicts, lists, strings and numbers,
-    # which is what we want to send to the logger.
-    config_for_logging = nematocyte.to_dict(config)
+    # `run_config` returns the config of this run as plain dicts, lists, strings
+    # and numbers, which is what we want to send to the logger. It is exactly
+    # what nematocyte saves in `.nematocyte/config.json` in the output directory.
+    config_for_logging = nematocyte.run_config()
 
     # Finally, we call the `run` method of the `Config` object.
     return config.run(config_for_logging)

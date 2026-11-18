@@ -23,7 +23,6 @@ changing code.
 | `design/multirun.md` | `--multirun`, sweepers and launchers (submitit, Optuna) |
 | `design/outputs.md` | Per-run output directories |
 | `design/logging.md` | `nematocyte.log` and the opt-in `nematocyte.configure_logging()` |
-| `design/guesses.md` | What the implementation decided on its own, to be reviewed |
 
 - **"Decided"** sections are binding.
 - **"Not in the first version"** means do not implement it, and do not build

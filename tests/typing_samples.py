@@ -4,10 +4,12 @@ This file is not run. It is checked with ty, pyright and mypy, to make sure
 that the API is understood by all of them without a plugin.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+import json
 from pathlib import Path
-from typing import Annotated, Any, Literal, NotRequired, TypedDict, assert_type
+from types import MappingProxyType
+from typing import Annotated, Any, Literal, NotRequired, TypedDict, assert_type, cast
 import typing_extensions
 
 import nematocyte
@@ -101,6 +103,33 @@ assert_type(
 )
 assert_type(nematocyte.compose(Opt, Path("configs"), config_name="primary"), Opt)
 
+# -- the config of a run -----------------------------------------------------------
+
+saved = json.loads(Path("config.json").read_text())
+assert_type(nematocyte.from_run_config(Config, saved), Config)
+assert_type(
+    nematocyte.from_run_config(
+        Config, {"model": {"_option_": "cnn", "kernel_size": 3}, "seed": 1}
+    ),
+    Config,
+)
+assert_type(nematocyte.from_run_config(Opt, MappingProxyType({"lr": 0.1})), Opt)
+tags: list[nematocyte.JSONValue] = ["a", 1, None, [True, 1.5], {"b": "c"}]
+assert_type(nematocyte.from_run_config(Config, {"wandb": {"tags": tags}}), Config)
+assert_type(nematocyte.run_config(), dict[str, nematocyte.JSONValue])
+# A nested value has to be narrowed first, or the result cast.
+model = nematocyte.run_config()["model"]
+assert_type(model, nematocyte.JSONValue)
+if isinstance(model, Mapping):
+    option_name = model["_option_"]
+    if isinstance(option_name, str):
+        assert_type(option_name, str)
+loose = cast("dict[str, Any]", nematocyte.run_config())
+assert_type(loose["model"]["_option_"], Any)
+assert_type(nematocyte.from_run_config(Config, nematocyte.run_config()), Config)
+# The values have to be JSON values.
+nematocyte.from_run_config(Config, {"opt": Opt()})  # type: ignore[dict-item]  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
+
 # -- the other functions -------------------------------------------------------------
 
 assert_type(nematocyte.to_dict(nematocyte.compose(Config)), dict[str, Any])
@@ -151,6 +180,7 @@ class TypedConfig(TypedDict):
 
 
 assert_type(nematocyte.compose(TypedConfig), TypedConfig)
+assert_type(nematocyte.from_run_config(TypedConfig, saved), TypedConfig)
 assert_type(nematocyte.compose(Sgd, "configs", overrides=["momentum=0.9"]), Sgd)
 
 

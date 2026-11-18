@@ -7,12 +7,13 @@ import json
 import logging
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, cast
 
 from ._build import build
 from ._errors import ConfigError
 from ._settings import LogLevel
 from ._tree import node_from_plain
+from ._types import JSONValue
 
 __all__ = [
     "ENTRY_ATTRIBUTE",
@@ -24,6 +25,7 @@ __all__ = [
     "job_num",
     "log_level",
     "output_dir",
+    "run_config",
     "run_job",
 ]
 
@@ -130,9 +132,13 @@ def _json_keys(value: Any) -> Any:
     return value
 
 
+def _json_text(content: Any, *, indent: int | None = None) -> str:
+    """The content as JSON. A value that JSON does not have is written as its text."""
+    return json.dumps(_json_keys(content), indent=indent, default=str)
+
+
 def _write_json(path: Path, content: Any) -> None:
-    text = json.dumps(_json_keys(content), indent=2, default=str)
-    path.write_text(text + "\n", encoding="utf-8")
+    path.write_text(_json_text(content, indent=2) + "\n", encoding="utf-8")
 
 
 _current: _Context | None = None
@@ -156,6 +162,23 @@ def output_dir() -> Path:
     `nematocyte.compose(...)`, this is an error.
     """
     return _context("output_dir").directory()
+
+
+def run_config() -> dict[str, JSONValue]:
+    """Return the config of the current job, as it is saved in `config.json`.
+
+    It is the resolved tree as plain dicts, lists and scalars, with the
+    option of each group under ``_option_``: what the job's
+    `.nematocyte/config.json` holds, whether or not that file has been
+    written. `from_run_config` turns it back into the config object. The
+    result is a copy, which can be changed freely. Outside a run this is an
+    error.
+
+    The values are typed as `JSONValue`, so a nested value has to be narrowed
+    before it is used, or the result cast to `dict[str, Any]`.
+    """
+    config = _context("run_config").job.config
+    return cast("dict[str, JSONValue]", json.loads(_json_text(config)))
 
 
 def job_num() -> int:
@@ -218,7 +241,10 @@ def configure_logging(*, file: bool = True) -> None:
 def run_job(entry: Entry, job: Job, start: StartDir) -> Any:
     """Build the config object of a job and call the function with it."""
     global _current  # noqa: PLW0603
-    config = build(node_from_plain(entry.config_cls, job.config))
+    root = node_from_plain(
+        entry.config_cls, job.config, source="the config of the job", checked=True
+    )
+    config = build(root)
     previous = _current
     _current = _Context(start, job)
     try:
