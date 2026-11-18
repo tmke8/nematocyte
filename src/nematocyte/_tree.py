@@ -1,6 +1,7 @@
 """The composed config, as a tree of nodes that mirrors the config classes."""
 
-from dataclasses import MISSING
+from collections.abc import Mapping
+from dataclasses import MISSING, dataclass
 import difflib
 from typing import Any, cast
 
@@ -15,7 +16,14 @@ from ._schema import (
     is_typeddict_class,
 )
 
-__all__ = ["Node", "Path", "format_path", "make_root", "unknown_key_message"]
+__all__ = [
+    "Node",
+    "Path",
+    "format_path",
+    "make_root",
+    "node_from_plain",
+    "unknown_key_message",
+]
 
 type Path = tuple[str, ...]
 
@@ -170,29 +178,100 @@ class Node:
         return self.touched or any(c.any_touched() for c in self.children.values())
 
 
-def node_from_plain(
-    cls: type, plain: dict[str, Any], path: Path = (), option: str | None = None
+def _from_plain(
+    cls: type,
+    plain: Mapping[Any, Any],
+    path: Path,
+    option: str | None,
+    rebuild: _Rebuild,
 ) -> Node:
-    """Rebuild a node from the output of :meth:`Node.to_plain_tree`."""
     node = Node(cls, path, option=option, expand=False)
-    node.checked = True
-    for info in node.fields.values():
-        if info.name not in plain:
+    node.checked = rebuild.checked
+    for key, value in plain.items():
+        if key == OPTION_KEY and option is not None:
+            # The option of a group node, which was read by the parent.
             continue
-        value = plain[info.name]
+        info = node.fields.get(key) if isinstance(key, str) else None
+        if info is None:
+            where = format_path((*path, str(key)))
+            message = unknown_key_message(node, str(key)).replace("\n", "\n    ")
+            rebuild.errors.append(f"{where}: {message}")
+            continue
         child_path = (*path, info.name)
+        where = format_path(child_path)
         if info.kind is Kind.VALUE:
-            node.set_value(info.name, value, "the config of the job")
-        elif info.kind is Kind.CONFIG:
+            node.set_value(info.name, value, rebuild.source)
+            continue
+        what = "a group" if info.kind is Kind.GROUP else "a subconfig"
+        if not isinstance(value, Mapping):
+            rebuild.errors.append(
+                f"{where}: this is {what} of {node.describe()}, so its value has "
+                f"to be a mapping of its fields, not {value!r}."
+            )
+            continue
+        value = cast("Mapping[Any, Any]", value)
+        if info.kind is Kind.CONFIG:
             assert info.config_cls is not None
-            node.children[info.name] = node_from_plain(
-                info.config_cls, value, child_path
+            node.children[info.name] = _from_plain(
+                info.config_cls, value, child_path, None, rebuild
+            )
+            continue
+        options = ", ".join(info.options)
+        name = value.get(OPTION_KEY)
+        if name is None:
+            rebuild.errors.append(
+                f"{where}: this is a group of {node.describe()}, so its mapping "
+                f"has to name the option under the key {OPTION_KEY!r}. "
+                f"Options: {options}."
+            )
+        elif not isinstance(name, str) or name not in info.options:
+            rebuild.errors.append(
+                f"{where}: {name!r} is not an option of this group of "
+                f"{node.describe()}. Options: {options}."
             )
         else:
-            name = value[OPTION_KEY]
-            node.children[info.name] = node_from_plain(
-                info.options[name], value, child_path, name
+            node.children[info.name] = _from_plain(
+                info.options[name], value, child_path, name, rebuild
             )
+    for info in node.fields.values():
+        if info.kind is Kind.VALUE or info.name in plain:
+            continue
+        # A subconfig or a group that the mapping leaves out takes the
+        # default of the field, as it would without any config file.
+        node.expand_field(info)
+        if info.name not in node.children:
+            rebuild.errors.append(
+                f"{format_path((*path, info.name))}: the mapping has no key for "
+                f"this group of {node.describe()}, and the field has no default. "
+                f"Options: {', '.join(info.options)}."
+            )
+    return node
+
+
+@dataclass(frozen=True)
+class _Rebuild:
+    source: str
+    checked: bool
+    errors: list[str]
+
+
+def node_from_plain(
+    cls: type, plain: Mapping[Any, Any], *, source: str, checked: bool
+) -> Node:
+    """Rebuild the tree from plain dicts, such as `Node.to_plain_tree` gives.
+
+    The mapping of a group names its option under ``_option_``. A key that the
+    mapping leaves out takes the default in the class. `source` says where the
+    values were set, for error messages. `checked` says that the values were
+    checked already, when the tree was composed.
+
+    An unknown key, a missing or unknown option, and a subconfig that is not
+    a mapping are errors, which are collected and raised together.
+    """
+    rebuild = _Rebuild(source, checked, [])
+    node = _from_plain(cls, plain, (), None, rebuild)
+    if rebuild.errors:
+        raise ConfigError("Error in the configuration:\n" + "\n".join(rebuild.errors))
     return node
 
 

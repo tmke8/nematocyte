@@ -379,8 +379,10 @@ See [outputs.md](design/outputs.md).
 `.nematocyte/config.json` and `.nematocyte/overrides.json`, in place of
 `.hydra/config.yaml`, `.hydra/overrides.yaml` and `.hydra/hydra.yaml`. The
 saved config is resolved, and records the option of each group under
-`_option_`. It cannot be passed back as a primary config. See
-[outputs.md](design/outputs.md).
+`_option_`. It cannot be passed back as a primary config, but
+`nematocyte.from_dict(Config, data)` turns it back into the config object of
+the run, with the schema applied. Hydra's saved config only loads as plain
+dicts. See [outputs.md](design/outputs.md).
 
 ## Logging
 

@@ -6,7 +6,9 @@ that the API is understood by all of them without a plugin.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+import json
 from pathlib import Path
+from types import MappingProxyType
 from typing import Annotated, Any, Literal, NotRequired, TypedDict, assert_type
 import typing_extensions
 
@@ -101,6 +103,22 @@ assert_type(
 )
 assert_type(nematocyte.compose(Opt, Path("configs"), config_name="primary"), Opt)
 
+# -- from_dict ----------------------------------------------------------------------
+
+saved = json.loads(Path("config.json").read_text())
+assert_type(nematocyte.from_dict(Config, saved), Config)
+assert_type(
+    nematocyte.from_dict(
+        Config, {"model": {"_option_": "cnn", "kernel_size": 3}, "seed": 1}
+    ),
+    Config,
+)
+assert_type(nematocyte.from_dict(Opt, MappingProxyType({"lr": 0.1})), Opt)
+tags: list[nematocyte.JSONValue] = ["a", 1, None, [True, 1.5], {"b": "c"}]
+assert_type(nematocyte.from_dict(Config, {"wandb": {"tags": tags}}), Config)
+# The values have to be JSON values.
+nematocyte.from_dict(Config, {"opt": Opt()})  # type: ignore[dict-item]  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
+
 # -- the other functions -------------------------------------------------------------
 
 assert_type(nematocyte.to_dict(nematocyte.compose(Config)), dict[str, Any])
@@ -151,6 +169,7 @@ class TypedConfig(TypedDict):
 
 
 assert_type(nematocyte.compose(TypedConfig), TypedConfig)
+assert_type(nematocyte.from_dict(TypedConfig, saved), TypedConfig)
 assert_type(nematocyte.compose(Sgd, "configs", overrides=["momentum=0.9"]), Sgd)
 
 

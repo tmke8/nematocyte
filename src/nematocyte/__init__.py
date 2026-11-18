@@ -4,7 +4,9 @@ A node of the tree can also be a `TypedDict`.
 """
 
 from ._api import EntryPoint as EntryPoint
+from ._api import JSONValue as JSONValue
 from ._api import compose as compose
+from ._api import from_dict as from_dict
 from ._api import main as main
 from ._errors import ConfigError as ConfigError
 from ._errors import SchemaError as SchemaError
@@ -22,11 +24,13 @@ from ._validation import validate_configs as validate_configs
 __all__ = [
     "ConfigError",
     "EntryPoint",
+    "JSONValue",
     "Option",
     "SchemaError",
     "ValidationResult",
     "compose",
     "configure_logging",
+    "from_dict",
     "job_num",
     "log_level",
     "main",

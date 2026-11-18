@@ -102,6 +102,54 @@ that is the value, because pydantic reads enums by value
 ([deserializer.md](deserializer.md)). `hydra-qol` uses the name instead,
 because Hydra reads enums by name.
 
+### Reading a saved config back
+
+```python
+data = json.loads((run_dir / ".nematocyte" / "config.json").read_text())
+config = nematocyte.from_dict(Config, data)
+```
+
+Returns the config object that the function of the run received, from the
+`config.json` that the run saved ([outputs.md](outputs.md)), for example to
+load a checkpoint with the model it was trained with. It reads what
+`config.json` holds, the resolved tree of the run. It also takes the output
+of `to_dict`, which leaves out the values of `InitVar` fields; those then
+take the default in the class.
+
+- `data` is a `Mapping[str, JSONValue]`, where
+  `type JSONValue = Mapping[str, JSONValue] | list[JSONValue] | str | int |
+  float | bool | None` is `nematocyte.JSONValue`. A mapping need not be a
+  `dict`, so a `frozendict` or a `MappingProxyType` is accepted.
+- It takes the parsed data, not the path of the file.
+- The mapping of a group names its option under `_option_`, next to the
+  fields, as `to_dict` writes it. A mapping without `_option_`, or with a
+  name that is not an option of the group, is an error that names the key,
+  the class and the options. In a plain subconfig or at the root,
+  `_option_` is an unknown key.
+- A key that the mapping leaves out takes the default in the class, as it
+  would without any config file: a value its class default, and a subconfig
+  or a group the default of the field. A group that is left out and has no
+  default is an error. An unknown key is an error, as in a
+  config file, and so is the key `nematocyte`: the settings are not part of
+  the saved config.
+- Every value is checked and converted as a value from a config file is, and
+  every `__post_init__` runs. The values that the JSON file holds as text,
+  such as a path, a date, or a key of `dict[int, int]`, are read back by
+  pydantic. Nothing is resolved: a `${...}` in a value is kept as it is.
+- Errors in the structure (an unknown key, a group without an option, a
+  subconfig that is not a mapping) are collected and reported together, and
+  before any value is checked; the errors in the values are then collected
+  as in `compose`.
+- The root can be a dataclass or a TypedDict, as for `compose`. Unlike
+  `to_dict`, nothing has to be flat.
+- The job of a multirun is rebuilt from its resolved tree in the same way,
+  with the same checks; that tree always has every key.
+- A field whose type pydantic cannot read, such as `torch.device`
+  ([deserializer.md](deserializer.md#details-of-the-walk)), cannot be read
+  back: a value for it is an error, as in a config file. `config.json`
+  holds such a value as its text, so its key has to be removed first, which
+  gives the default in the class.
+
 ### The output directory
 
 ```python

@@ -23,6 +23,7 @@ def test_public_names() -> None:
         "main",
         "compose",
         "to_dict",
+        "from_dict",
         "output_dir",
         "log_level",
         "configure_logging",
