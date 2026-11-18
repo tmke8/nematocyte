@@ -102,19 +102,48 @@ that is the value, because pydantic reads enums by value
 ([deserializer.md](deserializer.md)). `hydra-qol` uses the name instead,
 because Hydra reads enums by name.
 
-### Reading a saved config back
+### The config of a run, as plain dicts
+
+```python
+wandb.init(config=nematocyte.run_config())
+```
+
+Returns the config of the current job as plain dicts, lists and scalars:
+exactly what its `.nematocyte/config.json` holds
+([outputs.md](outputs.md#what-nematocyte-writes)), whether or not the file
+has been written yet.
+
+- It is the resolved tree that the job's config object was built from, not
+  a conversion of that object. So unlike `to_dict`, it works for a
+  TypedDict root and for TypedDicts that hold subconfigs or groups, it has
+  the values of `InitVar` fields, and the option of a group is the one that
+  was selected.
+- The option of each group is under `_option_`, as in `to_dict`.
+- It holds only JSON values: a value that JSON does not have, such as a
+  date, is its text, and so is a dict key that is not a string. Enums are
+  their values and paths are strings, as in `to_dict`.
+- It is typed as `dict[str, JSONValue]`, which says just that. A nested
+  value has to be narrowed before it is used, or the result cast to
+  `dict[str, Any]`.
+- nematocyte's own settings, the key `nematocyte`, are not part of it.
+- It returns a new copy on every call, which can be changed freely. Changing
+  it changes neither the config of the job nor `config.json`, even if the
+  file is written later.
+- Outside a run it is an error, as for `output_dir()`. `to_dict` is for a
+  config outside a run, such as one from `compose`.
+
+### Reading the config of a run back
 
 ```python
 data = json.loads((run_dir / ".nematocyte" / "config.json").read_text())
-config = nematocyte.from_dict(Config, data)
+config = nematocyte.from_run_config(Config, data)
 ```
 
 Returns the config object that the function of the run received, from the
-`config.json` that the run saved ([outputs.md](outputs.md)), for example to
-load a checkpoint with the model it was trained with. It reads what
-`config.json` holds, the resolved tree of the run. It also takes the output
-of `to_dict`, which leaves out the values of `InitVar` fields; those then
-take the default in the class.
+`config.json` that the run saved, or from what `run_config()` returned, for
+example to load a checkpoint with the model it was trained with. It also
+takes the output of `to_dict`, which leaves out the values of `InitVar`
+fields; those then take the default in the class.
 
 - `data` is a `Mapping[str, JSONValue]`, where
   `type JSONValue = Mapping[str, JSONValue] | list[JSONValue] | str | int |

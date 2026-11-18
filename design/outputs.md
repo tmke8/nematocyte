@@ -128,17 +128,17 @@ When the directory of a job is created, two files are written into
 
 | File | Content |
 | --- | --- |
-| `config.json` | The resolved config of the job, as `nematocyte.to_dict` gives it, with `_option_` for the groups ([api.md](api.md)) |
+| `config.json` | The resolved config of the job, as `nematocyte.run_config()` returns it, with `_option_` for the groups ([api.md](api.md#the-config-of-a-run-as-plain-dicts)) |
 | `overrides.json` | The overrides of the job, including its values of the sweep |
 
 The files are JSON, not YAML as in Hydra. The saved config is a record of
 what ran, not a config file: it cannot be passed back as a primary config,
 since the choices are in `_option_` keys and not in `defaults`
-([unions.md](unions.md)). `nematocyte.from_dict(Config, data)` builds the
-object that the function of the job received from it, with every choice
-([api.md](api.md#reading-a-saved-config-back)). If a flag to run a job again
-is ever added, it can read this file, which holds every value and every
-choice.
+([unions.md](unions.md)). `nematocyte.from_run_config(Config, data)` builds
+the object that the function of the job received from it, with every choice
+([api.md](api.md#reading-the-config-of-a-run-back)). If a flag to run a job
+again is ever added, it can read this file, which holds every value and
+every choice.
 
 A log file, `run.log`, is only written if the program calls
 `nematocyte.configure_logging()` ([logging.md](logging.md)). On SLURM, the
@@ -167,9 +167,9 @@ in Hydra, since a single run and a multirun can now meet as well.
 - The number that keeps a directory from being shared is also added to a
   directory that was set with `nematocyte.output_dir`.
 - `config.json` is written from the resolved tree, which is what `to_dict`
-  gives, plus the values of `InitVar` fields. A value that JSON does not
-  have, such as a date, is written as its text, and so is a dict key that is
-  not a string.
+  gives, plus the values of `InitVar` fields; `run_config()` returns the
+  same. A value that JSON does not have, such as a date, is written as its
+  text, and so is a dict key that is not a string.
 
 ## Not in the first version
 

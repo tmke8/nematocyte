@@ -5,7 +5,7 @@ from functools import cached_property
 import logging
 from typing import Annotated, Any
 
-from nematocyte import option
+from nematocyte import JSONValue, option
 import torch
 
 from src.datasets import CelebADataModule, ColoredMNISTDataModule
@@ -73,7 +73,7 @@ class Config:
     def device(self) -> str:
         return f"GPU {gpu}" if (gpu := self.gpu) >= 0 else "CPU"
 
-    def run(self, config_for_logging: dict[str, Any]) -> float:
+    def run(self, config_for_logging: dict[str, JSONValue]) -> float:
         """Run the experiment."""
         # Checks that depend on the machine we are running on belong here, and not
         # in `__post_init__`.

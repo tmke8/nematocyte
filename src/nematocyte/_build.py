@@ -89,7 +89,7 @@ def _check_value(
     if not readable and info.name in node.sources and not node.checked:
         errors.append(
             f"{path}: this field cannot be set in a config file, on the command "
-            f"line or with from_dict(), because pydantic cannot read its type. "
+            f"line or with from_run_config(), because pydantic cannot read its type. "
             f"Only the default in the class can be used."
             f"\n    Value: {value!r} ({origin}){field_line}"
         )

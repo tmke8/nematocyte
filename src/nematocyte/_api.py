@@ -1,4 +1,4 @@
-"""The public functions: the entry point, `compose` and `from_dict`."""
+"""The public functions: the entry point, `compose` and `from_run_config`."""
 
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
@@ -18,13 +18,9 @@ from ._run import ENTRY_ATTRIBUTE, Entry
 from ._schema import RESERVED_KEY, config_class, validate_schema
 from ._settings import Settings
 from ._tree import node_from_plain
+from ._types import JSONValue
 
-__all__ = ["EntryPoint", "JSONValue", "compose", "from_dict", "main"]
-
-type JSONValue = (
-    Mapping[str, JSONValue] | list[JSONValue] | str | int | float | bool | None
-)
-"""A value as `json.load` returns it. A mapping need not be a `dict`."""
+__all__ = ["EntryPoint", "compose", "from_run_config", "main"]
 
 
 class EntryPoint(Protocol):
@@ -114,13 +110,13 @@ def compose[C](
     return cast("C", build(root, skip=RESERVED_KEY))
 
 
-def from_dict[C](config_cls: TypeForm[C], data: Mapping[str, JSONValue]) -> C:
+def from_run_config[C](config_cls: TypeForm[C], data: Mapping[str, JSONValue]) -> C:
     """Build the config object from plain dicts, such as a saved `config.json`.
 
     This is how a run's `.nematocyte/config.json` becomes the object that the
     function of the run received:
 
-        config = nematocyte.from_dict(Config, json.loads(path.read_text()))
+        config = nematocyte.from_run_config(Config, json.loads(path.read_text()))
 
     It reads what `config.json` holds, the resolved tree of the run. It also
     takes the output of `to_dict`, which leaves out the values of `InitVar`
@@ -141,6 +137,6 @@ def from_dict[C](config_cls: TypeForm[C], data: Mapping[str, JSONValue]) -> C:
     cls = config_class(config_cls)
     validate_schema(cls)
     root = node_from_plain(
-        cls, data, source="the dict given to from_dict()", checked=False
+        cls, data, source="the dict given to from_run_config()", checked=False
     )
     return cast("C", build(root))
