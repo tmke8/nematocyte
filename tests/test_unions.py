@@ -42,9 +42,9 @@ def configs(tmp_path: Path) -> Path:
     return write_files(
         tmp_path / "configs",
         {
-            "select_cnn.yaml": "defaults:\n  model: cnn\n",
+            "select_cnn.yaml": "_defaults_:\n  model: cnn\n",
             "set_wd.yaml": "opt:\n  wd: 0.5\n",
-            "model/small_cnn.yaml": "defaults:\n  _self_: cnn\n\nstride: 1\n",
+            "model/small_cnn.yaml": "_defaults_:\n  _self_: cnn\n\nstride: 1\n",
             "opt/preset.yaml": "wd: 0.1\n",
         },
     )

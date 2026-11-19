@@ -52,11 +52,12 @@ and is gone from the command line too; see [cli.md](cli.md).
 `configs/experiments/cmnist_cnn.yaml` is therefore a primary config with no
 header.
 
-What a file builds on is said in its `defaults`.
+What a file builds on is said under its key `_defaults_`.
 
-### `defaults` is a mapping
+### `_defaults_` is a mapping
 
-In Hydra `defaults` is a list, for reasons that no longer apply:
+Hydra calls the key `defaults`, and it is a list, for reasons that no
+longer apply:
 
 - The list is a merge order, and the entry `_self_` marks where the file's
   own values go in it.
@@ -64,13 +65,13 @@ In Hydra `defaults` is a list, for reasons that no longer apply:
   `- celeba`.
 - Some entries carry a keyword, such as `- override model: cnn`.
 
-In nematocyte `defaults` is a mapping. Each key says where: a field of the
+In nematocyte `_defaults_` is a mapping. Each key says where: a field of the
 node that the file describes, a dotted path to a nested field, or `_self_`
 for that node itself. Each value names the config to load there.
 
 ```yaml
 # configs/experiments/cmnist_cnn.yaml, a primary config
-defaults:
+_defaults_:
   dm: cmnist
   model: cnn
   opt: weight_decay_adamw
@@ -81,7 +82,7 @@ dm:
 
 ```yaml
 # configs/dm/celeba_male_smiling.yaml, a named config for `dm`
-defaults:
+_defaults_:
   _self_: celeba
 
 superclass: Smiling
@@ -93,13 +94,17 @@ superclass: Smiling
 - A primary config describes the root, so `dm: cmnist` means the field `dm`
   of the root dataclass. There is no leading slash, and a primary config
   reads the same whichever directory it is in.
-- `_self_` is reserved: no dataclass field can have that name. In Hydra the
-  word means something else, as described above.
+- `_defaults_` and `_self_` are reserved: no config class can have a field
+  with either name ([unions.md](unions.md#reserved-names)). In Hydra
+  `_self_` means something else, as described above.
+- The key is not called `defaults` as in Hydra, because a name that is
+  reserved below the root takes underscores, and `defaults` is a natural
+  name for a field.
 
 ### `_self_` names the config that a file extends
 
 `_self_` names another config for the same node. That config is loaded
-first, and the `defaults` and values of this file apply on top.
+first, and the `_defaults_` and values of this file apply on top.
 
 | File | What `_self_` can name | Required |
 | --- | --- | --- |
@@ -113,7 +118,7 @@ A primary config that extends another one:
 
 ```yaml
 # configs/experiments/good_run_blond.yaml
-defaults:
+_defaults_:
   _self_: good_run
   dm: celeba_male_blond
 
@@ -123,13 +128,13 @@ seed: 2
 `hydra-example` has neither a primary config that extends another, nor a
 preset that extends another. Both were tested in Hydra on a copy of it.
 
-### A key in `defaults` can be a path
+### A key in `_defaults_` can be a path
 
 Suppose the option `cnn` of `model` has a field `norm`, which is itself a
 group. A primary config can select for both:
 
 ```yaml
-defaults:
+_defaults_:
   model: my_cnn
   model.norm: my_batchnorm
 
@@ -147,7 +152,7 @@ A named config can do the same for its own fields. The keys other than
 
 ```yaml
 # configs/model/my_cnn.yaml
-defaults:
+_defaults_:
   _self_: cnn
   norm: layernorm
 ```
@@ -160,13 +165,13 @@ always wins. For one file, from lowest to highest:
 1. The defaults of the dataclasses.
 2. The config that the file names with `_self_`, composed completely,
    including its own `_self_`.
-3. The other entries in the file's `defaults`, shortest path first.
+3. The other entries in the file's `_defaults_`, shortest path first.
 4. The values in the file.
 
 The command line comes on top of the primary config, in the same way: first
 the added configs (`+NAME`), then its selections, shortest path first, then
 its values. An added config is composed as if it extended the primary config
-with `_self_` ([cli.md](cli.md)): its own `_self_` chain, its `defaults` and
+with `_self_` ([cli.md](cli.md)): its own `_self_` chain, its `_defaults_` and
 its values apply on top of the tree so far, without going back to the
 defaults of the dataclasses.
 
@@ -232,7 +237,7 @@ To keep the value, set it again after the selection; in the file that makes the 
 ```
 
 **What counts.** A value or a selection under the node that a lower layer
-set explicitly: in the values of a file, or in its `defaults`. What the
+set explicitly: in the values of a file, or in its `_defaults_`. What the
 replaced config itself brings is not counted, since it goes along with the
 config. With `good_run` and `model=fcn`, `num_hidden: 0` and `norm: none`
 from `single_linear_layer.yaml` are dropped with it, and are not shown.
@@ -320,7 +325,7 @@ neither named configs nor primary configs.
 ### The schema is always enforced
 
 The root dataclass is given to the entry point, and every primary config is
-validated against it. There is no schema entry in `defaults`.
+validated against it. There is no schema entry in `_defaults_`.
 
 In Hydra the schema is opt-in. `hydra-example` registers the root dataclass
 under the name `base_config`, and a primary config is only validated if its
@@ -390,9 +395,11 @@ on YAML 1.1, such as `on` for a boolean.
   since the name is ambiguous.
 - A key of a subconfig or group with nothing under it (`model:` and then
   only comments, which YAML reads as null) is ignored.
-- A selection written among the values (`model: cnn` outside `defaults`) is
-  an error that points to `defaults`.
-- `defaults` as a list, as in Hydra, is an error that shows the mapping
+- A selection written among the values (`model: cnn` outside `_defaults_`)
+  is an error that points to `_defaults_`.
+- A key `defaults`, as in Hydra, is an error that suggests `_defaults_`,
+  unless the node has a field of that name.
+- `_defaults_` as a list, as in Hydra, is an error that shows the mapping
   form. An entry with `null` (Hydra's `- opt: null`) is an error that says
   it is not needed.
 - `nematocyte=NAME` selects a preset for all of nematocyte's settings, from a

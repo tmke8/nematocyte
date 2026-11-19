@@ -1,7 +1,7 @@
 ---
 # A primary config: it describes the whole configuration, starting from the defaults
 # in the `Config` class. Select it with `--config-name good_run`.
-defaults:
+_defaults_:
   # For each config group, we can choose which option we want.
   # The names are those declared in the `Config` class in `src/run.py`, plus the
   # files in the directory of the group (`configs/model/` and `configs/dm/`).

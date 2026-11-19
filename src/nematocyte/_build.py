@@ -171,7 +171,7 @@ def _build(
                 path = format_path((*node.path, info.name))
                 errors.append(
                     f"{path}: no option is selected for this group. Select one "
-                    f"with {path}=NAME, or in the 'defaults' of a config file. "
+                    f"with {path}=NAME, or in the '_defaults_' of a config file. "
                     f"Options: {', '.join(info.options)}"
                 )
                 value = _FAILED

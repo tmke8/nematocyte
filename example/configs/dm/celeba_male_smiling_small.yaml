@@ -1,5 +1,5 @@
 ---
-defaults:
+_defaults_:
   # You can also extend an option that is itself defined in a file.
   _self_: celeba_male_smiling
 

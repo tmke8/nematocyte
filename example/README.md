@@ -249,14 +249,14 @@ python main.py dm=celeba dm.superclass=Smiling dm.subclass=Male
 
 But after a while, it gets tiring to always type this out. Instead, you can create a config file in the `configs/dm/` directory to store often-used datamodule configurations. For example, you can create a file `configs/dm/celeba_male_smiling.yaml` with the following content:
 ```yaml
-defaults:
+_defaults_:
   _self_: celeba
 
 superclass: Smiling
 subclass: Male
 ```
 
-The `_self_` entry under `defaults` says what this file is based on; here, the option `celeba` of the group. You can think of it as inheritance. A file in the directory of a config group always needs it, because it has to say which option of the group it is based on.
+The `_self_` entry under `_defaults_` says what this file is based on; here, the option `celeba` of the group. You can think of it as inheritance. A file in the directory of a config group always needs it, because it has to say which option of the group it is based on.
 
 Subsequently, you can use the config file like this:
 ```bash
@@ -270,7 +270,7 @@ python main.py dm=celeba_male_smiling dm.superclass=Blond_Hair dm.default_res=64
 
 And you can create config files which inherit from other config files you created. For example, you can create a file `configs/dm/celeba_male_smiling_small.yaml` with the following content:
 ```yaml
-defaults:
+_defaults_:
   _self_: celeba_male_smiling
 
 default_res: 64
@@ -283,7 +283,7 @@ lr: 1.0e-3
 weight_decay: 1.e-2
 optimizer_cls: "torch.optim.AdamW"
 ```
-There is no `defaults` entry, because there is no option to choose. You select the preset in the same way as an option of a group:
+There is no `_defaults_` entry, because there is no option to choose. You select the preset in the same way as an option of a group:
 ```bash
 python main.py opt=weight_decay_adamw
 ```
@@ -291,7 +291,7 @@ This has the same effect as setting the three values on the command line.
 
 A preset can also be based on another preset. The file `configs/opt/strong_weight_decay.yaml` takes the values of `weight_decay_adamw` and changes one of them:
 ```yaml
-defaults:
+_defaults_:
   _self_: weight_decay_adamw
 
 weight_decay: 0.1
@@ -349,7 +349,7 @@ In order to do this, you need to return a value from the function decorated with
 
 Create a config file in `configs/nematocyte/sweeper/`. The name doesn't matter, but we'll choose `fcn_params.yaml` and fill the content like this:
 ```yaml
-defaults:
+_defaults_:
   # Select here which hyperparameter optimization library to use.
   _self_: optuna
 
@@ -371,7 +371,7 @@ params:
 
 Let's break down what's going on here:
 
-- First, the `_self_` entry under `defaults` says which sweeper this file configures. In this case, we want to use Optuna, so we set `optuna`.
+- First, the `_self_` entry under `_defaults_` says which sweeper this file configures. In this case, we want to use Optuna, so we set `optuna`.
 - Then, some settings for Optuna follow.
 - Finally, we specify `params`, which is the heart of this config file. Here, we specify the parameters we want to optimize. For each parameter, we have to specify the search space. For example, `opt.lr: tag(log, interval(1.e-5, 1.e-3))` means that we want to optimize the `opt.lr` parameter and we want to search in the log space between `1.e-5` and `1.e-3`. The `model.num_hidden: range(1, 4)` we want to search in the range from 1 to 3 (inclusive). The `model.dropout_prob: choice(0.0, 0.1)` means that we want to choose between 0.0 and 0.1.
 
@@ -390,7 +390,7 @@ which you have to type over and over again.
 Luckily, we can define a "primary config" in the top-level `configs/` directory, that acts as a *global* configuration. For the above command, we can create a file at `configs/good_run.yaml` with the following content:
 ```yaml
 ---
-defaults:
+_defaults_:
   model: single_linear_layer
   dm: celeba_male_smiling_small
 
@@ -407,7 +407,7 @@ opt:
   weight_decay: 0.001
 ```
 
-The `defaults` section selects options for config groups, in the same way as `model=...` and `dm=...` on the command line. Everything the file does not mention keeps its default from the `Config` class.
+The `_defaults_` section selects options for config groups, in the same way as `model=...` and `dm=...` on the command line. Everything the file does not mention keeps its default from the `Config` class.
 
 And then we can run the code with these config values by naming the file, without `.yaml`, after a `+`:
 ```bash
@@ -428,7 +428,7 @@ The name after the `+` is the path of the file in `configs/`, with a slash and n
 
 A primary config can also be based on another primary config, so that an experiment only has to say what is different about it. The file `configs/experiments/good_run_blond.yaml` looks like this:
 ```yaml
-defaults:
+_defaults_:
   _self_: good_run
   dm: celeba_male_blond
 

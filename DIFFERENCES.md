@@ -164,10 +164,11 @@ other values. See [composition.md](design/composition.md#layers).
 
 ## Config files
 
-### `defaults` is a mapping
+### `_defaults_` is a mapping
 
-Each key says where a config is loaded; the order of the entries has no
-meaning. `_self_` names the config that the file extends.
+The key is called `_defaults_`, not `defaults`, so that `defaults` can be the
+name of a field. Each key says where a config is loaded; the order of the
+entries has no meaning. `_self_` names the config that the file extends.
 
 ```yaml
 # Hydra
@@ -180,14 +181,14 @@ defaults:
 
 ```yaml
 # nematocyte
-defaults:
+_defaults_:
   dm: cmnist
   model: cnn
 ```
 
 ```yaml
 # configs/dm/celeba_male_smiling.yaml
-defaults:
+_defaults_:
   _self_: celeba
 ```
 
@@ -197,7 +198,9 @@ defaults:
 - There is no `override` keyword.
 - A key can be a dotted path: `model.norm: my_batchnorm`.
 - `- opt: null` is not needed, and is an error.
-- A list, as in Hydra, is an error that shows the mapping form.
+- A key `defaults`, as in Hydra, is an error that suggests `_defaults_`,
+  unless the node has a field of that name. A list is an error that shows
+  the mapping form.
 - A primary config can extend another one with `_self_: good_run`.
 
 See [composition.md](design/composition.md).
@@ -213,7 +216,7 @@ without it is not checked at all. See [composition.md](design/composition.md).
 A file's content always goes to the place in the tree that matches where the
 file is. A primary config in a subdirectory, such as
 `configs/experiments/cmnist_cnn.yaml`, needs no `# @package _global_` header,
-and its `defaults` need no leading slash (`dm: cmnist`, not `/dm: cmnist`).
+and its `_defaults_` need no leading slash (`dm: cmnist`, not `/dm: cmnist`).
 See [composition.md](design/composition.md).
 
 ### Where a file is says what it is
@@ -249,7 +252,7 @@ is still an error. `+` is not needed where Hydra asks for it to add a key:
 
 | Hydra | nematocyte |
 | --- | --- |
-| `+opt=weight_decay_adamw` | `opt=weight_decay_adamw`, without a `defaults` entry for `opt` |
+| `+opt=weight_decay_adamw` | `opt=weight_decay_adamw`, without a `_defaults_` entry for `opt` |
 | `+opt.optimizer_kwargs={eps:1e-6}` | `opt.optimizer_kwargs={eps:1e-6}` |
 
 Whether `key=name` selects a config or sets a value follows from the type of
@@ -343,7 +346,7 @@ keep Hydra's names: `basic` and `submitit_slurm` for the launcher, `basic` and
 
 ```yaml
 # configs/nematocyte/launcher/slurm_kyiv.yaml
-defaults:
+_defaults_:
   _self_: submitit_slurm
 
 partition: general

@@ -123,15 +123,38 @@ def test_option_class_cannot_have_a_field_called_option() -> None:
     class C:
         data: Annotated[Bad, option("bad")] | Annotated[A, option("a")]
 
-    with pytest.raises(SchemaError, match="_option_"):
-        class_fields(C)
+    with pytest.raises(SchemaError, match=r"Bad\._option_"):
+        validate_schema(C)
 
 
-@pytest.mark.parametrize("name", ["_self_", "defaults"])
+@pytest.mark.parametrize("name", ["_self_", "_defaults_", "_option_"])
 def test_reserved_field_names(name: str) -> None:
+    # Reserved on every class, not only on options of a group.
     cls = dataclass(type("C", (), {"__annotations__": {name: int}, name: 1}))
-    with pytest.raises(SchemaError, match=name):
+    with pytest.raises(SchemaError, match=rf"C\.{name}: .* is reserved"):
         class_fields(cls)
+
+
+def test_reserved_field_name_in_a_nested_class() -> None:
+    @dataclass
+    class Inner:
+        _option_: int = 1
+
+    @dataclass
+    class Outer:
+        inner: Inner = field(default_factory=Inner)
+
+    with pytest.raises(SchemaError, match=r"Inner\._option_"):
+        validate_schema(Outer)
+
+
+def test_hydras_name_defaults_is_a_field_like_any_other() -> None:
+    @dataclass
+    class C:
+        defaults: int = 1
+
+    validate_schema(C)
+    assert class_fields(C)["defaults"].kind is Kind.VALUE
 
 
 def test_root_cannot_have_a_field_called_nematocyte() -> None:

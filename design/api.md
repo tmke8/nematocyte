@@ -77,8 +77,8 @@ for a group field records it under the key `_option_`:
   with `model=single_linear_layer`, the dict still says `fcn`: the object
   does not know which file its values came from.
 - A plain subconfig such as `opt` gets no `_option_` key.
-- A class that is an option of a group cannot have a field called
-  `_option_`.
+- No config class can have a field called `_option_`
+  ([unions.md](unions.md#reserved-names)).
 - The root has to be a dataclass; a TypedDict root is a `TypeError`.
 - A TypedDict below it, whether a plain subconfig or an option of a group,
   is kept as it is, apart from converting its values as in the table below.

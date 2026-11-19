@@ -133,7 +133,7 @@ When the directory of a job is created, two files are written into
 
 The files are JSON, not YAML as in Hydra. The saved config is a record of
 what ran, not a config file: it cannot be passed back as a primary config,
-since the choices are in `_option_` keys and not in `defaults`
+since the choices are in `_option_` keys and not in `_defaults_`
 ([unions.md](unions.md)). `nematocyte.from_run_config(Config, data)` builds
 the object that the function of the job received from it, with every choice
 ([api.md](api.md#reading-the-config-of-a-run-back)). If a flag to run a job

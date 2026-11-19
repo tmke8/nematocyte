@@ -1,6 +1,6 @@
 """Finding config files and combining them, with the overrides, into one tree."""
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Collection, Iterator, Sequence
 from dataclasses import dataclass
 import difflib
 import os
@@ -21,6 +21,7 @@ from ._files import (
 )
 from ._overrides import AddedConfig, Override, format_value, last_wins
 from ._schema import (
+    DEFAULTS_KEY,
     RESERVED_KEY,
     SELF_KEY,
     FieldInfo,
@@ -43,12 +44,31 @@ __all__ = ["Composer"]
 
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
+# The name of the key in Hydra, which a config file may still use by mistake.
+_HYDRA_DEFAULTS_KEY = "defaults"
+
 # A warning points at the first frame outside nematocyte: the caller's code.
 _PACKAGE_DIR = str(Path(__file__).parent) + os.sep
 
 
 def _error(source: str, message: str) -> ConfigError:
     return ConfigError(f"Error in {source}:\n{message}")
+
+
+def _hydra_defaults_hint(file: ConfigFile, fields: Collection[str]) -> str:
+    """A hint if the file has Hydra's key `defaults`, and it is not a field."""
+    if _HYDRA_DEFAULTS_KEY not in file.values or _HYDRA_DEFAULTS_KEY in fields:
+        return ""
+    return (
+        f"\nThe file has a key {_HYDRA_DEFAULTS_KEY!r}, as in Hydra. In "
+        f"nematocyte, the configs that a file builds on are listed under "
+        f"{DEFAULTS_KEY!r}."
+    )
+
+
+def _option_fields(info: FieldInfo) -> set[str]:
+    """The names of the fields of all options of a group."""
+    return {name for cls in info.options.values() for name in class_fields(cls)}
 
 
 def _did_you_mean(name: str, names: Sequence[str]) -> str:
@@ -270,7 +290,12 @@ class Composer:
         self._apply_body(root, file)
 
     def _apply_body(self, node: Node, file: ConfigFile) -> None:
-        """Apply the `defaults` of a file other than `_self_`, then its values."""
+        """Apply the `_defaults_` of a file other than `_self_`, then its values."""
+        if hint := _hydra_defaults_hint(file, node.fields):
+            raise _error(
+                file.label,
+                f"{_HYDRA_DEFAULTS_KEY!r} is not a field of {node.describe()}.{hint}",
+            )
         entries = [
             (tuple(key.split(".")), key, name)
             for key, name in file.defaults.items()
@@ -278,11 +303,11 @@ class Composer:
         ]
         # Shortest path first: `model.norm` is inside `model` and is applied later.
         for path, key, name in sorted(entries, key=lambda entry: len(entry[0])):
-            source = f"{file.label}, in the entry {key!r} of 'defaults'"
+            source = f"{file.label}, in the entry {key!r} of '_defaults_'"
             if not all(_NAME.fullmatch(segment) for segment in path):
                 raise _error(
                     source,
-                    "A key in 'defaults' is a field, a dotted path to a nested "
+                    "A key in '_defaults_' is a field, a dotted path to a nested "
                     "field, or '_self_'.",
                 )
             parent, info = self._locate(node, path, source)
@@ -291,7 +316,7 @@ class Composer:
                     source,
                     f"{key!r} is a value of {parent.describe()}, not a subconfig "
                     "or a group, so there is nothing to select for it. Set it "
-                    "as a value, outside 'defaults'.",
+                    "as a value, outside '_defaults_'.",
                 )
             self._select(parent, info, name, source, file.label)
         self._apply_values(node, file.values, file.label)
@@ -312,7 +337,7 @@ class Composer:
                 if isinstance(value, str):
                     hint = (
                         f"\nTo select the config called {value!r} for {path!r}, "
-                        f"write it under 'defaults'."
+                        f"write it under '_defaults_'."
                     )
                 what = "a group" if info.kind is Kind.GROUP else "a subconfig"
                 raise _error(
@@ -455,15 +480,16 @@ class Composer:
                 parent,
                 info,
                 base,
-                f"{file.label}, in the entry '_self_' of 'defaults'",
+                f"{file.label}, in the entry '_self_' of '_defaults_'",
                 (*chain, file_path),
             )
         elif info.kind is Kind.GROUP:
             raise _error(
                 file.label,
                 f"A config for the group {format_path(path)!r} has to say which "
-                f"option it extends:\n    defaults:\n      _self_: <option>"
-                f"{self._available(path, info)}",
+                f"option it extends:\n    _defaults_:\n      _self_: <option>"
+                f"{self._available(path, info)}"
+                f"{_hydra_defaults_hint(file, _option_fields(info))}",
             )
         node = parent.children[info.name]
         node.touched = True

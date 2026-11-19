@@ -2,7 +2,7 @@
 # A primary config can be based on another primary config: `_self_` names it in the
 # same way as `--config-name` does. Select this one with
 # `--config-name experiments/good_run_blond`.
-defaults:
+_defaults_:
   _self_: good_run
   # A selection made here replaces what `good_run.yaml` has for `dm`: the option it
   # selects, and the values it sets under `dm`.

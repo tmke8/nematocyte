@@ -140,13 +140,13 @@ Naming an option also drops whatever lower layers selected or set under the
 node; see [composition.md](composition.md#layers).
 
 An option is named either directly (`decoder=cnn`) or by `_self_` in a
-file's `defaults` ([composition.md](composition.md)). A file in a group's
+file's `_defaults_` ([composition.md](composition.md)). A file in a group's
 directory has to say which option it extends, and the chain ends at an
 option from the annotations:
 
 ```yaml
 # configs/decoder/small_cnn.yaml
-defaults:
+_defaults_:
   _self_: cnn
 
 stride: 1
@@ -178,11 +178,26 @@ definition.
 
 ## Decided
 
+### Reserved names
+
+A name that is reserved below the root starts and ends with an underscore,
+so that it cannot get in the way of a field that a user would want to
+write. A name that is reserved only at the root may go without.
+
+| Name | Where it is reserved | Why |
+| --- | --- | --- |
+| `_defaults_` | Every config class | The key of every config file that says what the file builds on ([composition.md](composition.md)) |
+| `_self_` | Every config class | A key in `_defaults_`, next to the names of fields |
+| `_option_` | Every config class | The key that names the option of a group, in `to_dict` and in a TypedDict option. Reserved on every class, not only on options: one rule is simpler, and it keeps the name free |
+| `nematocyte` | The root config class | nematocyte's own settings ([cli.md](cli.md)) |
+
+- A field with a reserved name is an error that names the class and the
+  field. A TypedDict option declares its option in its `_option_` key, and
+  that key is not a field ([TypedDicts as options](#typeddicts-as-options)).
+- `defaults`, Hydra's name for the key, is not reserved.
+
 ### Details of declaring a group
 
-- `defaults` is reserved, like `_self_`: no config dataclass can have a
-  field called `defaults`, because that key means something else at the top
-  of every config file.
 - A union that mixes a dataclass with something else, such as `Sub | int`,
   is an error. A union with a dataclass in it is a group, and all of its
   members have to be named dataclasses.
@@ -249,7 +264,6 @@ apart by that key, which type checkers use to narrow the union:
   is an error. On Python 3.15 the dict can be a `frozendict`, without
   `default_factory`; that is experimental
   ([deserializer.md](deserializer.md#experimental-a-frozendict-as-the-default-of-a-typeddict-field)).
-- A dataclass option still cannot have a field called `_option_`.
 
 ## No tagging
 
@@ -271,7 +285,7 @@ Two things follow:
   option, and is never read from a config.
 - Because the data carries no tag, a dumped config is not self-describing.
   Whatever is written out for reproducibility has to record the choices next
-  to the values, e.g. in `defaults`, so that it can be loaded again.
+  to the values, e.g. in `_defaults_`, so that it can be loaded again.
   The dict for logging records each choice under the key `_option_`
   ([api.md](api.md)).
 
