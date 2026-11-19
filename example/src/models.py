@@ -1,8 +1,9 @@
 """Neural network models definitions."""
 
 from dataclasses import dataclass, field
-from typing import Literal, NotRequired, TypedDict, cast
+from typing import Annotated, Literal, NotRequired, TypedDict
 
+from nematocyte import option
 from torch import nn
 
 type Activation = Literal["relu", "gelu", "selu", "silu"]
@@ -20,49 +21,50 @@ def _get_activation(activation: Activation) -> nn.Module:
             return nn.SiLU()
 
 
-# A config group can also be made of TypedDicts. Each one names its option in the
-# key `_option_` (`model.norm=BN`), which nematocyte fills in, so that the code can
-# tell the options apart. A key that is `NotRequired` and not set in the config is
-# left out of the dict, so PyTorch's own default applies.
-type NormType = BatchNorm | LayerNorm | NoNorm
+type NormType = (
+    Annotated[BatchNorm, option("BN")]
+    | Annotated[LayerNorm, option("LN")]
+    | Annotated[NoNorm, option("none")]
+)
 
 
-class BatchNormArgs(TypedDict):
+class BatchNormKwargs(TypedDict):
     eps: NotRequired[float]
     momentum: NotRequired[float]
 
 
-class BatchNorm(BatchNormArgs):
+@dataclass(frozen=True)
+class BatchNorm:
     """Batch normalization."""
 
-    _option_: Literal["BN"]
+    # A config can also contain TypedDicts. A key that is `NotRequired` and not set in
+    # the config is left out of the dict, so PyTorch's own default applies.
+    kwargs: BatchNormKwargs = field(default_factory=BatchNormKwargs)
 
 
-class LayerNormArgs(TypedDict):
+class LayerNormKwargs(TypedDict):
     eps: NotRequired[float]
     elementwise_affine: NotRequired[bool]
 
 
-class LayerNorm(LayerNormArgs):
+@dataclass(frozen=True)
+class LayerNorm:
     """Layer normalization."""
 
-    _option_: Literal["LN"]
+    kwargs: LayerNormKwargs = field(default_factory=LayerNormKwargs)
 
 
-class NoNorm(TypedDict):
+@dataclass(frozen=True)
+class NoNorm:
     """No normalization layer."""
-
-    _option_: Literal["none"]
 
 
 def _get_norm(norm: NormType, num_features: int) -> nn.Module | None:
-    # `kwargs` holds the keys other than `_option_`, which PyTorch does not take.
-    # A type checker only knows that its values are objects, hence the cast.
     match norm:
-        case {"_option_": "BN", **kwargs}:
-            return nn.BatchNorm1d(num_features, **cast(BatchNormArgs, kwargs))
-        case {"_option_": "LN", **kwargs}:
-            return nn.LayerNorm(num_features, **cast(LayerNormArgs, kwargs))
+        case BatchNorm(kwargs):
+            return nn.BatchNorm1d(num_features, **kwargs)
+        case LayerNorm(kwargs):
+            return nn.LayerNorm(num_features, **kwargs)
         case _:
             return None
 
@@ -77,10 +79,7 @@ class FcnFactory:
         doc="Width of the hidden layers. If not set, the input dimension is used.",
     )
     activation: Activation = field(default="gelu", doc="Activation function.")
-    norm: NormType = field(
-        default_factory=lambda: {"_option_": "LN"},
-        doc="Normalization layer to use.",
-    )
+    norm: NormType = field(default_factory=LayerNorm, doc="Normalization layer to use.")
     dropout_prob: float = field(
         default=0.0, doc="Dropout probability. No dropout is applied if this is 0."
     )

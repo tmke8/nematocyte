@@ -1,8 +1,7 @@
 ---
 defaults:
-  # The options of the `norm` group are TypedDicts, which name their option in the
-  # key `_option_`. `BN` is declared in `src/models.py`.
   _self_: BN
 
-# Keys that are not set here are left out, so PyTorch's own defaults apply.
-momentum: 0.01
+kwargs:
+  # Keys that are not set here are left out, so PyTorch's own defaults apply.
+  momentum: 0.01
