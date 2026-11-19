@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field, make_dataclass
 import logging
 from pathlib import Path
+from types import MappingProxyType
 from typing import (
     Annotated,
     Any,
@@ -349,6 +350,21 @@ def test_default_of_a_typeddict_subconfig_has_to_be_a_dict() -> None:
 
     with pytest.raises(SchemaError, match=r"Wrong\.opt: the default is an instance"):
         compose_root(Wrong)
+
+
+def test_another_mapping_is_not_a_default_of_a_typeddict_subconfig() -> None:
+    """Only a dict or a `frozendict`; a dataclass takes a `MappingProxyType`."""
+
+    @dataclass
+    class Wrong:
+        opt: Opt = MappingProxyType({"lr": 0.1})  # ty: ignore[invalid-assignment]  # pyright: ignore[reportAssignmentType]
+
+    with pytest.raises(SchemaError) as info:
+        compose_root(Wrong)
+    message = str(info.value)
+    assert "Wrong.opt" in message
+    assert "mappingproxy" in message
+    assert "Opt" in message
 
 
 @dataclass

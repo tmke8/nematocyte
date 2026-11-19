@@ -6,7 +6,14 @@ from pathlib import PurePath
 from typing import Any
 
 from ._errors import ConfigError
-from ._schema import OPTION_KEY, Kind, class_fields, is_config_class, is_typeddict_class
+from ._schema import (
+    OPTION_KEY,
+    Kind,
+    class_fields,
+    is_config_class,
+    is_dict_or_frozendict,
+    is_typeddict_class,
+)
 
 __all__ = ["to_dict", "to_plain"]
 
@@ -22,15 +29,16 @@ def _plain_set(value: set[Any] | frozenset[Any]) -> list[Any]:
 def to_plain(value: Any) -> Any:
     """Convert a value to plain YAML types.
 
-    A path becomes a string, a tuple or a set becomes a list, and an enum
-    member becomes its value. Everything else is left as it is.
+    A path becomes a string, a tuple or a set becomes a list, a `frozendict`
+    becomes a dict, and an enum member becomes its value. Everything else is
+    left as it is.
     """
     result = value
     if isinstance(value, enum.Enum):
         result = to_plain(value.value)
     elif isinstance(value, PurePath):
         result = str(value)
-    elif isinstance(value, dict):
+    elif is_dict_or_frozendict(value):
         result = {to_plain(key): to_plain(item) for key, item in value.items()}
     elif isinstance(value, (list, tuple)):
         result = [to_plain(item) for item in value]

@@ -97,6 +97,7 @@ always be dumped as YAML or JSON:
 | --- | --- |
 | `Path` | `str` |
 | `tuple`, `set` | `list` |
+| `frozendict` | `dict` |
 | Enum member | Its value |
 
 The rule is that the dict holds what a config file would hold. For an enum

@@ -9,6 +9,7 @@ from dataclasses import MISSING, dataclass
 import enum
 import inspect
 import re
+import sys
 import types
 import typing
 from typing import (
@@ -20,6 +21,7 @@ from typing import (
     ReadOnly,
     Required,
     TypeAliasType,
+    TypeIs,
     Union,
     cast,
     get_args,
@@ -42,6 +44,7 @@ __all__ = [
     "config_class",
     "first_paragraph",
     "is_config_class",
+    "is_dict_or_frozendict",
     "is_typeddict_class",
     "option",
     "typeddict_option",
@@ -158,6 +161,24 @@ class FieldInfo:
 
 def is_typeddict_class(tp: object) -> bool:
     return isinstance(tp, type) and is_typeddict(tp)
+
+
+# A `frozendict` (Python 3.15) is hashable, so a dataclass takes it as the
+# default of a TypedDict field without `default_factory`; that is experimental.
+if sys.version_info >= (3, 15):
+    from builtins import frozendict
+
+    _DICT_TYPES: tuple[type, ...] = (dict, frozendict)
+else:
+    _DICT_TYPES: tuple[type, ...] = (dict,)
+
+
+def is_dict_or_frozendict(value: object) -> TypeIs[Mapping[Any, Any]]:
+    """Whether `value` is a dict or a `frozendict`.
+
+    Either can be the default of a TypedDict node.
+    """
+    return isinstance(value, _DICT_TYPES)
 
 
 def is_config_class(tp: object) -> bool:

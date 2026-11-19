@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
+import sys
 from types import MappingProxyType
 from typing import Annotated, Any, Literal, NotRequired, TypedDict, assert_type, cast
 import typing_extensions
@@ -221,6 +222,24 @@ class WithTypedDicts:
 
 assert_type(nematocyte.compose(WithTypedDicts).optimizer, Sgd | Adam)
 assert_type(nematocyte.to_dict(nematocyte.compose(WithTypedDicts)), dict[str, Any])
+
+# Experimental: on Python 3.15, a `frozendict` default needs no `default_factory`.
+# No checker accepts it as a TypedDict, so it is given through `cast`. ty warns
+# that the cast is to a disjoint type, as a TypedDict is a `dict` at runtime. The
+# `frozendict` stub of pyright 1.1.414 refuses every argument; that is fixed on
+# pyright's main branch, so the ignore can go once it is released.
+# CI checks this file against Python 3.14 only, which skips this block; there, ty
+# reports the `disjoint-cast` ignore as unused, hence `unused-ignore-comment`.
+if sys.version_info >= (3, 15):
+    from builtins import frozendict
+
+    @dataclass(kw_only=True)
+    class WithFrozenDicts:
+        plain: Plain = cast("Plain", frozendict(lr=0.1))  # pyright: ignore[reportCallIssue]  # ty: ignore[disjoint-cast, unused-ignore-comment]
+        optimizer: Sgd | Adam = cast("Sgd", frozendict(_option_="sgd", momentum=0.9))  # pyright: ignore[reportCallIssue]  # ty: ignore[disjoint-cast, unused-ignore-comment]
+
+    assert_type(nematocyte.compose(WithFrozenDicts).plain, Plain)
+    assert_type(nematocyte.compose(WithFrozenDicts).optimizer, Sgd | Adam)
 
 
 assert_type(typed_main, nematocyte.EntryPoint)

@@ -246,7 +246,9 @@ apart by that key, which type checkers use to narrow the union:
   used when nothing selects one, and the other keys of the dict are the
   default instance ([Defaults](#defaults)): they apply until an option is
   named. A default without the key, or with a name that is not an option,
-  is an error.
+  is an error. On Python 3.15 the dict can be a `frozendict`, without
+  `default_factory`; that is experimental
+  ([deserializer.md](deserializer.md#experimental-a-frozendict-as-the-default-of-a-typeddict-field)).
 - A dataclass option still cannot have a field called `_option_`.
 
 ## No tagging

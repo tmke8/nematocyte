@@ -14,6 +14,7 @@ from ._schema import (
     FieldInfo,
     Kind,
     class_fields,
+    is_dict_or_frozendict,
     is_typeddict_class,
 )
 
@@ -117,7 +118,7 @@ class Node:
         if info.kind is Kind.CONFIG:
             assert info.config_cls is not None
             if is_typeddict_class(info.config_cls):
-                fits = isinstance(default, dict)
+                fits = is_dict_or_frozendict(default)
             else:
                 fits = type(default) is info.config_cls
             if default is not MISSING and not fits:
@@ -129,16 +130,18 @@ class Node:
             self.children[info.name] = Node(info.config_cls, path, default=default)
         elif default is not MISSING:
             name = self._default_option(info, default, where)
-            cls = info.options[name] if isinstance(default, dict) else type(default)
+            cls = (
+                info.options[name] if is_dict_or_frozendict(default) else type(default)
+            )
             self.children[info.name] = Node(cls, path, default=default, option=name)
 
     @staticmethod
     def _default_option(info: FieldInfo, default: Any, where: str) -> str:
         """The option that the default of a group field is."""
         typeddicts = any(is_typeddict_class(cls) for cls in info.options.values())
-        if typeddicts and isinstance(default, dict):
+        if typeddicts and is_dict_or_frozendict(default):
             # A TypedDict's dict names its option in its key `_option_`.
-            name = cast("dict[str, Any]", default).get(OPTION_KEY)
+            name = default.get(OPTION_KEY)
             if not isinstance(name, str) or name not in info.options:
                 raise SchemaError(
                     f"{where}: the default has to name one of the options in its "
@@ -170,9 +173,9 @@ class Node:
 
     def default_value(self, info: FieldInfo) -> Any:
         """The value of a field that nothing has set, or ``MISSING``."""
-        if isinstance(self.default, dict):
+        if is_dict_or_frozendict(self.default):
             # The default of a `TypedDict` node; a key it leaves out is not set.
-            return cast("dict[str, Any]", self.default).get(info.name, MISSING)
+            return self.default.get(info.name, MISSING)
         if self.default is not MISSING and not info.initvar:
             return getattr(self.default, info.name)
         return info.class_default()
