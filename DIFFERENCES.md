@@ -223,7 +223,14 @@ See [composition.md](design/composition.md).
   `--config-name model/small` is an error.
 - A file at the top named after such a field, such as `configs/model.yaml`,
   is an error.
-- Any other directory holds primary configs.
+- Any other directory holds primary configs. This includes a directory
+  named after a field typed `dict[...]`, such as `configs/counts/` for
+  `counts: dict[str, int]`: its files describe the root and have to write
+  `counts:` at the top. In Hydra every directory is a config group, so
+  `counts=heavy` puts the file's content into the dict and merges it with
+  the default. In nematocyte, `+counts/heavy` applies the file on top of the
+  primary config and replaces the dict as a whole. For presets that go
+  straight into the field, use a `TypedDict` instead.
 
 See [composition.md](design/composition.md).
 
