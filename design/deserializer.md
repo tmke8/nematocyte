@@ -205,14 +205,55 @@ class Opt(TypedDict):
   read; pydantic sees the type inside them. `ReadOnly` has no other effect.
 - A TypedDict key has no doc; see [helptext.md](helptext.md).
 - The default of a dataclass field typed as a TypedDict is a dict, such as
-  `field(default_factory=lambda: Opt(lr=0.1))`. It is the default instance
-  of the node ([unions.md](unions.md#defaults)): a key it leaves out is not
-  set, so it is an error if the key is `Required`.
+  `field(default_factory=lambda: Opt(lr=0.1))`, or, as an experimental
+  feature, a `frozendict`
+  ([below](#experimental-a-frozendict-as-the-default-of-a-typeddict-field)).
+  It is the default instance of the node ([unions.md](unions.md#defaults)):
+  a key it leaves out is not set, so it is an error if the key is
+  `Required`.
 - A program whose TypedDicts have `Required` keys, or a group of TypedDicts,
   that no default fills in needs a primary config (`config_name`) or
   overrides to run.
 - `to_dict` keeps a TypedDict as it is, so every TypedDict in a config given
   to it may hold only values ([api.md](api.md#a-dict-for-logging)).
+
+### Experimental: a `frozendict` as the default of a TypedDict field
+
+**This feature is experimental.** It can change or go away in any release,
+without a deprecation period.
+
+On Python 3.15, the default of a dataclass field typed as a TypedDict can be
+a `frozendict` ([PEP 814](https://peps.python.org/pep-0814/)), written
+without `default_factory`. A dataclass takes it, because the class of a
+`frozendict` is hashable, while a `dict` is refused as a mutable default:
+
+```python
+@dataclass
+class Config:
+    opt: Opt = cast("Opt", frozendict(lr=0.1))
+```
+
+- No type checker accepts a `frozendict` where a TypedDict is declared, so
+  the default is written with `cast`, which every checker understands.
+  ty still warns about it (`disjoint-cast`), because a TypedDict is a
+  `dict` at runtime and a `frozendict` is not one.
+- A `frozendict` default works as a `dict` default does: it is the default
+  instance of the node, a key it leaves out is not set, and the default of
+  a group of TypedDicts names its option in `_option_`
+  ([unions.md](unions.md#typeddicts-as-options)). Inside it, a `frozendict`
+  can be the default of a nested TypedDict, or the value of a key, such as
+  one typed `dict[str, float]`.
+- The built node is a plain `dict`, as always, never a `frozendict`.
+- Only `dict` and `frozendict` are accepted. Another mapping, such as a
+  `MappingProxyType`, is still an error that names the field and the class.
+- On Python 3.14 there is no `frozendict`, and nothing changes.
+
+Why experimental: the typing of a frozen TypedDict is not settled. PEP 814
+defers it, with `class TD(TypedDict, frozen=True)` and `Frozen[TD]` as the
+spellings proposed so far. If the typing spec adds one, nematocyte will
+require it, so that the default can be written without `cast`, and a
+`frozendict` default of a TypedDict declared without it will become an
+error.
 
 ## Rejected ideas
 
