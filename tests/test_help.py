@@ -1,6 +1,6 @@
 """The text of `--help` and `--cfg` (`design/helptext.md`)."""
 
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -170,6 +170,23 @@ def test_required_value_is_marked() -> None:
 
     assert "name=???" in help_text(Root)
     assert "(required)" in help_text(Root)
+
+
+def test_kw_only_marker_is_not_shown() -> None:
+    @dataclass
+    class Root:
+        name: str = field(doc="Name of the run.")
+        _: KW_ONLY
+        size: int = field(default=1, doc="Size.")
+
+    help_lines = user_part(help_text(Root)).splitlines()
+    assert [line.split("=")[0] for line in help_lines if "=" in line] == [
+        "name",
+        "size",
+    ]
+    cfg = cfg_text(Root, overrides=("name=x",))
+    assert "_" not in YAML(typ="safe").load(cfg)
+    assert "size: 1" in cfg
 
 
 def test_own_settings_and_flags_are_shown(config_dir: Path) -> None:
