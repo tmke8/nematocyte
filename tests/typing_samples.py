@@ -11,6 +11,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Annotated, Any, Literal, NotRequired, TypedDict, assert_type, cast
 import typing_extensions
+import warnings
 
 import nematocyte
 from nematocyte import option
@@ -257,3 +258,8 @@ assert_type(
     nematocyte.Validator(TypedConfig, "configs").validate("primary.yaml"),
     nematocyte.ValidationResult,
 )
+
+
+# The warning for a value that a selection drops is an ordinary warning class.
+warnings.filterwarnings("error", category=nematocyte.DroppedValueWarning)
+drop_warning: UserWarning = nematocyte.DroppedValueWarning("model.activation")

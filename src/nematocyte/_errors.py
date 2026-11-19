@@ -1,6 +1,6 @@
-"""The exceptions that nematocyte raises."""
+"""The exceptions and warnings that nematocyte raises."""
 
-__all__ = ["ConfigError", "SchemaError"]
+__all__ = ["ConfigError", "DroppedValueWarning", "SchemaError"]
 
 
 class ConfigError(Exception):
@@ -9,3 +9,7 @@ class ConfigError(Exception):
 
 class SchemaError(ConfigError):
     """A config dataclass is declared in a way that nematocyte does not support."""
+
+
+class DroppedValueWarning(UserWarning):
+    """A selection dropped a value that a lower layer had set under its node."""

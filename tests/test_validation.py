@@ -413,3 +413,17 @@ def test_group_through_union_alias(tmp_path: Path) -> None:
     )
     # The group has no default, but a named config for it selects an option.
     assert all(r.ok for r in nematocyte.validate_configs(Root, directory))
+
+
+def test_drop_warning_for_a_primary_config_only(config_dir: Path) -> None:
+    write_files(
+        config_dir, {"child.yaml": "defaults:\n  _self_: good_run\n  model: fcn\n"}
+    )
+    with pytest.warns(nematocyte.DroppedValueWarning, match="model.activation"):
+        assert nematocyte.Validator(Config, config_dir).validate("child.yaml").ok
+    # To check a named config, the validator selects it on top of `good_run`;
+    # nobody wrote that selection, so what it drops is not warned about. The
+    # test fails on any warning of this class.
+    validator = nematocyte.Validator(Config, config_dir, config_name="good_run")
+    assert validator.validate("model/single_linear_layer.yaml").ok
+    assert validator.validate("model/my_cnn.yaml").ok

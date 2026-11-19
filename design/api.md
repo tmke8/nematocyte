@@ -234,6 +234,8 @@ See [validation.md](validation.md).
 - The names that the other documents do not give: `nematocyte.ConfigError`
   for every error in a configuration, `nematocyte.SchemaError` (a subclass)
   for a config class that is declared in an unsupported way,
+  `nematocyte.DroppedValueWarning` for a value that a selection drops
+  ([composition.md](composition.md)),
   `nematocyte.ValidationResult` with `path`, `error` and `ok`,
   `nematocyte.EntryPoint` for the type of the decorated function, and
   `nematocyte.Option` for what `option()` returns.

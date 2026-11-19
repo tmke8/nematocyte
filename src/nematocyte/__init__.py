@@ -8,6 +8,7 @@ from ._api import compose as compose
 from ._api import from_run_config as from_run_config
 from ._api import main as main
 from ._errors import ConfigError as ConfigError
+from ._errors import DroppedValueWarning as DroppedValueWarning
 from ._errors import SchemaError as SchemaError
 from ._plain import to_dict as to_dict
 from ._run import configure_logging as configure_logging
@@ -24,6 +25,7 @@ from ._validation import validate_configs as validate_configs
 
 __all__ = [
     "ConfigError",
+    "DroppedValueWarning",
     "EntryPoint",
     "JSONValue",
     "Option",

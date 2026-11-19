@@ -9,6 +9,7 @@ import inspect
 from pathlib import Path
 import pickle
 from typing import Any
+import warnings
 
 import cloudpickle
 import pytest
@@ -657,3 +658,18 @@ def test_sweeper_file_of_the_example() -> None:
     assert sweeper.sampler == TpeSampler(warn_independent_sampling=True)
     assert sweeper.study_name == "fcn_params"
     assert (sweeper.n_trials, sweeper.n_jobs) == (25, 3)
+
+
+def test_jobs_that_drop_the_same_value_warn_once(config_dir: Path) -> None:
+    # Python shows a warning with the same text once from the same place. Each
+    # job is composed with `model=fcn`, which drops `selu` from `good_run`.
+    seen: list[Config] = []
+    main = make_main(config_dir, seen)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("default")
+        assert run(main, ["-m", "+good_run", "model=fcn", "seed=1,2,3"]) == 0
+    assert len(seen) == 3
+    dropped = [w for w in caught if w.category is nematocyte.DroppedValueWarning]
+    assert len(dropped) == 1
+    assert "model.activation=selu" in str(dropped[0].message)
+    assert dropped[0].filename == __file__

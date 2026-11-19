@@ -392,3 +392,25 @@ def test_exception_of_the_function_is_not_caught(config_dir: Path) -> None:
 
     with pytest.raises(RuntimeError, match="seed 42"):
         main([])
+
+
+def test_drop_warning_on_the_command_line(
+    config_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[Config] = []
+    with pytest.warns(nematocyte.DroppedValueWarning) as record:
+        make_main(config_dir, seen)(["+good_run", "model=fcn"])
+    assert seen[0].model == Fcn()
+    message = str(record[0].message)
+    assert message == (
+        "The override 'model=fcn' resets the config values in 'model' to the "
+        "values given by 'fcn'. This drops a value that was set for 'model' "
+        "before:\n    'model.activation=selu', set in `configs/good_run.yaml`\n"
+        "To keep the value, set it again after the selection; in the file that "
+        "makes the selection, or on the command line."
+    )
+    assert record[0].filename == __file__
+    # Also for --cfg, which composes the same tree.
+    with pytest.warns(nematocyte.DroppedValueWarning):
+        make_main(config_dir, seen)(["+good_run", "model=fcn", "--cfg", "job"])
+    assert "activation: gelu" in capsys.readouterr().out

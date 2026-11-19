@@ -439,7 +439,13 @@ dm:
 ```
 The `_self_` entry names the primary config to start from, written in the same way as after the `+`. Here, `good_run.yaml` is loaded first, and then this file is applied on top: it selects a different option for `dm` and changes the seed. What `good_run.yaml` sets for `model` and `opt` is kept.
 
-Selecting an option for a config group always starts that group afresh: `dm` is now `celeba_male_blond` with its own values, and what `good_run.yaml` set under `dm` is gone. That is why `download: false` is set again here. The same happens on the command line: `python main.py +good_run model=cnn` gives you a CNN with its default values, without the `activation: selu` from `good_run.yaml`.
+Selecting an option for a config group always starts that group afresh: `dm` is now `celeba_male_blond` with its own values, and what `good_run.yaml` set under `dm` is gone. That is why `download: false` is set again here. The same happens on the command line: `python main.py +good_run model=fcn` gives you an FCN with its default values, so `activation` is `gelu`, not the `selu` from `good_run.yaml`. Because that is easy to miss, nematocyte warns about it:
+```
+DroppedValueWarning: The override 'model=fcn' resets the config values in 'model' to the values given by 'fcn'. This drops a value that was set for 'model' before:
+    'model.activation=selu', set in `configs/good_run.yaml`
+To keep the value, set it again after the selection; in the file that makes the selection, or on the command line.
+```
+To keep `selu`, add `model.activation=selu` to the command. There is no warning for values that are set again, like `download` above, or for values that the new config does not have.
 
 You can also give more than one primary config, and each one is applied on top of the ones before it. This is useful for settings that are not part of an experiment, but that you want for many experiments: while debugging, for example, you may not want to log to the wandb servers. The file `configs/presets/debug.yaml` looks like this:
 ```yaml

@@ -4,11 +4,12 @@ from dataclasses import dataclass, field
 import datetime
 from pathlib import Path
 from typing import Annotated, Any
+import warnings
 
 import pytest
 
 import nematocyte
-from nematocyte import ConfigError, option
+from nematocyte import ConfigError, DroppedValueWarning, option
 from nematocyte._files import load_file
 
 from .helpers import (
@@ -79,8 +80,9 @@ def test_primary_config_that_extends_another(config_dir: Path) -> None:
     # What `good_run` sets for `model` and `opt` is kept.
     assert config.model == Fcn(num_hidden=0, activation="selu")
     assert config.opt == Opt(lr=0.001, weight_decay=0.001)
-    # The selection replaces the node: `download: true` of `good_run` is gone.
-    assert config.dm == Celeba(superclass="Blond_Hair", download=False)
+    # The selection replaces the node: `default_res: 64` of `celeba_small` is
+    # gone, and `download: true` is there because the file sets it again.
+    assert config.dm == Celeba(superclass="Blond_Hair", download=True)
 
 
 # -- `_self_` -------------------------------------------------------------
@@ -240,23 +242,31 @@ def test_preset_keeps_the_other_values_of_lower_layers(config_dir: Path) -> None
     assert config.opt == Opt(lr=0.001, weight_decay=0.5)
 
 
-def test_option_replaces_the_node(config_dir: Path) -> None:
+@pytest.mark.parametrize(("option", "model"), [("fcn", Fcn()), ("cnn", Cnn())])
+def test_option_replaces_the_node(
+    config_dir: Path, option: str, model: Fcn | Cnn
+) -> None:
     write_files(
-        config_dir, {"child.yaml": "defaults:\n  _self_: good_run\n  model: cnn\n"}
+        config_dir,
+        {"child.yaml": f"defaults:\n  _self_: good_run\n  model: {option}\n"},
     )
-    in_file = nematocyte.compose(Config, config_dir, config_name="child")
-    on_cli = nematocyte.compose(
-        Config, config_dir, config_name="good_run", overrides=["model=cnn"]
-    )
-    # A CNN with its class defaults; `activation: selu` is dropped.
-    assert in_file.model == Cnn()
-    assert on_cli.model == Cnn()
+    with pytest.warns(DroppedValueWarning, match="model.activation=selu"):
+        in_file = nematocyte.compose(Config, config_dir, config_name="child")
+    with pytest.warns(DroppedValueWarning, match="model.activation=selu"):
+        on_cli = nematocyte.compose(
+            Config, config_dir, config_name="good_run", overrides=[f"model={option}"]
+        )
+    # The class defaults; `activation: selu` from `good_run` is dropped, even
+    # when the option is `fcn`, the class that `good_run` selected.
+    assert in_file.model == model
+    assert on_cli.model == model
 
 
 def test_named_config_replaces_the_node(config_dir: Path) -> None:
-    config = nematocyte.compose(
-        Config, config_dir, config_name="good_run", overrides=["dm=celeba_blond"]
-    )
+    with pytest.warns(DroppedValueWarning, match="dm.download=true"):
+        config = nematocyte.compose(
+            Config, config_dir, config_name="good_run", overrides=["dm=celeba_blond"]
+        )
     assert config.dm == Celeba(superclass="Blond_Hair", download=False)
 
 
@@ -542,9 +552,10 @@ def test_added_config_composes_as_if_it_extended_the_primary_config(
     # `presets/debug_cnn` extends `presets/debug`; the primary config goes at
     # the bottom of that chain: good_run, then presets/debug, then
     # presets/debug_cnn.
-    config = nematocyte.compose(
-        Config, config_dir, config_name="good_run", overrides=["+presets/debug_cnn"]
-    )
+    with pytest.warns(DroppedValueWarning, match="model.activation=selu"):
+        config = nematocyte.compose(
+            Config, config_dir, config_name="good_run", overrides=["+presets/debug_cnn"]
+        )
     assert config.seed == 5
     assert config.opt == Opt(lr=0.1, weight_decay=0.001)
     # The selection replaces the node: `activation: selu` of `good_run` is gone.
@@ -560,9 +571,11 @@ def test_added_config_composes_as_if_it_extended_the_primary_config(
             ),
         },
     )
-    assert config == nematocyte.compose(
-        Config, config_dir, config_name="explicit/debug_cnn"
-    )
+    with pytest.warns(DroppedValueWarning, match="model.activation=selu"):
+        explicit = nematocyte.compose(
+            Config, config_dir, config_name="explicit/debug_cnn"
+        )
+    assert config == explicit
 
 
 def test_command_line_selection_replaces_what_an_added_config_set(
@@ -645,3 +658,122 @@ def test_error_in_an_added_config_names_key_file_and_class(config_dir: Path) -> 
     assert "presets/bad.yaml" in message
     assert "'hiden_dim'" in message
     assert "Fcn" in message
+
+
+# -- the warning for a dropped value --------------------------------------
+
+
+def _dropped(
+    config_dir: Path, config_name: str | None, overrides: list[str]
+) -> list[str]:
+    """The messages of the drop warnings that composing gives."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        nematocyte.compose(
+            Config, config_dir, config_name=config_name, overrides=overrides
+        )
+    return [
+        str(w.message) for w in caught if issubclass(w.category, DroppedValueWarning)
+    ]
+
+
+def test_drop_warning_names_key_value_file_and_selection(config_dir: Path) -> None:
+    [message] = _dropped(config_dir, "good_run", ["model=fcn"])
+    assert "'model.activation=selu', set in `configs/good_run.yaml`" in message
+    assert "'model=fcn'" in message
+    assert "'model'" in message
+    # What `single_linear_layer` brought goes along with it.
+    assert "num_hidden" not in message
+
+
+def test_drop_warning_for_a_selection_in_a_file(config_dir: Path) -> None:
+    write_files(
+        config_dir, {"child.yaml": "defaults:\n  _self_: good_run\n  model: cnn\n"}
+    )
+    [message] = _dropped(config_dir, "child", [])
+    assert message.startswith(
+        "`configs/child.yaml` resets the config values in 'model' to the values "
+        "given by 'cnn'. This drops a value that was set for 'model' before:"
+    )
+    assert "'model.activation=selu', set in `configs/good_run.yaml`" in message
+
+
+def test_selecting_the_same_config_again_warns(config_dir: Path) -> None:
+    # `good_run` selects `single_linear_layer` too; its `activation: relu`
+    # replaces `selu`, and does not count as setting it again.
+    [message] = _dropped(config_dir, "good_run", ["model=single_linear_layer"])
+    assert "model.activation=selu" in message
+
+
+def test_no_drop_warning_when_set_again(config_dir: Path) -> None:
+    assert (
+        _dropped(config_dir, "good_run", ["model=fcn", "model.activation=selu"]) == []
+    )
+    assert (
+        _dropped(config_dir, "good_run", ["model=cnn", "model.activation=gelu"]) == []
+    )
+    write_files(
+        config_dir,
+        {
+            "child.yaml": "defaults:\n  _self_: good_run\n  model: cnn\n"
+            "model:\n  activation: selu\n"
+        },
+    )
+    assert _dropped(config_dir, "child", []) == []
+
+
+def test_no_drop_warning_when_the_value_is_the_same(config_dir: Path) -> None:
+    write_files(config_dir, {"gelu.yaml": "model:\n  activation: gelu\n"})
+    # `gelu` is the default of `Fcn.activation`, but not of `Cnn.activation`.
+    assert _dropped(config_dir, "gelu", ["model=fcn"]) == []
+    [message] = _dropped(config_dir, "gelu", ["model=cnn"])
+    assert "'model.activation=gelu', set in `configs/gelu.yaml`" in message
+
+
+def test_no_drop_warning_for_a_field_the_new_config_lacks(config_dir: Path) -> None:
+    write_files(
+        config_dir,
+        {"cnn3.yaml": "defaults:\n  model: cnn\nmodel:\n  kernel_size: 3\n"},
+    )
+    assert _dropped(config_dir, "cnn3", ["model=fcn"]) == []
+
+
+def test_drop_warning_for_a_dropped_selection(config_dir: Path) -> None:
+    write_files(
+        config_dir,
+        {"ln.yaml": "defaults:\n  model: cnn\n  model.norm: layernorm\n"},
+    )
+    [message] = _dropped(config_dir, "ln", ["model=cnn"])
+    assert "'model.norm=layernorm', selected in `configs/ln.yaml`" in message
+    # `my_cnn` selects `layernorm` itself, so nothing is lost.
+    assert _dropped(config_dir, "ln", ["model=my_cnn"]) == []
+
+
+def test_no_drop_warning_for_what_the_replaced_config_brought(
+    config_dir: Path,
+) -> None:
+    # `my_cnn` selects `norm: layernorm` and sets `stride: 1`; both go with it.
+    write_files(config_dir, {"mine.yaml": "defaults:\n  model: my_cnn\n"})
+    assert _dropped(config_dir, "mine", ["model=cnn"]) == []
+
+
+def test_one_drop_warning_per_selection(config_dir: Path) -> None:
+    write_files(
+        config_dir,
+        {"two.yaml": "defaults:\n  _self_: good_run\nmodel:\n  dropout_prob: 0.5\n"},
+    )
+    [message] = _dropped(config_dir, "two", ["model=fcn"])
+    assert "'model.activation=selu', set in `configs/good_run.yaml`" in message
+    assert "'model.dropout_prob=0.5', set in `configs/two.yaml`" in message
+    assert "This drops values that were set for 'model' before:" in message
+    assert "To keep the values, set them again after the selection" in message
+    # Two selections that drop something give two warnings.
+    assert len(_dropped(config_dir, "two", ["model=fcn", "dm=celeba_blond"])) == 2
+
+
+def test_drop_warning_points_at_the_caller(config_dir: Path) -> None:
+    with pytest.warns(DroppedValueWarning) as record:
+        nematocyte.compose(
+            Config, config_dir, config_name="good_run", overrides=["model=fcn"]
+        )
+    assert record[0].filename == __file__

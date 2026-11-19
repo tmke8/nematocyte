@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import MISSING, dataclass
 import difflib
+import itertools
 from typing import Any, cast
 
 from ._errors import ConfigError, SchemaError
@@ -19,8 +20,10 @@ from ._schema import (
 __all__ = [
     "Node",
     "Path",
+    "Selection",
     "format_path",
     "make_root",
+    "next_step",
     "node_from_plain",
     "unknown_key_message",
 ]
@@ -30,6 +33,31 @@ type Path = tuple[str, ...]
 
 def format_path(path: Path) -> str:
     return ".".join(path)
+
+
+_steps = itertools.count()
+
+
+def next_step() -> int:
+    """A number that is larger than every one before it, to order what was set."""
+    return next(_steps)
+
+
+@dataclass(frozen=True)
+class Selection:
+    """The selection that made a node, or the last preset applied to it."""
+
+    name: str
+    """The option or the named config that was selected."""
+    origin: str
+    """The file that made the selection, or the override."""
+    start: int
+    end: int
+    """The steps between which the selected config was applied."""
+
+    def covers(self, step: int) -> bool:
+        """Whether what was set at `step` came with the selected config."""
+        return self.start <= step <= self.end
 
 
 class Node:
@@ -65,6 +93,10 @@ class Node:
         """The values that were set, as they came from a file or an override."""
         self.sources: dict[str, str] = {}
         """Where each of the values was set, for error messages."""
+        self.steps: dict[str, int] = {}
+        """When each of the values was set, from `next_step`."""
+        self.selection: Selection | None = None
+        """The selection that made the node; `None` for a default."""
         self.touched = False
         """Whether a config file or an override selected or set something here."""
         self.checked = False
@@ -155,6 +187,7 @@ class Node:
     def set_value(self, name: str, value: Any, source: str) -> None:
         self.values[name] = value
         self.sources[name] = source
+        self.steps[name] = next_step()
         self.touched = True
 
     def to_plain_tree(self) -> dict[str, Any]:

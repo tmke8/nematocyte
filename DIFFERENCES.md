@@ -153,10 +153,12 @@ With a primary config `good_run.yaml` that sets `model.activation: selu`:
 
 | Command | Hydra | nematocyte |
 | --- | --- | --- |
-| `--config-name good_run model=cnn` | A CNN with `activation: selu` | A CNN with its class defaults |
-| ... where `good_run` also sets `model.num_hidden`, which the CNN lacks | Error | A CNN with its class defaults |
+| `--config-name good_run model=fcn` | An FCN with `activation: selu` | An FCN with its class defaults (`activation: gelu`) |
+| `--config-name good_run model=cnn`, where `good_run` also sets `model.num_hidden`, which the CNN lacks | Error | A CNN with its class defaults |
 
-To keep a value, set it again after the selection. A preset for a plain
+To keep a value, set it again after the selection. nematocyte warns, with a
+`nematocyte.DroppedValueWarning`, when a selection drops a value that a
+lower layer set and nothing sets it again. A preset for a plain
 subconfig, such as `opt=weight_decay_adamw`, is applied on top and keeps the
 other values. See [composition.md](design/composition.md#layers).
 

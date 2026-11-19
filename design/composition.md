@@ -195,7 +195,7 @@ With `good_run.yaml`, which sets `model.activation: selu`,
 | Applied on top of `good_run` | Result |
 | --- | --- |
 | `opt: weight_decay_adamw`, in a file that extends it or as `opt=weight_decay_adamw` | `opt.weight_decay` is `0.01`, from the preset |
-| `model: cnn`, or `model=cnn` | A CNN with its class defaults. `activation: selu` is dropped |
+| `model: fcn`, or `model=fcn` | An FCN with its class defaults. `activation: selu` is dropped, and `activation` is `gelu` |
 | `dm: celeba_male_blond` | `download` is back at its default. To keep `false`, it is set again |
 
 Hydra has no such rule. Tested on a copy of `hydra-example`, with the same
@@ -212,10 +212,70 @@ Hydra has no such rule. Tested on a copy of `hydra-example`, with the same
 - The result depends on the order of the list, and on whether the extended
   config happens to have an entry for the field.
 - Values that the parent sets under a group stay when another option is
-  selected. `--config-name good_run model=cnn` gives a CNN with
+  selected. `--config-name good_run model=fcn` gives an FCN with
   `activation: selu`. If the parent sets a value that the new class does not
-  have, such as `model.num_hidden`, the result is an error, and the child
-  has no way to remove the value.
+  have, such as `model.num_hidden` with `model=cnn`, the result is an error,
+  and the child has no way to remove the value.
+
+### A value that a selection drops is warned about
+
+Selecting an option drops values without a word. `+good_run model=fcn`
+gives `activation: gelu`, where `good_run.yaml` says `selu`, and
+`+good_run model=single_linear_layer` changes the result although it selects
+what `good_run` already selects. So a selection that drops such a value
+gives a warning:
+
+```
+The override 'model=fcn' resets the config values in 'model' to the values given by 'fcn'. This drops a value that was set for 'model' before:
+    'model.activation=selu', set in `configs/good_run.yaml`
+To keep the value, set it again after the selection; in the file that makes the selection, or on the command line.
+```
+
+**What counts.** A value or a selection under the node that a lower layer
+set explicitly: in the values of a file, or in its `defaults`. What the
+replaced config itself brings is not counted, since it goes along with the
+config. With `good_run` and `model=fcn`, `num_hidden: 0` and `norm: none`
+from `single_linear_layer.yaml` are dropped with it, and are not shown.
+
+**When there is no warning.** A dropped value or selection is left out of
+the warning, so that it does not fire on configs that are fine:
+
+- when a layer above the selection sets it again, as
+  `experiments/good_run_blond.yaml` does with `dm.download`. The value that
+  the new config itself brings does not count as set again: with
+  `model=single_linear_layer`, its `activation: relu` replaces `selu`, and
+  that is warned about;
+- when the composed config ends up with the same value anyway, such as a
+  dropped `download: false` where the new class has `download: bool = False`;
+- when the new config has no such field. A CNN has no `num_hidden`, so
+  dropping it is what the selection is for.
+
+The check runs once the whole tree is composed, so that "set again" counts
+every layer, the command line included. There is one warning for each
+selection that drops something, which lists everything it drops.
+
+**It is a Python warning**, of the class `nematocyte.DroppedValueWarning`, a
+subclass of `UserWarning`. It points at the caller's code, not at
+nematocyte. On the command line, Python prints it to standard error; in a
+test, pytest lists it, and
+
+```toml
+[tool.pytest.ini_options]
+filterwarnings = ["error::nematocyte.DroppedValueWarning"]
+```
+
+makes it fail the test. The usual filters of `warnings` silence it. It is
+not a message of `logging`: composition runs before
+`nematocyte.configure_logging()` can be called ([logging.md](logging.md)),
+and `nematocyte.compose` and the validator have no logging set up at all.
+
+**Where it is given**: wherever a config is composed, with
+`nematocyte.compose`, `--help`, `--cfg` and the jobs of a multirun.
+The validator warns for a primary config, which is composed as it would be
+in a run. It does not warn for the selections it makes itself to check a
+named config ([validation.md](validation.md)), because nobody wrote those.
+Python shows a warning with the same text only once from the same place,
+so the jobs of a multirun that drop the same values give one warning.
 
 ### What a directory holds follows from the schema
 
