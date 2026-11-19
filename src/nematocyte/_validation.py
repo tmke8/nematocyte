@@ -97,7 +97,7 @@ def _selections(
     """
     if depth == len(path):
         return [[*overrides, Override(path, name, f"{'.'.join(path)}={name}")]]
-    root = composer.compose(config_name, overrides)
+    root = composer.compose(config_name, overrides, warn=False)
     node = root
     for segment in path[: depth - 1]:
         node = node.children[segment]
@@ -132,7 +132,9 @@ def _check_tree(
     *,
     construct: bool,
 ) -> None:
-    root = composer.compose(config_name, overrides)
+    # The selections that the validator makes itself are in no file, so what
+    # they drop is not warned about; a primary config is composed as in a run.
+    root = composer.compose(config_name, overrides, warn=not overrides)
     resolve(root, datetime.now())
     build(root, skip=RESERVED_KEY, construct=construct)
     # nematocyte's own settings are always built: their classes are its own.

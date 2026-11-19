@@ -170,6 +170,10 @@ defaults:
   dm: celeba_blond
 
 seed: 2
+
+# The selection above drops what `good_run` set under `dm`.
+dm:
+  download: true
 """,
     "presets/debug.yaml": """\
 # Applied on top of any primary config with +presets/debug.

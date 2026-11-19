@@ -51,6 +51,9 @@ typecheck = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+# A test that drops a value with a selection on purpose says so with
+# `pytest.warns`; anywhere else, the warning is a mistake in the test.
+filterwarnings = ["error::nematocyte.DroppedValueWarning"]
 
 # pyright does not read the version from `requires-python`. Without this, a
 # pyright outside the project uses whatever Python is first on the PATH.

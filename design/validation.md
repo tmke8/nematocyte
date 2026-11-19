@@ -95,6 +95,11 @@ every other one, selected by name. Two options can have a field of the same
 name with different classes, and the file can be selected under either, so
 it has to fit each of them. The error says which selection it failed with.
 
+A primary config that drops a value with a selection gives the
+`nematocyte.DroppedValueWarning` that a run would give. The selections that
+the validator makes to check a named config give none: they are not in any
+file ([composition.md](composition.md#a-value-that-a-selection-drops-is-warned-about)).
+
 ### `__post_init__` runs, and checks the config only
 
 Validation builds the full objects by default, so every `__post_init__`
