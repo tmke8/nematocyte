@@ -227,7 +227,7 @@ def test_params_of_the_basic_sweeper(
         config_dir,
         {
             "nematocyte/sweeper/seeds.yaml": """\
-defaults:
+_defaults_:
   _self_: basic
 
 params:

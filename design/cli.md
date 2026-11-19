@@ -373,7 +373,7 @@ For reference, the flags Hydra has beyond these (`hydra/_internal/utils.py`):
 
 Read `+presets/debug` as if the content of the file had been typed on the
 command line: `opt.lr: 0.1` as `opt.lr=0.1`, an entry `dm: cmnist` in
-`defaults` as `dm=cmnist`, and `_self_: base` as `+base`.
+`_defaults_` as `dm=cmnist`, and `_self_: base` as `+base`.
 
 **Rejected because** the arguments of the command line are applied as one
 set, selections first and then values, and a repeated key goes by order.

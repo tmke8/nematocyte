@@ -230,7 +230,7 @@ def test_a_subconfig_or_group_cannot_be_notrequired(cls: type) -> None:
 
 
 class WithDefaults(TypedDict):
-    defaults: int
+    _defaults_: int
 
 
 class WithSelf(TypedDict):
@@ -282,7 +282,7 @@ def test_compose_gives_plain_dicts() -> None:
 
 def test_a_notrequired_key_is_present_once_set() -> None:
     files = {
-        "run.yaml": "defaults:\n  model: fcn\nseed: 1\nname: x\nopt:\n  lr: 1e-3\n  wd: 0\n"
+        "run.yaml": "_defaults_:\n  model: fcn\nseed: 1\nname: x\nopt:\n  lr: 1e-3\n  wd: 0\n"
     }
     config = compose_root(Root, files, config_name="run")
     assert config == {
@@ -304,7 +304,7 @@ def test_a_missing_required_key_names_the_key_and_the_class() -> None:
 
 
 def test_an_invalid_value_names_the_key_the_file_and_the_class() -> None:
-    files = {"run.yaml": "defaults:\n  model: fcn\nseed: abc\nopt:\n  lr: 0.1\n"}
+    files = {"run.yaml": "_defaults_:\n  model: fcn\nseed: abc\nopt:\n  lr: 0.1\n"}
     with pytest.raises(ConfigError) as info:
         compose_root(Root, files, config_name="run")
     message = str(info.value)
@@ -422,7 +422,7 @@ def test_select_a_typeddict_option_by_name() -> None:
 
 
 def test_select_a_typeddict_option_from_a_group_file() -> None:
-    files = {"optimizer/fast.yaml": "defaults:\n  _self_: sgd\nmomentum: 0.99\n"}
+    files = {"optimizer/fast.yaml": "_defaults_:\n  _self_: sgd\nmomentum: 0.99\n"}
     config = compose_root(WithOptimizer, files, overrides=["optimizer=fast"])
     # The option is the one from the annotations, not the name of the file.
     assert config.optimizer == {"_option_": "sgd", "momentum": 0.99}
@@ -501,8 +501,8 @@ def test_validate_configs_with_a_typeddict_root(tmp_path: Path) -> None:
     write_files(
         tmp_path,
         {
-            "good.yaml": "defaults:\n  model: fcn\nseed: 1\nopt:\n  lr: 0.1\n",
-            "bad.yaml": "defaults:\n  model: fcn\nseed: 1\nopt:\n  lr: x\n",
+            "good.yaml": "_defaults_:\n  model: fcn\nseed: 1\nopt:\n  lr: 0.1\n",
+            "bad.yaml": "_defaults_:\n  model: fcn\nseed: 1\nopt:\n  lr: x\n",
         },
     )
     results = {

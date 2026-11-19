@@ -55,7 +55,7 @@ RESERVED_KEY = "nematocyte"
 """The top-level key under which nematocyte's own settings live."""
 
 SELF_KEY = "_self_"
-DEFAULTS_KEY = "defaults"
+DEFAULTS_KEY = "_defaults_"
 OPTION_KEY = "_option_"
 
 _OPTION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
@@ -288,11 +288,6 @@ def _option_name(member: type, member_names: list[Option], where: str) -> str:
             f"Every member needs one name: "
             f'Annotated[{member.__name__}, nematocyte.option("...")].'
         )
-    if OPTION_KEY in class_fields(member):
-        raise SchemaError(
-            f"{member.__name__} is an option of a group ({where}) and so "
-            f"cannot have a field called {OPTION_KEY!r}."
-        )
     return member_names[0].name
 
 
@@ -391,7 +386,7 @@ def class_fields(cls: type) -> dict[str, FieldInfo]:
 
 
 def _check_name(name: str, where: str) -> None:
-    if name in (SELF_KEY, DEFAULTS_KEY):
+    if name in (SELF_KEY, DEFAULTS_KEY, OPTION_KEY):
         raise SchemaError(
             f"{where}: {name!r} is reserved and cannot be the name of a field."
         )

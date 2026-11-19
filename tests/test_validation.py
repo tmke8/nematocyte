@@ -64,10 +64,10 @@ def test_broken_named_config_for_a_group(config_dir: Path) -> None:
     write_files(
         config_dir,
         {
-            "dm/renamed.yaml": "defaults:\n  _self_: celeba\nsuperclas: Smiling\n",
-            "dm/bad_value.yaml": "defaults:\n  _self_: celeba\nsuperclass: Smilin\n",
+            "dm/renamed.yaml": "_defaults_:\n  _self_: celeba\nsuperclas: Smiling\n",
+            "dm/bad_value.yaml": "_defaults_:\n  _self_: celeba\nsuperclass: Smilin\n",
             "dm/no_self.yaml": "superclass: Smiling\n",
-            "dm/bad_chain.yaml": "defaults:\n  _self_: nope\n",
+            "dm/bad_chain.yaml": "_defaults_:\n  _self_: nope\n",
         },
     )
     found = errors(config_dir)
@@ -97,7 +97,7 @@ def test_files_under_the_reserved_key(config_dir: Path) -> None:
         config_dir,
         {
             "nematocyte/launcher/bad.yaml": (
-                "defaults:\n  _self_: submitit_slurm\npartitoin: x\n"
+                "_defaults_:\n  _self_: submitit_slurm\npartitoin: x\n"
             ),
         },
     )
@@ -115,7 +115,7 @@ def test_named_config_for_a_nested_field_of_another_option(config_dir: Path) -> 
     assert result.ok
     write_files(
         config_dir,
-        {"model/norm/bad.yaml": "defaults:\n  _self_: batchnorm\nmomentun: 1\n"},
+        {"model/norm/bad.yaml": "_defaults_:\n  _self_: batchnorm\nmomentun: 1\n"},
     )
     found = errors(config_dir)
     assert list(found) == ["model/norm/bad.yaml"]
@@ -212,8 +212,8 @@ def test_named_config_is_validated_in_the_whole_tree(config_dir: Path) -> None:
     write_files(
         config_dir,
         {
-            "dm/from_seed.yaml": "defaults:\n  _self_: celeba\ndefault_res: ${seed}\n",
-            "dm/bad_ref.yaml": "defaults:\n  _self_: celeba\ndefault_res: ${sed}\n",
+            "dm/from_seed.yaml": "_defaults_:\n  _self_: celeba\ndefault_res: ${seed}\n",
+            "dm/bad_ref.yaml": "_defaults_:\n  _self_: celeba\ndefault_res: ${sed}\n",
         },
     )
     found = errors(config_dir)
@@ -345,7 +345,7 @@ def test_validator_for_an_unsupported_class(config_dir: Path) -> None:
 
 def sweeper_file(params: str) -> dict[str, str]:
     return {
-        "nematocyte/sweeper/s.yaml": f"defaults:\n  _self_: optuna\nparams:\n{params}"
+        "nematocyte/sweeper/s.yaml": f"_defaults_:\n  _self_: optuna\nparams:\n{params}"
     }
 
 
@@ -382,7 +382,7 @@ def test_basic_sweeper_params_are_checked_too(config_dir: Path) -> None:
         config_dir,
         {
             "nematocyte/sweeper/seeds.yaml": (
-                "defaults:\n  _self_: basic\nparams:\n  sed: 42,43\n"
+                "_defaults_:\n  _self_: basic\nparams:\n  sed: 42,43\n"
             ),
         },
     )
@@ -406,9 +406,9 @@ def test_group_through_union_alias(tmp_path: Path) -> None:
     directory = write_files(
         tmp_path / "c",
         {
-            "part/big_a.yaml": "defaults:\n  _self_: a\nx: 9\n",
-            "part/big_b.yaml": "defaults:\n  _self_: b\ny: 9\n",
-            "primary.yaml": "defaults:\n  part: big_a\n",
+            "part/big_a.yaml": "_defaults_:\n  _self_: a\nx: 9\n",
+            "part/big_b.yaml": "_defaults_:\n  _self_: b\ny: 9\n",
+            "primary.yaml": "_defaults_:\n  part: big_a\n",
         },
     )
     # The group has no default, but a named config for it selects an option.
@@ -417,7 +417,7 @@ def test_group_through_union_alias(tmp_path: Path) -> None:
 
 def test_drop_warning_for_a_primary_config_only(config_dir: Path) -> None:
     write_files(
-        config_dir, {"child.yaml": "defaults:\n  _self_: good_run\n  model: fcn\n"}
+        config_dir, {"child.yaml": "_defaults_:\n  _self_: good_run\n  model: fcn\n"}
     )
     with pytest.warns(nematocyte.DroppedValueWarning, match="model.activation"):
         assert nematocyte.Validator(Config, config_dir).validate("child.yaml").ok

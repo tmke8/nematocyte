@@ -219,7 +219,7 @@ rules, and it disagrees with the loader:
 - Unknown keys are not caught by default. pydantic leaves
   `additionalProperties` unset for a stdlib dataclass, and it had to be set
   to `false` by hand.
-- Which schema applies depends on composition: the class a file's `defaults`
+- Which schema applies depends on composition: the class a file's `_self_`
   chain ends at, or the option selected for a group in a primary config.
   nematocyte has to work that out first anyway.
 

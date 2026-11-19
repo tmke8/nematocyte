@@ -136,7 +136,7 @@ class Config:
 
 CONFIG_FILES = {
     "good_run.yaml": """\
-defaults:
+_defaults_:
   model: single_linear_layer
   dm: celeba_small
 
@@ -153,7 +153,7 @@ opt:
   weight_decay: 0.001
 """,
     "experiments/cmnist_cnn.yaml": """\
-defaults:
+_defaults_:
   dm: cmnist
   model: cnn
   opt: weight_decay_adamw
@@ -165,7 +165,7 @@ model:
   kernel_size: 3
 """,
     "experiments/good_run_blond.yaml": """\
-defaults:
+_defaults_:
   _self_: good_run
   dm: celeba_blond
 
@@ -186,7 +186,7 @@ nematocyte:
   log: debug
 """,
     "presets/debug_cnn.yaml": """\
-defaults:
+_defaults_:
   _self_: presets/debug
   model: cnn
 
@@ -196,39 +196,39 @@ model:
   stride: 1
 """,
     "dm/celeba_smiling.yaml": """\
-defaults:
+_defaults_:
   _self_: celeba
 
 superclass: Smiling
 """,
     "dm/celeba_small.yaml": """\
-defaults:
+_defaults_:
   _self_: celeba_smiling
 
 default_res: 64
 """,
     "dm/celeba_blond.yaml": """\
-defaults:
+_defaults_:
   _self_: celeba
 
 superclass: Blond_Hair
 """,
     "model/single_linear_layer.yaml": """\
-defaults:
+_defaults_:
   _self_: fcn
 
 num_hidden: 0
 activation: relu
 """,
     "model/my_cnn.yaml": """\
-defaults:
+_defaults_:
   _self_: cnn
   norm: layernorm
 
 stride: 1
 """,
     "model/norm/my_batchnorm.yaml": """\
-defaults:
+_defaults_:
   _self_: batchnorm
 
 momentum: 0.5
@@ -238,13 +238,13 @@ lr: 1.0e-3
 weight_decay: 1.e-2
 """,
     "opt/strong_weight_decay.yaml": """\
-defaults:
+_defaults_:
   _self_: weight_decay_adamw
 
 weight_decay: 0.1
 """,
     "nematocyte/launcher/slurm_test.yaml": """\
-defaults:
+_defaults_:
   _self_: submitit_slurm
 
 partition: test
@@ -255,7 +255,7 @@ setup:
   - "source .venv/bin/activate"
 """,
     "nematocyte/sweeper/search.yaml": """\
-defaults:
+_defaults_:
   _self_: optuna
 
 sampler:

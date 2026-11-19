@@ -2,7 +2,7 @@
 #
 # usage: nematocyte.sweeper=fcn_params
 #
-defaults:
+_defaults_:
   # Select here which hyperparameter optimization library to use.
   _self_: optuna
 

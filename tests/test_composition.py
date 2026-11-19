@@ -45,7 +45,7 @@ def test_primary_config(config_dir: Path) -> None:
 
 
 def test_primary_config_in_a_subdirectory(config_dir: Path) -> None:
-    # No `# @package _global_` and no leading slash in `defaults`.
+    # No `# @package _global_` and no leading slash in `_defaults_`.
     config = nematocyte.compose(
         Config, config_dir, config_name="experiments/cmnist_cnn"
     )
@@ -102,9 +102,9 @@ def test_self_chain_that_comes_back_to_itself(config_dir: Path) -> None:
     write_files(
         config_dir,
         {
-            "opt/a.yaml": "defaults:\n  _self_: b\n",
-            "opt/b.yaml": "defaults:\n  _self_: a\n",
-            "loop.yaml": "defaults:\n  _self_: loop\n",
+            "opt/a.yaml": "_defaults_:\n  _self_: b\n",
+            "opt/b.yaml": "_defaults_:\n  _self_: a\n",
+            "loop.yaml": "_defaults_:\n  _self_: loop\n",
         },
     )
     with pytest.raises(ConfigError, match="extends itself"):
@@ -114,7 +114,7 @@ def test_self_chain_that_comes_back_to_itself(config_dir: Path) -> None:
 
 
 def test_self_of_a_preset_cannot_name_something_missing(config_dir: Path) -> None:
-    write_files(config_dir, {"opt/bad.yaml": "defaults:\n  _self_: nope\n"})
+    write_files(config_dir, {"opt/bad.yaml": "_defaults_:\n  _self_: nope\n"})
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(Config, config_dir, overrides=["opt=bad"])
     message = str(excinfo.value)
@@ -123,11 +123,11 @@ def test_self_of_a_preset_cannot_name_something_missing(config_dir: Path) -> Non
     assert "weight_decay_adamw" in message
 
 
-# -- `defaults` -------------------------------------------------------------
+# -- `_defaults_` -----------------------------------------------------------
 
 
 def test_defaults_as_a_list_is_an_error(config_dir: Path) -> None:
-    write_files(config_dir, {"hydra_style.yaml": "defaults:\n  - model: cnn\n"})
+    write_files(config_dir, {"hydra_style.yaml": "_defaults_:\n  - model: cnn\n"})
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(Config, config_dir, config_name="hydra_style")
     assert "hydra_style.yaml" in str(excinfo.value)
@@ -135,7 +135,7 @@ def test_defaults_as_a_list_is_an_error(config_dir: Path) -> None:
 
 
 def test_place_given_twice_is_reported_by_the_parser(config_dir: Path) -> None:
-    write_files(config_dir, {"twice.yaml": "defaults:\n  model: cnn\n  model: fcn\n"})
+    write_files(config_dir, {"twice.yaml": "_defaults_:\n  model: cnn\n  model: fcn\n"})
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(Config, config_dir, config_name="twice")
     assert "twice.yaml" in str(excinfo.value)
@@ -146,8 +146,8 @@ def test_order_of_defaults_has_no_meaning(config_dir: Path) -> None:
     write_files(
         config_dir,
         {
-            "one.yaml": "defaults:\n  model: my_cnn\n  model.norm: my_batchnorm\n",
-            "two.yaml": "defaults:\n  model.norm: my_batchnorm\n  model: my_cnn\n",
+            "one.yaml": "_defaults_:\n  model: my_cnn\n  model.norm: my_batchnorm\n",
+            "two.yaml": "_defaults_:\n  model.norm: my_batchnorm\n  model: my_cnn\n",
         },
     )
     one = nematocyte.compose(Config, config_dir, config_name="one")
@@ -160,7 +160,7 @@ def test_defaults_key_can_be_a_path(config_dir: Path) -> None:
         config_dir,
         {
             "nested.yaml": """\
-defaults:
+_defaults_:
   model: my_cnn
   model.norm: my_batchnorm
 
@@ -184,7 +184,7 @@ def test_named_config_selects_for_its_own_fields(config_dir: Path) -> None:
 def test_path_in_defaults_needs_the_field(config_dir: Path) -> None:
     write_files(
         config_dir,
-        {"bad.yaml": "defaults:\n  model: fcn\n  model.norm: my_batchnorm\n"},
+        {"bad.yaml": "_defaults_:\n  model: fcn\n  model.norm: my_batchnorm\n"},
     )
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(Config, config_dir, config_name="bad")
@@ -195,7 +195,7 @@ def test_path_in_defaults_needs_the_field(config_dir: Path) -> None:
 
 
 def test_defaults_cannot_select_for_a_value(config_dir: Path) -> None:
-    write_files(config_dir, {"bad.yaml": "defaults:\n  seed: one\n"})
+    write_files(config_dir, {"bad.yaml": "_defaults_:\n  seed: one\n"})
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(Config, config_dir, config_name="bad")
     assert "bad.yaml" in str(excinfo.value)
@@ -203,7 +203,7 @@ def test_defaults_cannot_select_for_a_value(config_dir: Path) -> None:
 
 
 def test_hydra_null_entry_is_explained(config_dir: Path) -> None:
-    write_files(config_dir, {"bad.yaml": "defaults:\n  opt: null\n"})
+    write_files(config_dir, {"bad.yaml": "_defaults_:\n  opt: null\n"})
     with pytest.raises(ConfigError, match="not needed"):
         nematocyte.compose(Config, config_dir, config_name="bad")
 
@@ -213,7 +213,37 @@ def test_selection_among_the_values_is_explained(config_dir: Path) -> None:
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(Config, config_dir, config_name="bad")
     assert "bad.yaml" in str(excinfo.value)
-    assert "defaults" in str(excinfo.value)
+    assert "_defaults_" in str(excinfo.value)
+
+
+def test_hydras_name_for_the_key_is_explained(config_dir: Path) -> None:
+    write_files(config_dir, {"hydra_style.yaml": "defaults:\n  model: cnn\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, config_name="hydra_style")
+    message = str(excinfo.value)
+    assert "hydra_style.yaml" in message
+    assert "'defaults' is not a field of Config" in message
+    assert "'_defaults_'" in message
+
+
+def test_hydras_name_for_the_key_in_a_group_file(config_dir: Path) -> None:
+    write_files(config_dir, {"model/mine.yaml": "defaults:\n  _self_: cnn\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, overrides=["model=mine"])
+    message = str(excinfo.value)
+    assert "model/mine.yaml" in message
+    assert "'_defaults_'" in message
+
+
+@dataclass
+class WithDefaultsField:
+    defaults: list[str] = field(default_factory=list)
+
+
+def test_a_field_called_defaults_is_set_from_a_file(tmp_path: Path) -> None:
+    write_files(tmp_path, {"run.yaml": "defaults: [a, b]\n"})
+    config = nematocyte.compose(WithDefaultsField, tmp_path, config_name="run")
+    assert config.defaults == ["a", "b"]
 
 
 # -- layers -------------------------------------------------------------------
@@ -224,7 +254,7 @@ def test_selection_among_the_values_is_explained(config_dir: Path) -> None:
 def test_preset_wins_over_the_extended_config(config_dir: Path) -> None:
     write_files(
         config_dir,
-        {"child.yaml": "defaults:\n  _self_: good_run\n  opt: weight_decay_adamw\n"},
+        {"child.yaml": "_defaults_:\n  _self_: good_run\n  opt: weight_decay_adamw\n"},
     )
     in_file = nematocyte.compose(Config, config_dir, config_name="child")
     on_cli = nematocyte.compose(
@@ -248,7 +278,7 @@ def test_option_replaces_the_node(
 ) -> None:
     write_files(
         config_dir,
-        {"child.yaml": f"defaults:\n  _self_: good_run\n  model: {option}\n"},
+        {"child.yaml": f"_defaults_:\n  _self_: good_run\n  model: {option}\n"},
     )
     with pytest.warns(DroppedValueWarning, match="model.activation=selu"):
         in_file = nematocyte.compose(Config, config_dir, config_name="child")
@@ -273,7 +303,7 @@ def test_named_config_replaces_the_node(config_dir: Path) -> None:
 def test_values_of_a_file_win_over_its_defaults(config_dir: Path) -> None:
     write_files(
         config_dir,
-        {"child.yaml": "defaults:\n  opt: weight_decay_adamw\nopt:\n  lr: 3.0\n"},
+        {"child.yaml": "_defaults_:\n  opt: weight_decay_adamw\nopt:\n  lr: 3.0\n"},
     )
     config = nematocyte.compose(Config, config_dir, config_name="child")
     assert config.opt == Opt(lr=3.0, weight_decay=0.01)
@@ -364,7 +394,7 @@ def test_file_and_directory_with_the_same_stem_do_not_clash(tmp_path: Path) -> N
         tmp_path / "c",
         {
             # An option of `model` ...
-            "model/encoder.yaml": "defaults:\n  _self_: plain\nwidth: 7\n",
+            "model/encoder.yaml": "_defaults_:\n  _self_: plain\nwidth: 7\n",
             # ... and a named config for the field `encoder`.
             "model/encoder/deep.yaml": "depth: 9\n",
         },
@@ -422,7 +452,7 @@ def test_unknown_key_names_key_file_and_class(config_dir: Path) -> None:
 def test_key_of_another_option_is_an_error(config_dir: Path) -> None:
     write_files(
         config_dir,
-        {"bad.yaml": "defaults:\n  model: cnn\nmodel:\n  num_hidden: 2\n"},
+        {"bad.yaml": "_defaults_:\n  model: cnn\nmodel:\n  num_hidden: 2\n"},
     )
     with pytest.raises(ConfigError, match="num_hidden"):
         nematocyte.compose(Config, config_dir, config_name="bad")
@@ -564,7 +594,7 @@ def test_added_config_composes_as_if_it_extended_the_primary_config(
     write_files(
         config_dir,
         {
-            "explicit/debug.yaml": "defaults:\n  _self_: good_run\n"
+            "explicit/debug.yaml": "_defaults_:\n  _self_: good_run\n"
             + CONFIG_FILES["presets/debug.yaml"],
             "explicit/debug_cnn.yaml": CONFIG_FILES["presets/debug_cnn.yaml"].replace(
                 "_self_: presets/debug", "_self_: explicit/debug"
@@ -610,7 +640,7 @@ def test_added_config_that_extends_the_primary_config_itself(
 ) -> None:
     write_files(
         config_dir,
-        {"presets/good.yaml": "defaults:\n  _self_: good_run\nseed: 3\n"},
+        {"presets/good.yaml": "_defaults_:\n  _self_: good_run\nseed: 3\n"},
     )
     config = nematocyte.compose(
         Config, config_dir, config_name="good_run", overrides=["+presets/good"]
@@ -688,7 +718,7 @@ def test_drop_warning_names_key_value_file_and_selection(config_dir: Path) -> No
 
 def test_drop_warning_for_a_selection_in_a_file(config_dir: Path) -> None:
     write_files(
-        config_dir, {"child.yaml": "defaults:\n  _self_: good_run\n  model: cnn\n"}
+        config_dir, {"child.yaml": "_defaults_:\n  _self_: good_run\n  model: cnn\n"}
     )
     [message] = _dropped(config_dir, "child", [])
     assert message.startswith(
@@ -715,7 +745,7 @@ def test_no_drop_warning_when_set_again(config_dir: Path) -> None:
     write_files(
         config_dir,
         {
-            "child.yaml": "defaults:\n  _self_: good_run\n  model: cnn\n"
+            "child.yaml": "_defaults_:\n  _self_: good_run\n  model: cnn\n"
             "model:\n  activation: selu\n"
         },
     )
@@ -733,7 +763,7 @@ def test_no_drop_warning_when_the_value_is_the_same(config_dir: Path) -> None:
 def test_no_drop_warning_for_a_field_the_new_config_lacks(config_dir: Path) -> None:
     write_files(
         config_dir,
-        {"cnn3.yaml": "defaults:\n  model: cnn\nmodel:\n  kernel_size: 3\n"},
+        {"cnn3.yaml": "_defaults_:\n  model: cnn\nmodel:\n  kernel_size: 3\n"},
     )
     assert _dropped(config_dir, "cnn3", ["model=fcn"]) == []
 
@@ -741,7 +771,7 @@ def test_no_drop_warning_for_a_field_the_new_config_lacks(config_dir: Path) -> N
 def test_drop_warning_for_a_dropped_selection(config_dir: Path) -> None:
     write_files(
         config_dir,
-        {"ln.yaml": "defaults:\n  model: cnn\n  model.norm: layernorm\n"},
+        {"ln.yaml": "_defaults_:\n  model: cnn\n  model.norm: layernorm\n"},
     )
     [message] = _dropped(config_dir, "ln", ["model=cnn"])
     assert "'model.norm=layernorm', selected in `configs/ln.yaml`" in message
@@ -753,14 +783,14 @@ def test_no_drop_warning_for_what_the_replaced_config_brought(
     config_dir: Path,
 ) -> None:
     # `my_cnn` selects `norm: layernorm` and sets `stride: 1`; both go with it.
-    write_files(config_dir, {"mine.yaml": "defaults:\n  model: my_cnn\n"})
+    write_files(config_dir, {"mine.yaml": "_defaults_:\n  model: my_cnn\n"})
     assert _dropped(config_dir, "mine", ["model=cnn"]) == []
 
 
 def test_one_drop_warning_per_selection(config_dir: Path) -> None:
     write_files(
         config_dir,
-        {"two.yaml": "defaults:\n  _self_: good_run\nmodel:\n  dropout_prob: 0.5\n"},
+        {"two.yaml": "_defaults_:\n  _self_: good_run\nmodel:\n  dropout_prob: 0.5\n"},
     )
     [message] = _dropped(config_dir, "two", ["model=fcn"])
     assert "'model.activation=selu', set in `configs/good_run.yaml`" in message

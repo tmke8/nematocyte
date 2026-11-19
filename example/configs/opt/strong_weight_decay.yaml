@@ -1,7 +1,7 @@
 ---
 # A preset can be based on another preset: `_self_` names the preset whose values are
 # loaded first. The values in this file are applied on top of them.
-defaults:
+_defaults_:
   _self_: weight_decay_adamw
 
 weight_decay: 0.1

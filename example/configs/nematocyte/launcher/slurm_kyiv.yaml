@@ -1,7 +1,7 @@
 ---
 # usage: nematocyte.launcher=slurm_kyiv
 
-defaults:
+_defaults_:
   _self_: submitit_slurm
 
 partition: kyiv

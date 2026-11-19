@@ -43,7 +43,7 @@ def display_path(path: Path) -> str:
 
 
 def load_file(path: Path) -> ConfigFile:
-    """Read a config file and split off its `defaults`."""
+    """Read a config file and split off its `_defaults_`."""
     label = display_path(path)
     yaml = YAML(typ="safe", pure=True)
     yaml.allow_duplicate_keys = False
@@ -68,12 +68,12 @@ def load_file(path: Path) -> ConfigFile:
         defaults = {}
     if isinstance(defaults, list):
         raise ConfigError(
-            f"{label}: 'defaults' is a list, as in Hydra. In nematocyte it is "
+            f"{label}: '_defaults_' is a list, as in Hydra. In nematocyte it is "
             "a mapping from a field to the name of the config to load there, "
-            "such as\n    defaults:\n      model: cnn"
+            "such as\n    _defaults_:\n      model: cnn"
         )
     if not isinstance(defaults, dict):
-        raise ConfigError(f"{label}: 'defaults' has to be a mapping.")
+        raise ConfigError(f"{label}: '_defaults_' has to be a mapping.")
     for key, name in defaults.items():
         if not isinstance(name, str):
             hint = (
@@ -82,7 +82,7 @@ def load_file(path: Path) -> ConfigFile:
                 else ""
             )
             raise ConfigError(
-                f"{label}: the entry {key!r} in 'defaults' has to name a config, "
+                f"{label}: the entry {key!r} in '_defaults_' has to name a config, "
                 f"but is {name!r}.{hint}"
             )
     return ConfigFile(path=path, label=label, defaults=defaults, values=content)
