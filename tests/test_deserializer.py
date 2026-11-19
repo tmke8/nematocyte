@@ -1,6 +1,13 @@
 """Building dataclass instances from the tree (`design/deserializer.md`)."""
 
-from dataclasses import InitVar, dataclass, field, make_dataclass
+from dataclasses import (
+    KW_ONLY,
+    FrozenInstanceError,
+    InitVar,
+    dataclass,
+    field,
+    make_dataclass,
+)
 import enum
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -227,6 +234,93 @@ def test_initvar_and_init_false_fields() -> None:
     assert nematocyte.compose(Root, overrides=["base=3", "scale=5"]).scaled == 15
     with pytest.raises(ConfigError, match="scaled"):
         nematocyte.compose(Root, overrides=["scaled=1"])
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenSub:
+    a: int = 1
+
+
+@dataclass(kw_only=True, frozen=True)
+class FrozenSgd:
+    lr: float = 0.1
+
+
+@dataclass(kw_only=True, frozen=True)
+class FrozenAdam:
+    lr: float = 0.001
+    betas: tuple[float, float] = (0.9, 0.999)
+
+
+@dataclass(kw_only=True, frozen=True)
+class FrozenRoot:
+    seed: int = 0
+    sub: FrozenSub = field(default_factory=FrozenSub)
+    opt: (
+        Annotated[FrozenSgd, nematocyte.option("sgd")]
+        | Annotated[FrozenAdam, nematocyte.option("adam")]
+    ) = field(default_factory=FrozenSgd)
+    doubled: int = field(default=0, init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "doubled", 2 * self.seed)
+
+
+def test_frozen_dataclasses(tmp_path: Path) -> None:
+    (tmp_path / "primary.yaml").write_text("seed: 3\nsub:\n  a: 4\n")
+    config = nematocyte.compose(
+        FrozenRoot,
+        tmp_path,
+        config_name="primary",
+        overrides=["sub.a=5", "opt=adam", "opt.betas=[0.5,0.6]"],
+    )
+    assert config == FrozenRoot(
+        seed=3, sub=FrozenSub(5), opt=FrozenAdam(betas=(0.5, 0.6))
+    )
+    assert config.doubled == 6
+    # The classes are used as they are, so the instances stay frozen.
+    with pytest.raises(FrozenInstanceError):
+        config.seed = 1  # ty: ignore[invalid-assignment]
+    with pytest.raises(FrozenInstanceError):
+        config.sub.a = 1  # ty: ignore[invalid-assignment]
+
+
+@dataclass
+class KwOnlySub:
+    a: int
+    _: KW_ONLY
+    b: int = 2
+
+
+@dataclass
+class KwOnlyRoot:
+    name: str
+    _: KW_ONLY
+    size: int = 1
+    sub: KwOnlySub = field(default_factory=lambda: KwOnlySub(1))
+    dm: (
+        Annotated[Celeba, nematocyte.option("celeba")]
+        | Annotated[Cmnist, nematocyte.option("cmnist")]
+    ) = field(default_factory=Cmnist)
+
+
+def test_kw_only_marker(tmp_path: Path) -> None:
+    # The `_: KW_ONLY` pseudo-field is not a key; the fields on either side
+    # of it are (issue #18).
+    (tmp_path / "primary.yaml").write_text("name: x\nsub:\n  a: 3\n")
+    config = nematocyte.compose(
+        KwOnlyRoot,
+        tmp_path,
+        config_name="primary",
+        overrides=["size=4", "sub.b=5", "dm=celeba"],
+    )
+    assert config == KwOnlyRoot("x", size=4, sub=KwOnlySub(3, b=5), dm=Celeba())
+    for override, cls in [("_=1", "KwOnlyRoot"), ("sub._=1", "KwOnlySub")]:
+        with pytest.raises(ConfigError) as excinfo:
+            nematocyte.compose(KwOnlyRoot, overrides=["name=x", override])
+        message = str(excinfo.value)
+        assert "'_'" in message
+        assert cls in message
 
 
 @pytest.mark.parametrize(

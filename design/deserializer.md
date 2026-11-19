@@ -31,7 +31,7 @@ in the table was observed, not taken from documentation.
 
 | Requirement | cattrs | pydantic |
 | --- | --- | --- |
-| Unmodified stdlib dataclasses: `kw_only`, inheritance, ABCs, `default_factory`, `Path`, `X \| None`, `dict[int, int]`, PEP 695 `type A = Literal[...]` | Works | Works through `TypeAdapter`; the classes are not touched and the results are ordinary instances |
+| Unmodified stdlib dataclasses: `kw_only`, `_: KW_ONLY`, `frozen`, `slots`, inheritance, ABCs, `default_factory`, `Path`, `X \| None`, `dict[int, int]`, PEP 695 `type A = Literal[...]` | Works | Works through `TypeAdapter`; the classes are not touched and the results are ordinary instances |
 | `__post_init__` checks | Run. The message is replaced by "invalid value" unless a custom error formatter is supplied | Run. Reported with path and the original message |
 | `InitVar` fields | Not supported (rejected as an unknown key) | Supported |
 | Scalar coercion out of the box | Unsafe: `1.5` becomes `1` for `int`, `"false"` becomes `True`, `None` becomes `"None"`, `"abc"` becomes `["a", "b", "c"]` for `list[str]`. Every primitive hook has to be replaced (about 30 lines) | Lax mode is close to ideal: `1.5` is rejected for `int`, `"false"` is `False`, `123` is rejected for `str`, and `"1e-3"` is accepted for `float` (so the `1.e-3` workaround for YAML 1.1 goes away). Warts: `True` is accepted as `1`, `"123"` as `123` |
