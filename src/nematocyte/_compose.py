@@ -247,19 +247,23 @@ class Composer:
         if directory is None:
             return {}
         found: dict[str, Path] = {}
-        for name in list_names(directory):
-            file = find_file(directory, name)
-            assert file is not None
-            found[name] = file
+        places = [(directory, "")]
         if info.kind is Kind.GROUP:
             fields = _option_fields(info)
-            for option in info.options:
-                if option in fields:
+            places += [
+                (directory / option, f"{option}/")
+                for option in info.options
+                if option not in fields
+            ]
+        for place, prefix in places:
+            for name in list_names(place):
+                # A file that no name can select is left out; the validator
+                # reports it.
+                if not _is_file_name(name):
                     continue
-                for name in list_names(directory / option):
-                    file = find_file(directory / option, name)
-                    assert file is not None
-                    found[f"{option}/{name}"] = file
+                file = find_file(place, name)
+                assert file is not None
+                found[prefix + name] = file
         return dict(sorted(found.items()))
 
     def root_field_names(self) -> set[str]:
@@ -303,19 +307,24 @@ class Composer:
                     f"Move the file to the top of {self.config_dir.name}/ "
                     f"or to a directory that matches no field.",
                 )
-            selected = path.name
+            middle = path.parts[1:-1]
             if (
                 info is not None
-                and len(path.parts) == 3
-                and path.parts[1] in info.options
+                and len(middle) == 1
+                and middle[0] in info.options
+                and middle[0] not in _option_fields(info)
             ):
-                selected = f"{path.parts[1]}/{path.name}"
+                # The directory of an option holds configs of the group.
+                selection = f"{first}={middle[0]}/{path.name}"
+            else:
+                # A nested directory holds the configs of a nested field.
+                selection = f"{format_path((first, *middle))}={path.name}"
             raise _error(
                 source,
                 f"{name!r} is not a primary config: the directory "
                 f"{self.config_dir.name}/{first}/ is named after the field "
                 f"{first!r}, so its files are named configs for that field. "
-                f"Select one with {first}={selected}.",
+                f"Select one with {selection}.",
             )
         found = find_file(self.config_dir / path.parent, path.name)
         if found is None:
@@ -351,6 +360,10 @@ class Composer:
                 continue
             relative = path.relative_to(self.config_dir)
             if len(relative.parts) > 1 and relative.parts[0] in reserved:
+                continue
+            # A file that no name can select is left out; the validator
+            # reports it.
+            if not all(_is_file_name(part) for part in relative.with_suffix("").parts):
                 continue
             paths.append(path)
         check_unique(paths)

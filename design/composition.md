@@ -500,6 +500,8 @@ Python version. Reading config files does not need to be fast (see above).
   outside the directory it is looked up in, on Linux, macOS or Windows. Any
   other character is allowed, since a quoted override or a name in a file
   can be any string: `dm='größe 2'` selects `configs/dm/größe 2.yaml`.
+  A file whose name breaks the rule, such as `configs/x:run.yaml`, cannot
+  be selected. `--help` leaves it out, and the validator reports it.
 - A key of a subconfig or group with nothing under it (`model:` and then
   only comments, which YAML reads as null) is ignored.
 - A selection written among the values (`model: cnn` outside `_defaults_`)

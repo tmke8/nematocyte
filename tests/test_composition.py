@@ -11,7 +11,10 @@ import pytest
 
 import nematocyte
 from nematocyte import ConfigError, DroppedValueWarning, option
+from nematocyte._compose import Composer
 from nematocyte._files import load_file
+from nematocyte._schema import class_fields
+from nematocyte._settings import Settings
 
 from .helpers import (
     CONFIG_FILES,
@@ -604,10 +607,59 @@ def test_field_keeps_its_directory_when_an_option_has_its_name(
     assert config.model == _WithB(width=3)
 
 
-def test_config_name_in_the_directory_of_an_option(config_dir: Path) -> None:
+@pytest.mark.parametrize(
+    ("name", "selection"),
+    [
+        ("dm/celeba/blond", "dm=celeba/blond"),
+        ("model/norm/my_batchnorm", "model.norm=my_batchnorm"),
+    ],
+)
+def test_config_name_of_a_named_config_suggests_the_selection(
+    config_dir: Path, name: str, selection: str
+) -> None:
     write_files(config_dir, {"dm/celeba/blond.yaml": _BLOND})
-    with pytest.raises(ConfigError, match="dm=celeba/blond"):
-        nematocyte.compose(Config, config_dir, config_name="dm/celeba/blond")
+    with pytest.raises(ConfigError, match=f"Select one with {selection}\\."):
+        nematocyte.compose(Config, config_dir, config_name=name)
+
+
+def test_config_name_in_the_directory_of_a_field_named_like_an_option(
+    tmp_path: Path,
+) -> None:
+    directory = write_files(tmp_path / "c", {"model/b/deep.yaml": "depth: 9\n"})
+    with pytest.raises(ConfigError, match=r"Select one with model\.b=deep\."):
+        nematocyte.compose(_Clash, directory, config_name="model/b/deep")
+
+
+def test_files_that_no_name_selects_are_not_listed(config_dir: Path) -> None:
+    # On Windows, `x:` would be a drive, so the names are not accepted anywhere.
+    write_files(
+        config_dir,
+        {
+            "x:run.yaml": "seed: 1\n",
+            "old\\run.yaml": "seed: 1\n",
+            "dm/x:blond.yaml": _BLOND,
+            "dm/celeba/y:blond.yaml": _BLOND,
+        },
+    )
+    composer = Composer(Config, config_dir, Settings)
+    assert "x:run" not in composer.primary_config_docs()
+    assert "old\\run" not in composer.primary_configs()
+    assert "good_run" in composer.primary_config_docs()
+    info = class_fields(Config)["dm"]
+    named = composer.named_config_docs(("dm",), info)
+    assert "x:blond" not in named
+    assert "celeba/y:blond" not in named
+    assert "celeba_smiling" in named
+    # The validator reports each of them.
+    found = {
+        result.path.as_posix(): str(result.error)
+        for result in nematocyte.validate_configs(Config, config_dir)
+        if not result.ok
+    }
+    assert sorted(found) == sorted(
+        ["x:run.yaml", "old\\run.yaml", "dm/x:blond.yaml", "dm/celeba/y:blond.yaml"]
+    )
+    assert all("drive" in message for message in found.values())
 
 
 def test_file_and_directory_with_the_same_stem_do_not_clash(tmp_path: Path) -> None:
