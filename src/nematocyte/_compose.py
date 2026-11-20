@@ -243,6 +243,18 @@ class Composer:
             raise _error(source, f"{name!r} is not the name of a primary config.")
         first = path.parts[0]
         if len(path.parts) > 1 and first in self.root_field_names():
+            info = class_fields(self.config_cls).get(first)
+            if info is not None and info.kind is Kind.VALUE:
+                raise _error(
+                    source,
+                    f"{name!r} is not a primary config: the directory "
+                    f"{self.config_dir.name}/{first}/ is named after the field "
+                    f"{first!r}, which is a value and not a subconfig or a "
+                    f"group, so it has no named configs, and a directory "
+                    f"named after a field holds no primary configs either. "
+                    f"Move the file to the top of {self.config_dir.name}/ "
+                    f"or to a directory that matches no field.",
+                )
             raise _error(
                 source,
                 f"{name!r} is not a primary config: the directory "

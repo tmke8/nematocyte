@@ -301,6 +301,16 @@ The same applies to nematocyte's own settings under the reserved key:
 `--config-name model/single_linear_layer` is an error. Files in
 `configs/model/` are named configs for `model` and nothing else.
 
+This holds for a field that is a plain value too, such as `seed` or a field
+typed `dict[...]`. Such a field has no named configs, so a file in
+`configs/seed/` belongs nowhere, and is an error. A directory with that name
+almost always means that the user expects `seed=one` to select
+`configs/seed/one.yaml`, but `seed=one` sets the value to the string `"one"`;
+the error catches the mistake at the directory. A primary config that sets
+such a field goes at the top of the config directory or in a directory that
+matches no field, and can be applied with `+NAME`: a dict in it replaces the
+dict as a whole, as `=` does on the command line ([cli.md](cli.md)).
+
 A file at the top of the config directory that is named after a subconfig
 or a group of the root dataclass, such as `configs/model.yaml`, is an error,
 whatever is being composed. Its name says "a config for `model`", but at the
