@@ -154,6 +154,35 @@ validation behaviour we would own.
   ([multirun.md](multirun.md)), and it makes a single run behave exactly
   like a job. A sloppy default such as `size: int = None` is therefore an
   error, which pydantic itself would let through; OmegaConf rejects it too.
+- A default that loses its type in plain form is an error. Where the type
+  of the field does not say what to build from the plain form, pydantic
+  keeps it as it is: under `Any` or `object`, also inside `list[Any]` or
+  `dict[str, Any]`, and in a union with a member that takes the plain form,
+  such as `Path | str` or `Color | str`. A default `Path("/tmp")`,
+  `Color.RED` or `Adam()` would silently become `'/tmp'`, `'red'` or
+  `{'lr': 0.1}`. The error names the field, the class, the default and what
+  it becomes. A default that pydantic validates to the same result from
+  both forms is fine.
+
+  | Field | Default | Result |
+  | --- | --- | --- |
+  | `Any` | `Color.RED`, `Path("/tmp")`, `Adam()` | Error |
+  | `list[Any]` | `[Path("/tmp")]` | Error |
+  | `Path \| str` | `Path("/tmp")` | Error |
+  | `Level \| int` | `Level.LOW` (an `IntEnum`) | Error |
+  | `Any` | `(1, 2)`, `{1, 2}` | `[1, 2]` |
+  | `Sequence[int]` | `(1, 2)` | `[1, 2]` |
+  | `Color`, `Path`, `list[Adam]` | `Color.RED`, `Path("/tmp")`, `[Adam()]` | Unchanged |
+  | `float` | `1` | `1.0`, as pydantic converts the default itself |
+
+  A tuple, list, set and frozenset count as the same, as do a dict and a
+  frozendict, since a config file cannot tell them apart: a tuple default
+  for `Sequence[int]`, a common way to avoid `default_factory`, stays
+  allowed and arrives as a list. Only a default that nothing sets is
+  checked; a value from a file or an override is what that source says.
+  The rule is not limited to `Any`, because which unions lose the type
+  depends on how pydantic matches their members, which the annotation does
+  not show.
 - A bool that pydantic turns into a number is an error (see above).
 - An `InitVar` is not kept on an instance, so under a default instance its
   value falls back to the default in the class.

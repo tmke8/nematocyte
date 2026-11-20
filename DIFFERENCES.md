@@ -92,6 +92,23 @@ use `@dataclass(kw_only=True)`.
 
 See [deserializer.md](design/deserializer.md).
 
+### A default has to keep its type in a config file
+
+A default that would lose its type when written in a config file is an
+error. This happens where the type of the field does not say what to build:
+
+| Field and default | Hydra (OmegaConf 2.4) | nematocyte |
+| --- | --- | --- |
+| `color: Any = Color.RED` | `Color.RED` | Error |
+| `root: Any = Path("/data")` | `Path("/data")` | Error |
+| `opt: Any = field(default_factory=Adam)` | `Adam(lr=0.1)`, after `OmegaConf.to_object` | Error |
+| `root: Path \| str = Path("/data")` | `Path("/data")` | Error |
+| `sizes: Any = (1, 2)` | `(1, 2)` | `[1, 2]` |
+
+Give the field the type it holds (`color: Color`), or, for a choice between
+config classes, make it a group ([unions.md](design/unions.md)). See
+[deserializer.md](design/deserializer.md).
+
 ### Dict fields are open, and replaced as a whole
 
 For a field typed `dict[...]`, such as
