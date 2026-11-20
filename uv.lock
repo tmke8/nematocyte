@@ -167,6 +167,15 @@ wheels = [
 ]
 
 [[package]]
+name = "json5"
+version = "0.17.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/16/1f/58a4d7ee466f81bc3c7337036380fc6d49de3afb7855d74f8121b1e89b32/json5-0.17.3.tar.gz", hash = "sha256:8d0278ad34ebaa9c3af76d9519274811830224a2d1cd5af156dbd067f461b8a4", size = 54234, upload-time = "2026-10-09T21:19:28.335Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ae/39/e689b616c4279a821d5842a8a85c1874540f8d58e35028df93f2182120c2/json5-0.17.3-py3-none-any.whl", hash = "sha256:2c8b22a893c35cd6a3c5ccbf1dd1c7d02c25dc1b5897fea658f9bf08c2e05f9a", size = 34809, upload-time = "2026-10-09T21:19:27.357Z" },
+]
+
+[[package]]
 name = "librt"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -388,6 +397,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+json5 = [
+    { name = "json5" },
+]
 optuna = [
     { name = "optuna" },
 ]
@@ -399,6 +411,7 @@ submitit = [
 dev = [
     { name = "hydra-core" },
     { name = "hydra-qol" },
+    { name = "json5" },
     { name = "mypy" },
     { name = "optuna" },
     { name = "pyright" },
@@ -418,6 +431,7 @@ reference = [
     { name = "tyro" },
 ]
 test = [
+    { name = "json5" },
     { name = "optuna" },
     { name = "pytest" },
     { name = "submitit" },
@@ -429,18 +443,20 @@ typecheck = [
 
 [package.metadata]
 requires-dist = [
+    { name = "json5", marker = "extra == 'json5'", specifier = ">=0.17" },
     { name = "optuna", marker = "extra == 'optuna'", specifier = ">=4" },
     { name = "pydantic", specifier = ">=2.12" },
     { name = "ruamel-yaml", specifier = ">=0.18" },
     { name = "submitit", marker = "extra == 'submitit'", specifier = ">=1.5" },
     { name = "typing-extensions", specifier = ">=4.16" },
 ]
-provides-extras = ["submitit", "optuna"]
+provides-extras = ["submitit", "optuna", "json5"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "hydra-core", specifier = "==1.4.0rc3" },
     { name = "hydra-qol", specifier = ">=0.2.3" },
+    { name = "json5", specifier = ">=0.17" },
     { name = "mypy", specifier = ">=2.4.1" },
     { name = "optuna", specifier = ">=4" },
     { name = "pyright", specifier = ">=1.1.414" },
@@ -460,6 +476,7 @@ reference = [
     { name = "tyro", specifier = ">=1.0.17" },
 ]
 test = [
+    { name = "json5", specifier = ">=0.17" },
     { name = "optuna", specifier = ">=4" },
     { name = "pytest", specifier = ">=8" },
     { name = "submitit", specifier = ">=1.5" },
