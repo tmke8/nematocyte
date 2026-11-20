@@ -289,6 +289,30 @@ def test_missing_file(config_dir: Path) -> None:
     assert "nope.yaml" in str(result.error)
 
 
+def test_file_that_is_not_a_config_file(config_dir: Path) -> None:
+    write_files(config_dir, {"notes.json": "{}"})
+    result = nematocyte.Validator(Config, config_dir).validate("notes.json")
+    message = str(result.error)
+    assert "notes.json" in message
+    assert ".json5" in message
+
+
+def test_json5_files_are_checked(config_dir: Path) -> None:
+    write_files(
+        config_dir,
+        {
+            "opt/fast.json5": "{_defaults_: {_self_: 'strong_weight_decay'}, lr: 0.5}",
+            "model/broken.json5": "{_defaults_: {_self_: 'fcn'}, num_hiden: 1}",
+        },
+    )
+    results = nematocyte.validate_configs(Config, config_dir)
+    paths = {result.path.as_posix() for result in results}
+    assert {"opt/fast.json5", "model/broken.json5"} <= paths
+    found = errors(config_dir)
+    assert list(found) == ["model/broken.json5"]
+    assert "'num_hiden'" in found["model/broken.json5"]
+
+
 # -- one validator for many files ---------------------------------------------
 
 

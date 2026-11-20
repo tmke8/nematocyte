@@ -1,7 +1,7 @@
 [project]
 name = "nematocyte"
 version = "0.1.0"
-description = "Configuration for Python programs, as a tree of dataclasses filled from YAML files and the command line"
+description = "Configuration for Python programs, as a tree of dataclasses filled from YAML or JSON5 files and the command line"
 license = "MIT"
 license-files = ["LICENSE"]
 readme = "README.md"
@@ -22,6 +22,9 @@ submitit = [
 optuna = [
     "optuna>=4",
 ]
+json5 = [
+    "json5>=0.17",
+]
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]
@@ -34,8 +37,9 @@ dev = [
     { include-group = "typecheck" },
     { include-group = "reference" },
 ]
-# The tests of the launchers and sweepers need the optional extras.
-test = ["pytest>=8", "submitit>=1.5", "optuna>=4"]
+# The tests of the launchers, the sweepers and the JSON5 files need the
+# optional extras.
+test = ["pytest>=8", "submitit>=1.5", "optuna>=4", "json5>=0.17"]
 lint = ["ruff>=0.14", "ty"]
 # Not used by nematocyte; installed to compare behaviour during development.
 reference = [

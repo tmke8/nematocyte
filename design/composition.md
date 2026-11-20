@@ -90,7 +90,8 @@ superclass: Smiling
 
 - The order of the entries has no meaning. What is applied before what
   follows from the keys; see [Layers](#layers).
-- A place cannot be given twice: the YAML parser reports a repeated key.
+- A place cannot be given twice: the parser reports a repeated key, in
+  YAML and in JSON5 files.
 - A primary config describes the root, so `dm: cmnist` means the field `dm`
   of the root dataclass. There is no leading slash, and a primary config
   reads the same whichever directory it is in.
@@ -385,14 +386,52 @@ does not matter for config files.
 A config file carried over from Hydra can change its meaning where it relied
 on YAML 1.1, such as `on` for a boolean.
 
+### Config files can also be JSON5
+
+A file ending in `.json5` is read as [JSON5](https://json5.org/), with the
+[`json5`](https://pypi.org/project/json5/) package. It holds what a YAML file
+holds, with the same keys: `_defaults_`, `_doc_`, the values and `${...}`
+strings.
+
+```json5
+// configs/experiments/cmnist_cnn.json5
+{
+  _defaults_: {dm: 'cmnist', model: 'cnn', opt: 'weight_decay_adamw'},
+  dm: {num_colors: 10},
+}
+```
+
+- Whether a file is YAML or JSON5 makes no difference anywhere else. A
+  JSON5 file can extend a YAML file with `_self_` and the other way round,
+  and `--config-name`, `+NAME`, `--help` and the validator treat both alike.
+- `json5` is an optional extra: `pip install 'nematocyte[json5]'`. It is
+  imported only when a `.json5` file is read; finding and listing files
+  does not need it. Reading a `.json5` file without it is an error that
+  names the file and the extra.
+- A key given twice is an error, as in YAML.
+- An empty `.json5` file is not valid JSON5, and is an error. (An empty YAML
+  file is an empty mapping.) The top level has to be an object.
+- `Infinity` and `NaN` are floats, and `0x10` is an int. pydantic then
+  converts the values for the fields, as for YAML.
+- JSON5 has no dates, so `'2026-11-16'` is a string. A field typed
+  `datetime.date` gets the same date from either format, since pydantic
+  converts the string. A field typed `Any` gets a `date` from YAML but a
+  string from JSON5. A field typed `str` takes the JSON5 string, while in
+  YAML the date has to be quoted.
+- `--cfg` prints YAML whichever format the files are in.
+
+`json5` was chosen over `pyjson5`, which is faster, because `pyjson5` cannot
+report a key given twice and is compiled, so it needs a wheel for each new
+Python version. Reading config files does not need to be fast (see above).
+
 ### Details of finding and reading files
 
 - The config directory has to exist. One that does not is an error straight
   away.
-- Config files end in `.yaml` or `.yml`. `--config-name` accepts a name with
-  or without the suffix. Two files whose names differ only in the suffix,
-  such as `cnn.yaml` and `cnn.yml` in the same directory, are an error,
-  since the name is ambiguous.
+- Config files end in `.yaml`, `.yml` or `.json5`. `--config-name` accepts a
+  name with or without the suffix. Two files whose names differ only in the
+  suffix, such as `cnn.yaml` and `cnn.yml`, or `cnn.yaml` and `cnn.json5`, in
+  the same directory, are an error, since the name is ambiguous.
 - A key of a subconfig or group with nothing under it (`model:` and then
   only comments, which YAML reads as null) is ignored.
 - A selection written among the values (`model: cnn` outside `_defaults_`)

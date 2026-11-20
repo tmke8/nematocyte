@@ -153,7 +153,10 @@ def _validate(
     if composer.config_dir is None or not (composer.config_dir / relative).is_file():
         raise ConfigError(f"There is no config file {relative.as_posix()}.")
     if relative.suffix not in SUFFIXES:
-        raise ConfigError(f"{relative.as_posix()} is not a YAML file.")
+        raise ConfigError(
+            f"{relative.as_posix()} is not a config file: those end in "
+            f"{', '.join(SUFFIXES)}."
+        )
     path = _classify(composer, relative)
     if path is None:
         name = relative.with_suffix("").as_posix()
@@ -245,7 +248,7 @@ def validate_configs(
     config_name: str | None = None,
     construct: bool = True,
 ) -> list[ValidationResult]:
-    """Check every YAML file in the config directory; one result per file.
+    """Check every config file in the config directory; one result per file.
 
     The arguments are those of :class:`Validator`, which also says what is
     raised instead of being returned as a result.

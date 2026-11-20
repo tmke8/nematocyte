@@ -75,6 +75,14 @@ carried over from Hydra can change its meaning:
 On the command line nothing changes; there, `yes` was a string and `1e-3` a
 float before too. See [composition.md](design/composition.md).
 
+### Config files can also be JSON5
+
+A config file can be written in JSON5, as `cnn.json5` in place of
+`cnn.yaml`, with the extra `nematocyte[json5]` installed. Hydra reads only
+YAML. A name that has both a YAML and a JSON5 file, such as `cnn.yaml` and
+`cnn.json5` in the same directory, is an error, as are `cnn.yaml` and
+`cnn.yml`. See [composition.md](design/composition.md#config-files-can-also-be-json5).
+
 ### `???` does not mark a required value
 
 A dataclass field without a default is required, and a missing value is

@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 import datetime
 from pathlib import Path
+import sys
 from typing import Annotated, Any
 import warnings
 
@@ -329,7 +330,9 @@ def test_directory_named_after_a_field_holds_no_primary_configs(
     assert "'model'" in message
 
 
-@pytest.mark.parametrize("name", ["model.yaml", "opt.yml", "nematocyte.yaml"])
+@pytest.mark.parametrize(
+    "name", ["model.yaml", "opt.yml", "nematocyte.yaml", "model.json5"]
+)
 def test_file_at_the_top_named_after_a_subconfig_or_group_is_an_error(
     config_dir: Path, name: str
 ) -> None:
@@ -519,6 +522,9 @@ def test_yml_suffix(config_dir: Path) -> None:
         (["short.yaml", "short.yml"], {"config_name": "short"}),
         (["short.yaml", "short.yml"], {"config_name": "short.yml"}),
         (["opt/fast.yaml", "opt/fast.yml"], {"overrides": ["opt=fast"]}),
+        (["short.yaml", "short.json5"], {"config_name": "short"}),
+        (["short.yml", "short.json5"], {"config_name": "short.json5"}),
+        (["opt/fast.yaml", "opt/fast.json5"], {"overrides": ["opt=fast"]}),
     ],
 )
 def test_same_name_with_both_suffixes_is_an_error(
@@ -532,11 +538,146 @@ def test_same_name_with_both_suffixes_is_an_error(
     assert "ambiguous" in message
 
 
-def test_same_name_with_both_suffixes_in_a_listing(config_dir: Path) -> None:
+@pytest.mark.parametrize("other", ["fast.yml", "fast.json5"])
+def test_same_name_with_both_suffixes_in_a_listing(
+    config_dir: Path, other: str
+) -> None:
     # Also when the clash is only met while listing the names in a message.
-    write_files(config_dir, {"opt/fast.yaml": "{}\n", "opt/fast.yml": "{}\n"})
-    with pytest.raises(ConfigError, match="fast.yml"):
+    write_files(config_dir, {"opt/fast.yaml": "{}\n", f"opt/{other}": "{}\n"})
+    with pytest.raises(ConfigError, match=other):
         nematocyte.compose(Config, config_dir, overrides=["opt=slow"])
+
+
+# -- JSON5 files ----------------------------------------------------------------
+
+JSON5_GOOD_RUN = """\
+// The same as good_run.yaml, in JSON5.
+{
+  _doc_: 'A good run, on small images.',
+  _defaults_: {model: 'single_linear_layer', dm: 'celeba_small'},
+  seed: 1,
+  model: {activation: 'selu'},
+  dm: {download: true},
+  opt: {
+    lr: 0.001,
+    weight_decay: 1e-3,  // a trailing comma follows
+  },
+}
+"""
+
+
+@pytest.mark.parametrize("config_name", ["json_run", "json_run.json5"])
+def test_json5_primary_config(config_dir: Path, config_name: str) -> None:
+    write_files(config_dir, {"json_run.json5": JSON5_GOOD_RUN})
+    config = nematocyte.compose(Config, config_dir, config_name=config_name)
+    assert config == nematocyte.compose(Config, config_dir, config_name="good_run")
+
+
+def test_json5_doc(config_dir: Path) -> None:
+    write_files(config_dir, {"json_run.json5": JSON5_GOOD_RUN})
+    assert load_file(config_dir / "json_run.json5").doc == (
+        "A good run, on small images."
+    )
+
+
+def test_json5_and_yaml_extend_each_other(config_dir: Path) -> None:
+    write_files(
+        config_dir,
+        {
+            # A JSON5 config that extends a YAML one...
+            "opt/fast.json5": "{_defaults_: {_self_: 'strong_weight_decay'}, lr: 0.5}",
+            # ...and a YAML config that extends the JSON5 one.
+            "opt/faster.yaml": "_defaults_:\n  _self_: fast\nlr: 0.9\n",
+        },
+    )
+    config = nematocyte.compose(Config, config_dir, overrides=["opt=fast"])
+    assert config.opt == Opt(lr=0.5, weight_decay=0.1)
+    config = nematocyte.compose(Config, config_dir, overrides=["opt=faster"])
+    assert config.opt == Opt(lr=0.9, weight_decay=0.1)
+
+
+def test_json5_values(tmp_path: Path) -> None:
+    path = tmp_path / "file.json5"
+    path.write_text("{a: 0x10, b: Infinity, c: '${seed}', d: [1, 'x',]}")
+    assert load_file(path).values == {
+        "a": 16,
+        "b": float("inf"),
+        "c": "${seed}",
+        "d": [1, "x"],
+    }
+
+
+@dataclass(kw_only=True)
+class Dated:
+    day: datetime.date = datetime.date(2000, 1, 1)
+    anything: Any = None
+    name: str = ""
+
+
+def test_dates_in_json5_and_yaml(tmp_path: Path) -> None:
+    # JSON5 has no dates: a `date` field gets the same value from both
+    # formats, an `Any` field does not.
+    write_files(
+        tmp_path,
+        {
+            "y.yaml": "day: 2026-11-16\nanything: 2026-11-16\n",
+            "j.json5": "{day: '2026-11-16', anything: '2026-11-16'}",
+        },
+    )
+    from_yaml = nematocyte.compose(Dated, tmp_path, config_name="y")
+    from_json5 = nematocyte.compose(Dated, tmp_path, config_name="j")
+    assert from_yaml.day == from_json5.day == datetime.date(2026, 11, 16)
+    assert from_yaml.anything == datetime.date(2026, 11, 16)
+    assert from_json5.anything == "2026-11-16"
+
+
+def test_date_for_a_str_field(tmp_path: Path) -> None:
+    write_files(
+        tmp_path,
+        {"j.json5": "{name: '2026-11-16'}", "y.yaml": "name: 2026-11-16\n"},
+    )
+    assert nematocyte.compose(Dated, tmp_path, config_name="j").name == "2026-11-16"
+    # In YAML, the unquoted date is a `date`, not a string.
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Dated, tmp_path, config_name="y")
+    message = str(excinfo.value)
+    assert "y.yaml" in message
+    assert "Dated.name" in message
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        ("{seed: 1, seed: 2}", ["seed", "JSON5"]),
+        ("{seed: 1,,}", ["line 1", "JSON5"]),
+        ("", ["JSON5"]),
+        ("[1, 2]", ["mapping", "list"]),
+    ],
+)
+def test_broken_json5_file(tmp_path: Path, content: str, expected: list[str]) -> None:
+    path = tmp_path / "broken.json5"
+    path.write_text(content)
+    with pytest.raises(ConfigError) as excinfo:
+        load_file(path)
+    message = str(excinfo.value)
+    assert "broken.json5" in message
+    for part in expected:
+        assert part in message
+
+
+def test_json5_without_the_extra(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `None` in `sys.modules` makes the import fail, as if it were missing.
+    monkeypatch.setitem(sys.modules, "json5", None)
+    write_files(config_dir, {"opt/fast.json5": "{lr: 0.5}"})
+    # Only reading a JSON5 file needs the extra; listing it does not.
+    assert nematocyte.compose(Config, config_dir, config_name="good_run").seed == 1
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, overrides=["opt=fast"])
+    message = str(excinfo.value)
+    assert "fast.json5" in message
+    assert "nematocyte[json5]" in message
 
 
 def test_subconfig_key_with_nothing_under_it_is_ignored(config_dir: Path) -> None:

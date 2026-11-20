@@ -1,11 +1,11 @@
 # Validation
 
-How to check that every YAML file is still valid, without running an
+How to check that every config file is still valid, without running an
 experiment.
 
 ## Goal
 
-YAML files are not seen by the type checker. If a field of a dataclass is
+Config files are not seen by the type checker. If a field of a dataclass is
 renamed, a file that still uses the old name only fails when someone uses it.
 A test should catch that.
 

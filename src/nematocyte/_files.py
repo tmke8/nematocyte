@@ -1,4 +1,4 @@
-"""Reading config files: YAML 1.2, with ruamel.yaml."""
+"""Reading config files: YAML 1.2 with ruamel.yaml, or JSON5 with json5."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,7 +20,9 @@ __all__ = [
     "load_file",
 ]
 
-SUFFIXES = (".yaml", ".yml")
+YAML_SUFFIXES = (".yaml", ".yml")
+JSON5_SUFFIX = ".json5"
+SUFFIXES = (*YAML_SUFFIXES, JSON5_SUFFIX)
 
 
 @dataclass(frozen=True)
@@ -47,17 +49,10 @@ def display_path(path: Path) -> str:
 def load_file(path: Path) -> ConfigFile:
     """Read a config file and split off its `_defaults_` and its `_doc_`."""
     label = display_path(path)
-    yaml = YAML(typ="safe", pure=True)
-    yaml.allow_duplicate_keys = False
-    try:
-        with path.open(encoding="utf-8") as stream:
-            content = yaml.load(stream)
-    except YAMLError as exc:
-        raise ConfigError(f"{label} is not valid YAML:\n{exc}") from exc
-    except OSError as exc:
-        raise ConfigError(f"{label} cannot be read: {exc}") from exc
-    if content is None:
-        content = {}
+    if path.suffix == JSON5_SUFFIX:
+        content = _read_json5(path, label)
+    else:
+        content = _read_yaml(path, label)
     if not isinstance(content, dict):
         raise ConfigError(
             f"{label}: a config file has to be a mapping at the top level, "
@@ -98,6 +93,41 @@ def load_file(path: Path) -> ConfigFile:
     return ConfigFile(
         path=path, label=label, defaults=defaults, values=content, doc=doc
     )
+
+
+def _read_yaml(path: Path, label: str) -> Any:
+    """The content of a YAML file; an empty file is an empty mapping."""
+    yaml = YAML(typ="safe", pure=True)
+    yaml.allow_duplicate_keys = False
+    try:
+        with path.open(encoding="utf-8") as stream:
+            content = yaml.load(stream)
+    except YAMLError as exc:
+        raise ConfigError(f"{label} is not valid YAML:\n{exc}") from exc
+    except OSError as exc:
+        raise ConfigError(f"{label} cannot be read: {exc}") from exc
+    return {} if content is None else content
+
+
+def _read_json5(path: Path, label: str) -> Any:
+    """The content of a JSON5 file, read with the optional `json5`."""
+    try:
+        import json5  # noqa: PLC0415
+    except ImportError as exc:
+        raise ConfigError(
+            f"{label} is a JSON5 file, and reading it needs the extra "
+            "'json5': pip install 'nematocyte[json5]'"
+        ) from exc
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"{label} cannot be read: {exc}") from exc
+    try:
+        return json5.loads(text, allow_duplicate_keys=False)
+    except ValueError as exc:
+        # The parser calls the text "<string>"; the label already names it.
+        message = str(exc).replace("<string>:", "line ")
+        raise ConfigError(f"{label} is not valid JSON5:\n{message}") from exc
 
 
 def _check_keys(mapping: dict[Any, Any], label: str, path: tuple[str, ...]) -> None:

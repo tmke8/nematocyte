@@ -350,18 +350,20 @@ submitit = [
 
 [package.metadata]
 requires-dist = [
+    { name = "json5", marker = "extra == 'json5'", specifier = ">=0.17" },
     { name = "optuna", marker = "extra == 'optuna'", specifier = ">=4" },
     { name = "pydantic", specifier = ">=2.12" },
     { name = "ruamel-yaml", specifier = ">=0.18" },
     { name = "submitit", marker = "extra == 'submitit'", specifier = ">=1.5" },
     { name = "typing-extensions", specifier = ">=4.16" },
 ]
-provides-extras = ["submitit", "optuna"]
+provides-extras = ["submitit", "optuna", "json5"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "hydra-core", specifier = "==1.4.0rc3" },
     { name = "hydra-qol", specifier = ">=0.2.3" },
+    { name = "json5", specifier = ">=0.17" },
     { name = "mypy", specifier = ">=2.4.1" },
     { name = "optuna", specifier = ">=4" },
     { name = "pyright", specifier = ">=1.1.414" },
@@ -381,6 +383,7 @@ reference = [
     { name = "tyro", specifier = ">=1.0.17" },
 ]
 test = [
+    { name = "json5", specifier = ">=0.17" },
     { name = "optuna", specifier = ">=4" },
     { name = "pytest", specifier = ">=8" },
     { name = "submitit", specifier = ">=1.5" },

@@ -2,8 +2,8 @@
 
 A configuration library for Python programs: a replacement for Hydra with
 fewer features and more focus on usability. The config is a tree of stdlib
-dataclasses (or `TypedDict`s), filled from YAML files and command-line
-overrides.
+dataclasses (or `TypedDict`s), filled from YAML (or JSON5) files and
+command-line overrides.
 
 ```python
 from dataclasses import dataclass, field
@@ -66,6 +66,7 @@ nematocyte needs Python 3.14 or later.
 uv add nematocyte
 uv add 'nematocyte[submitit]'  # for the SLURM launcher
 uv add 'nematocyte[optuna]'  # for the Optuna sweeper
+uv add 'nematocyte[json5]'  # for config files in JSON5
 ```
 
 ## Developing
