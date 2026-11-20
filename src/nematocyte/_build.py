@@ -22,6 +22,7 @@ from ._schema import (
     FieldInfo,
     Kind,
     is_dict_or_frozendict,
+    is_exact_dict_or_frozendict,
     is_typeddict_class,
 )
 from ._tree import Node, format_path
@@ -158,6 +159,8 @@ def _default_problem(
     if info.name in node.values:
         return None
     default = node.default_value(info)
+    if _is_plain(default):
+        return None
     try:
         direct = adapter.validate_python(default, extra="forbid")
     except ValidationError:
@@ -174,6 +177,28 @@ def _default_problem(
         f"{type(before).__name__} from that, or a default that a config file "
         f"can hold.\n    Value: {default!r} ({origin})"
     )
+
+
+_PLAIN_SCALARS = frozenset({str, int, float, bool, type(None)})
+_PLAIN_COLLECTIONS = frozenset({list, tuple, set, frozenset})
+
+
+def _is_plain(value: Any) -> bool:
+    """Whether `value` holds only plain scalars, in built-in containers.
+
+    Its plain form then differs from it only in the kinds of its containers
+    and the order of a set, which a config file cannot express, so the
+    check of a default can skip the second validation. Subclasses, such as a `NamedTuple` or an
+    `IntEnum`, are not plain.
+    """
+    kind = type(value)
+    if kind in _PLAIN_SCALARS:
+        return True
+    if kind in _PLAIN_COLLECTIONS:
+        return all(_is_plain(item) for item in value)
+    if is_exact_dict_or_frozendict(value):
+        return all(_is_plain(key) and _is_plain(item) for key, item in value.items())
+    return False
 
 
 type _Pairs = list[tuple[str, Any, Any]]

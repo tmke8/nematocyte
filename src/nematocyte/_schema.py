@@ -45,6 +45,7 @@ __all__ = [
     "first_paragraph",
     "is_config_class",
     "is_dict_or_frozendict",
+    "is_exact_dict_or_frozendict",
     "is_typeddict_class",
     "option",
     "typeddict_option",
@@ -181,6 +182,11 @@ def is_dict_or_frozendict(value: object) -> TypeIs[Mapping[Any, Any]]:
     Either can be the default of a TypedDict node.
     """
     return isinstance(value, _DICT_TYPES)
+
+
+def is_exact_dict_or_frozendict(value: object) -> TypeIs[Mapping[Any, Any]]:
+    """Whether `value` is a dict or a `frozendict`, and not of a subclass."""
+    return type(value) in _DICT_TYPES
 
 
 def is_config_class(tp: object) -> bool:
