@@ -555,8 +555,14 @@ def test_preset_has_no_directories_of_options(config_dir: Path) -> None:
 
 
 @dataclass
+class _Inner:
+    depth: int = 1
+
+
+@dataclass
 class _WithB:
-    b: int = 1
+    b: _Inner = field(default_factory=_Inner)
+    width: int = 1
 
 
 @dataclass
@@ -565,33 +571,37 @@ class _Other:
 
 
 @dataclass
-class _Ambiguous:
+class _Clash:
+    # `b` is an option of `model`, and a field of the option `a`.
     model: Annotated[_WithB, option("a")] | Annotated[_Other, option("b")] = field(
         default_factory=_WithB
     )
 
 
-def test_directory_of_an_option_that_is_also_a_field_is_ambiguous(
+def test_field_keeps_its_directory_when_an_option_has_its_name(
     tmp_path: Path,
 ) -> None:
-    # `b` is an option of `model`, and a field of the option `a`.
     directory = write_files(
         tmp_path / "c",
         {
-            "model/b/x.yaml": "_defaults_:\n  _self_: b\n",
-            "model/a/y.yaml": "_defaults_:\n  _self_: a\nb: 3\n",
+            "model/b/deep.yaml": "depth: 9\n",
+            "model/a/wide.yaml": "_defaults_:\n  _self_: a\nwidth: 3\n",
         },
     )
+    config = nematocyte.compose(_Clash, directory, overrides=["model.b=deep"])
+    assert config.model == _WithB(b=_Inner(depth=9))
     with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(_Ambiguous, directory, overrides=["model=b/x"])
+        nematocyte.compose(_Clash, directory, overrides=["model=b/deep"])
     message = str(excinfo.value)
+    assert "'b/deep'" in message
     assert "model/b" in message
-    assert "ambiguous" in message
-    assert "'a'" in message
-    assert "'b'" in message
+    assert "option 'a'" in message
+    # The directory of the field is not listed among the configs of `model`.
+    listing = next(line for line in message.splitlines() if "From files" in line)
+    assert listing == "From files: a/wide"
     # Another option's directory is not affected.
-    config = nematocyte.compose(_Ambiguous, directory, overrides=["model=a/y"])
-    assert config.model == _WithB(b=3)
+    config = nematocyte.compose(_Clash, directory, overrides=["model=a/wide"])
+    assert config.model == _WithB(width=3)
 
 
 def test_config_name_in_the_directory_of_an_option(config_dir: Path) -> None:

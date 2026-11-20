@@ -73,9 +73,9 @@ has to end at that option
 
 Files that belong nowhere are reported: a file in a directory named after a
 field that is not a named config for it, a subdirectory of a group's
-directory that matches neither a field nor an option, a directory inside
-the directory of an option, and the directory of an option whose name is
-also a field of an option.
+directory that matches neither a field nor an option, and a directory
+inside the directory of an option. Where an option and a field of an option
+have the same name, the directory is the field's, and is checked as such.
 
 ### A named config is validated in the whole tree
 

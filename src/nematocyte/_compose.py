@@ -240,8 +240,8 @@ class Composer:
     def _named_files(self, path: KeyPath, info: FieldInfo) -> dict[str, Path]:
         """The config files for the field `info` at `path`, by name, sorted.
 
-        The directory of an option whose name is also a field of an option
-        is ambiguous, and left out; selecting from it is an error.
+        The directory named after an option whose name is also a field of an
+        option belongs to the field, and is left out.
         """
         directory = self.directory(path)
         if directory is None:
@@ -653,11 +653,13 @@ class Composer:
             directory = self.directory((*path, option))
             raise _error(
                 source,
-                f"The directory {directory} is ambiguous: {option!r} is an "
-                f"option of {where!r}, and also a field of the option "
-                f"{' and '.join(repr(o) for o in owners)}. It cannot hold the "
-                f"configs of the option {option!r}. Move them to the "
-                f"directory of {where!r}.",
+                f"{where!r} has no config called {name!r}: {option!r} is an "
+                f"option of {where!r}, but also a field of the option "
+                f"{' and '.join(repr(o) for o in owners)}, so the directory "
+                f"{directory} belongs to that field and holds no configs of "
+                f"the option. Configs that extend the option {option!r} go "
+                f"in the directory of {where!r} itself."
+                f"{self._available(path, info)}",
             )
         return option, stem
 

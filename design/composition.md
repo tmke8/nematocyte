@@ -365,11 +365,14 @@ is selected with `dm=celeba/male_blond`, on the command line or in
 - A name with a slash is only the directory of an option of a group. For a
   plain subconfig, which has no options, it is an error, as is a name whose
   first part is not an option, such as `dm=other/x`.
-- The directory of an option whose name is also a field of some option of
-  the group is ambiguous, since its files could be named configs for that
-  field. Selecting from it is an error, and the validator reports its files.
-  This is only an error when the directory is there; a group can have an
-  option and a field of the same name otherwise.
+- If the name of an option is also a field of some option of the group, the
+  directory with that name keeps its meaning as the field's directory
+  ([above](#named-configs-for-a-nested-field-live-in-a-nested-directory)):
+  for a subconfig or a group, it holds the field's named configs, and for a
+  value it is an error. The option then has no directory, and a name such
+  as `dm=celeba/x` is an error that says the directory belongs to the
+  field. So nothing that is valid without this feature changes its
+  meaning.
 - `--help` lists the configs in the directories of options under
   `From files:`, with the others, as `celeba/male_blond`.
 

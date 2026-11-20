@@ -239,37 +239,72 @@ def test_files_in_the_directory_of_an_option(config_dir: Path) -> None:
         assert "'cnn'" in found[path] or "'celeba'" in found[path]
 
 
-def test_directory_of_an_option_that_is_also_a_field(tmp_path: Path) -> None:
-    @dataclass
-    class WithB:
-        b: int = 1
+@dataclass
+class _Inner:
+    depth: int = 1
 
-    @dataclass
-    class Other:
-        x: int = 0
 
-    @dataclass
-    class Root:
-        model: Annotated[WithB, option("a")] | Annotated[Other, option("b")] = field(
-            default_factory=WithB
-        )
+@dataclass
+class _SubconfigB:
+    b: _Inner = field(default_factory=_Inner)
 
+
+@dataclass
+class _ValueB:
+    b: int = 1
+
+
+@dataclass
+class _Other:
+    x: int = 0
+
+
+@dataclass
+class _SubconfigClash:
+    model: Annotated[_SubconfigB, option("a")] | Annotated[_Other, option("b")] = field(
+        default_factory=_SubconfigB
+    )
+
+
+@dataclass
+class _ValueClash:
+    model: Annotated[_ValueB, option("a")] | Annotated[_Other, option("b")] = field(
+        default_factory=_ValueB
+    )
+
+
+def test_field_keeps_its_directory_when_an_option_has_its_name(
+    tmp_path: Path,
+) -> None:
+    # `b` is an option of `model`, and a subconfig of the option `a`: the
+    # directory holds the named configs of the field, as without the option.
     write_files(
         tmp_path,
         {
-            "model/b/x.yaml": "_defaults_:\n  _self_: b\n",
-            "model/a/y.yaml": "_defaults_:\n  _self_: a\nb: 3\n",
+            "model/b/deep.yaml": "depth: 9\n",
+            "model/b/bad.yaml": "_defaults_:\n  _self_: b\n",
+            "model/a/y.yaml": "_defaults_:\n  _self_: a\n",
         },
     )
     results = {
         result.path.as_posix(): result.error
-        for result in nematocyte.validate_configs(Root, tmp_path)
+        for result in nematocyte.validate_configs(_SubconfigClash, tmp_path)
     }
+    assert results["model/b/deep.yaml"] is None
     assert results["model/a/y.yaml"] is None
-    message = str(results["model/b/x.yaml"])
-    assert "ambiguous" in message
-    assert "'b'" in message
-    assert "'model'" in message
+    # A file that extends the option `b` is checked as a preset for the field.
+    assert "'b'" in str(results["model/b/bad.yaml"])
+    assert "'model.b'" in str(results["model/b/bad.yaml"])
+
+
+def test_value_field_keeps_its_directory_too(tmp_path: Path) -> None:
+    # As for any field that is a value, a directory named after it is an error.
+    write_files(tmp_path, {"model/b/x.yaml": "_defaults_:\n  _self_: b\n"})
+    [result] = nematocyte.validate_configs(_ValueClash, tmp_path)
+    message = str(result.error)
+    assert "belongs nowhere" in message
+    assert "'model.b'" in message
+    assert "is a value" in message
 
 
 def test_directory_that_matches_no_field_holds_primary_configs(

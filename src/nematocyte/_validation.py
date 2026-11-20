@@ -56,15 +56,8 @@ def _classify(composer: Composer, relative: Path) -> tuple[KeyPath, str] | None:
         infos = [fields[part] for fields in candidates if part in fields]
         here = "/".join(relative.parts[: index + 1])
         parent = ".".join(path)
-        if part in options:
-            if infos:
-                raise ConfigError(
-                    f"{relative.as_posix()} belongs nowhere: the directory "
-                    f"{here}/ is ambiguous, since {part!r} is both an option "
-                    f"of {parent!r} and a field of an option of {parent!r}. "
-                    f"A directory named after an option holds configs of the "
-                    f"group only if no option has a field of that name."
-                )
+        # A field keeps its directory when an option has the same name.
+        if part in options and not infos:
             if index != len(directories) - 1:
                 raise ConfigError(
                     f"{relative.as_posix()} belongs nowhere: the directory "
