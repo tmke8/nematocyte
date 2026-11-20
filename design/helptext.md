@@ -45,6 +45,7 @@ Experiments on Python 3.15 and 3.14, with throwaway scripts.
 | What an option of a group is | The docstring of the option's class |
 | What a subconfig is for | `field(doc=...)` on the field, else the docstring of its class |
 | What the program does | The docstring of the root dataclass |
+| What a config file is | The `_doc_` key of the file ([below](#docs-of-config-files)) |
 | The type and the default | The dataclass itself; nothing to write |
 
 Every one of these is optional. A field without a doc is shown without one.
@@ -137,9 +138,10 @@ the docs as comments.
   column for every line.
 - As in Hydra, `--help` reflects the other arguments: `model=cnn --help`
   shows the fields of the CNN.
-- An option that exists only as a YAML file, such as `single_linear_layer`,
-  is listed by its name, without a description. The same goes for the presets
-  of a plain subconfig.
+- The config files of a group, such as `single_linear_layer`, are listed
+  after its options, one per line under `From files:`, with their docs
+  ([below](#docs-of-config-files)). The presets of a plain subconfig are
+  listed the same way, under `Presets:`.
 - `--help` also shows nematocyte's own settings and the flags (with
   `+NAME`), after the
   program's keys, as a block of their own, so that their keys do not widen
@@ -177,6 +179,62 @@ source code of the class, which only works where the source can be found.
 mechanism, it needs no source code, and pydantic and type checkers understand
 it.
 
+## Docs of config files
+
+A config file describes itself in a key `_doc_` at its top level:
+
+```yaml
+_doc_: A single linear layer.
+_defaults_:
+  _self_: fcn
+
+num_hidden: 0
+```
+
+### Decided
+
+- `_doc_` is not a value of the config. It has to be a string; anything else
+  is an error that names the file. It is allowed only at the top level of a
+  file, in every kind of config file: a primary config, a named config of a
+  group, a preset, and a file under `configs/nematocyte/`. A `_doc_` below
+  the top level is an error that says where it belongs.
+- `_doc_` is reserved: no config class can have a field of that name
+  ([deserializer.md](deserializer.md#reserved-names)).
+- A file does not take the doc of the config it extends with `_self_`; each
+  file describes itself.
+- Only the first paragraph is shown, as for docstrings.
+- The docs are shown in `--help` only. `--cfg` prints the composed config,
+  which is not one file.
+- `--help` lists the files of a group or a subconfig one per line, each
+  with its doc; a file without a `_doc_` is listed by its name:
+
+  ```text
+  model=fcn                The model architecture.
+                           * fcn      Fully-connected network.
+                             cnn
+                           From files:
+                             single_linear_layer   A single linear layer.
+  ```
+
+- `--help` also lists the primary configs, which `--config-name` and `+NAME`
+  take, with their docs, in a block of their own after the program's keys
+  and before nematocyte's own settings:
+
+  ```text
+  Primary configs, for --config-name NAME or +NAME:
+    experiments/cmnist_cnn   A CNN on ColoredMNIST.
+    good_run
+    presets/debug            Log locally and verbosely, for debugging.
+  ```
+
+- `--help` reads every file it lists. A file that cannot be read, or whose
+  `_doc_` is not a string, makes `--help` an error, as it would make a run
+  that selects the file. `validate_configs` finds such a file in a test.
+
+A comment at the top of the file was considered instead of a key, but
+ruamel.yaml's safe loader drops comments, and the comments in a config file
+often explain the YAML below them rather than describe the file.
+
 ## Docs in error messages
 
 Decided:
@@ -190,8 +248,5 @@ The wording of the messages is left to the implementation.
 
 ## Not in the first version
 
-- **Descriptions for options defined in YAML files.** `single_linear_layer`
-  has no class and so no docstring. Its description could be generated from
-  the file ("fcn with num_hidden=0"), or be the leading comment of the file.
 - **Checking that fields are documented.** A helper for tests, next to
   `validate_configs`, that reports fields without a doc.

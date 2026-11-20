@@ -1,4 +1,5 @@
 ---
+_doc_: CelebA, with smiling as the target and male as the subgroup.
 _defaults_:
   # Specify here the name of the option of the `dm` config group you want to extend.
   # `celeba` is declared in the `Config` class in `src/run.py`.

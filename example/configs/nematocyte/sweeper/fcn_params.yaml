@@ -1,4 +1,5 @@
 ---
+_doc_: Optuna search over the learning rate and the size of the fcn model.
 #
 # usage: nematocyte.sweeper=fcn_params
 #

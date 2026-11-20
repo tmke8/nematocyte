@@ -1,4 +1,5 @@
 ---
+_doc_: weight_decay_adamw with a weight decay of 0.1.
 # A preset can be based on another preset: `_self_` names the preset whose values are
 # loaded first. The values in this file are applied on top of them.
 _defaults_:

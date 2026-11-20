@@ -1,4 +1,5 @@
 ---
+_doc_: Batch normalization with a momentum of 0.01.
 _defaults_:
   _self_: BN
 

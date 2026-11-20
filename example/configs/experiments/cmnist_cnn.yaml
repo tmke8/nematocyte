@@ -1,4 +1,5 @@
 ---
+_doc_: A CNN on ColoredMNIST, with AdamW.
 # Primary configs can be kept in a subdirectory. Select this one with
 # `--config-name experiments/cmnist_cnn`.
 _defaults_:

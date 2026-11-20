@@ -54,79 +54,96 @@ It should look like this:
 ```
 Main configuration class for the code base.
 
-dm=cmnist                            The dataset to train on.
-                                       celeba   Data-module for the CelebA dataset.
-                                     * cmnist   Data-module for the ColoredMNIST dataset.
-                                     From files: celeba_male_blond,
-                                     celeba_male_smiling, celeba_male_smiling_small
-dm.root=/srv/galene0/shared/data     [path] Directory in which the datasets are
-                                     stored.
-dm.default_res=28                    [int] Resolution of the images.
-dm.label_map=null                    [dict[int, int] | null] Mapping from the original
-                                     labels to new labels.
-dm.colors=null                       [list[int] | null] Indices of the colors to use.
-dm.num_colors=10                     [int] Number of colors.
-dm.val_prop=0.2                      [float] Proportion of the data that is used for
-                                     validation.
+dm=cmnist                              The dataset to train on.
+                                         celeba   Data-module for the CelebA dataset.
+                                       * cmnist   Data-module for the ColoredMNIST dataset.
+                                       From files:
+                                         celeba_male_blond           CelebA, with blond hair as the target and male as the subgroup.
+                                         celeba_male_smiling         CelebA, with smiling as the target and male as the subgroup.
+                                         celeba_male_smiling_small   celeba_male_smiling at a resolution of 64 pixels.
+dm.root=/srv/galene0/shared/data       [path] Directory in which the datasets are
+                                       stored.
+dm.default_res=28                      [int] Resolution of the images.
+dm.label_map=null                      [dict[int, int] | null] Mapping from the original
+                                       labels to new labels.
+dm.colors=null                         [list[int] | null] Indices of the colors to use.
+dm.num_colors=10                       [int] Number of colors.
+dm.val_prop=0.2                        [float] Proportion of the data that is used for
+                                       validation.
 
-model=fcn                            The model architecture.
-                                     * fcn      Factory for fully-connected neural networks.
-                                       cnn      Factory for a very simple CNN.
-                                     From files: single_linear_layer
-model.num_hidden=1                   [int] Number of hidden layers.
-model.hidden_dim=null                [int | null] Width of the hidden layers. If not
-                                     set, the input dimension is used.
-model.activation=gelu                [relu|gelu|selu|silu] Activation function.
+model=fcn                              The model architecture.
+                                       * fcn      Factory for fully-connected neural networks.
+                                         cnn      Factory for a very simple CNN.
+                                       From files:
+                                         single_linear_layer   A single linear layer: fcn without hidden layers.
+model.num_hidden=1                     [int] Number of hidden layers.
+model.hidden_dim=null                  [int | null] Width of the hidden layers. If not
+                                       set, the input dimension is used.
+model.activation=gelu                  [relu|gelu|selu|silu] Activation function.
 
-model.norm=LN                        Normalization layer to use.
-                                       BN       Batch normalization.
-                                     * LN       Layer normalization.
-                                       none     No normalization layer.
-                                     From files: slow_bn
-model.norm.eps=                      [float] (not set)
-model.norm.elementwise_affine=       [bool] (not set)
+model.norm=LN                          Normalization layer to use.
+                                         BN       Batch normalization.
+                                       * LN       Layer normalization.
+                                         none     No normalization layer.
+                                       From files:
+                                         slow_bn   Batch normalization with a momentum of 0.01.
 
-model.dropout_prob=0.0               [float] Dropout probability. No dropout is
-                                     applied if this is 0.
-model.final_bias=true                [bool] Whether the final linear layer has a bias.
-model.input_norm=false               [bool] Whether to also apply the normalization
-                                     layer to the input.
+model.norm.kwargs:
+model.norm.kwargs.eps=                 [float] (not set)
+model.norm.kwargs.elementwise_affine=  [bool] (not set)
 
-opt:                                 Config class for the optimisation.
-                                     Presets: strong_weight_decay, weight_decay_adamw
-opt.lr=5e-05                         [float] Learning rate.
-opt.weight_decay=0.0                 [float] Weight decay.
-opt.optimizer_cls=torch.optim.AdamW  [str] Import path of the optimizer class.
-opt.optimizer_kwargs=null            [dict[str, any] | null] Further keyword arguments
-                                     for the optimizer.
+model.dropout_prob=0.0                 [float] Dropout probability. No dropout is
+                                       applied if this is 0.
+model.final_bias=true                  [bool] Whether the final linear layer has a bias.
+model.input_norm=false                 [bool] Whether to also apply the normalization
+                                       layer to the input.
 
-wandb:                               Dictionary of the parameters for `wandb.init()`.
-wandb.name=                          [str | null] (not set)
-wandb.dir=./local_logging            [str]
-wandb.id=                            [str | null] (not set)
-wandb.project=nematocyte-example     [str]
-wandb.group=                         [str | null] (not set)
-wandb.entity=example-org             [str]
-wandb.tags=                          [list[str] | null] (not set)
-wandb.job_type=                      [str | null] (not set)
-wandb.mode=disabled                  [online|offline|disabled]
-wandb.resume=                        [bool | allow|never|must|auto | null] (not set)
+opt:                                   Config class for the optimisation.
+                                       Presets:
+                                         strong_weight_decay   weight_decay_adamw with a weight decay of 0.1.
+                                         weight_decay_adamw    AdamW with a weight decay of 0.01.
+opt.lr=5e-05                           [float] Learning rate.
+opt.weight_decay=0.0                   [float] Weight decay.
+opt.optimizer_cls=torch.optim.AdamW    [str] Import path of the optimizer class.
+opt.optimizer_kwargs=null              [dict[str, any] | null] Further keyword arguments
+                                       for the optimizer.
 
-seed=42                              [int] Random seed.
-gpu=-1                               [int] Index of the GPU to use. Set to -1 to use
-                                     the CPU.
+wandb:                                 Dictionary of the parameters for `wandb.init()`.
+wandb.name=                            [str | null] (not set)
+wandb.dir=./local_logging              [str]
+wandb.id=                              [str | null] (not set)
+wandb.project=nematocyte-example       [str]
+wandb.group=                           [str | null] (not set)
+wandb.entity=example-org               [str]
+wandb.tags=                            [list[str] | null] (not set)
+wandb.job_type=                        [str | null] (not set)
+wandb.mode=disabled                    [online|offline|disabled]
+wandb.resume=                          [bool | allow|never|must|auto | null] (not set)
+
+seed=42                                [int] Random seed.
+gpu=-1                                 [int] Index of the GPU to use. Set to -1 to use
+                                       the CPU.
+
+Primary configs, for --config-name NAME or +NAME:
+  experiments/cmnist_cnn       A CNN on ColoredMNIST, with AdamW.
+  experiments/good_run_blond   good_run, on CelebA with blond hair as the target.
+  good_run                     A good run: a single linear layer on CelebA, at a small resolution.
+  presets/debug                Log locally and verbosely, for debugging.
 
 nematocyte:                     nematocyte's own settings.
 
 nematocyte.launcher=basic       How the jobs of a multirun are run.
                                 * basic            Runs the jobs one after another, in the process that was started.
                                   submitit_slurm   Submits the jobs to a SLURM cluster as one job array, through submitit.
-                                From files: slurm_dipc, slurm_kyiv
+                                From files:
+                                  slurm_dipc   One A100 GPU on the DIPC cluster, for up to 10 hours.
+                                  slurm_kyiv   One GPU on the kyiv partition.
 
 nematocyte.sweeper=basic        How a multirun turns the swept values into jobs.
                                 * basic    Runs one job for every combination of the swept values.
                                   optuna   Searches for the best values with Optuna.
-                                From files: fcn_params
+                                From files:
+                                  fcn_params   Optuna search over the learning rate and the size of the fcn model.
 nematocyte.sweeper.params=null  [dict[str, any] | null] Sweeps by key, written as on the
                                 command line: {seed: '42,43'}.
 
@@ -147,7 +164,7 @@ Flags:
 
 </details>
 
-Every line shows a key with its current value, in the form in which you would set it on the command line, followed by the type of the value and a description. The descriptions come from the dataclasses in `src/` (see [Describing config values](#describing-config-values) below). The lines `From files:` and `Presets:` list the configs that are defined in YAML files. At the end come nematocyte's own settings, which are used for [multiruns](#multiruns) and for the output directory and logging, and the flags.
+Every line shows a key with its current value, in the form in which you would set it on the command line, followed by the type of the value and a description. The descriptions come from the dataclasses in `src/` (see [Describing config values](#describing-config-values) below). The lines `From files:` and `Presets:` list the configs that are defined in YAML files, and `Primary configs` lists the configs for the whole program ([see below](#global-experiment-configs)); their descriptions come from the files themselves (see [Describing config files](#describing-config-files)). At the end come nematocyte's own settings, which are used for [multiruns](#multiruns) and for the output directory and logging, and the flags.
 
 We can see that `seed` and `gpu` are "top-level" config values, but there are also a lot of values in subconfigs. For example, we can change the `num_hidden` value in the `model` config:
 ```bash
@@ -160,7 +177,8 @@ But we can also see that there are different options available in the "model" gr
 model=fcn                              The model architecture.
                                        * fcn      Factory for fully-connected neural networks.
                                          cnn      Factory for a very simple CNN.
-                                       From files: single_linear_layer
+                                       From files:
+                                         single_linear_layer   A single linear layer: fcn without hidden layers.
 ```
 This allows us to completely change the model architecture:
 ```bash
@@ -187,7 +205,8 @@ Now the "model" part of the output should look like this:
 model=cnn                              The model architecture.
                                          fcn      Factory for fully-connected neural networks.
                                        * cnn      Factory for a very simple CNN.
-                                       From files: single_linear_layer
+                                       From files:
+                                         single_linear_layer   A single linear layer: fcn without hidden layers.
 model.kernel_size=5                    [int] Kernel size of the convolutions.
 model.pool_stride=2                    [int] Stride of the max-pooling layers.
 model.activation=relu                  [relu|gelu|selu|silu] Activation function.
@@ -564,6 +583,20 @@ seed: int = field(default=42, doc="Random seed.")
 This text is shown by `--help`, next to the key, its type and its current value. You don't have to repeat the type or the default in the text.
 
 The description of an option of a config group is the docstring of its class, and the description of a group is the `doc` of its field in the `Config` class.
+
+### Describing config files
+A config file can describe itself in a `_doc_` key at its top level, which `--help` shows next to the name of the file:
+
+```yaml
+_doc_: CelebA, with smiling as the target and male as the subgroup.
+_defaults_:
+  _self_: celeba
+
+superclass: Smiling
+subclass: Male
+```
+
+Only the first paragraph is shown, so a longer `_doc_` can go into more detail below it. `_doc_` is not a config value: it describes the file, and is not passed on to the files that extend it with `_self_`.
 
 ### A default primary config
 This example has no default primary config: whatever no file sets comes from the defaults in the `Config` class, so `python main.py` runs without naming a file. But if your `Config` is a `TypedDict` instead of a dataclass, there is no place in Python for default values. Then the defaults go in a YAML file, say `configs/base.yaml`, which you name in the entry point:

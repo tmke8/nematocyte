@@ -8,7 +8,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from ._errors import ConfigError
-from ._schema import DEFAULTS_KEY
+from ._schema import DEFAULTS_KEY, DOC_KEY
 
 __all__ = [
     "SUFFIXES",
@@ -32,6 +32,8 @@ class ConfigFile:
     """The path of the file as it is shown in messages."""
     defaults: dict[str, str]
     values: dict[str, Any]
+    doc: str = ""
+    """What the file says about itself, in its `_doc_`; empty if nothing."""
 
 
 def display_path(path: Path) -> str:
@@ -43,7 +45,7 @@ def display_path(path: Path) -> str:
 
 
 def load_file(path: Path) -> ConfigFile:
-    """Read a config file and split off its `_defaults_`."""
+    """Read a config file and split off its `_defaults_` and its `_doc_`."""
     label = display_path(path)
     yaml = YAML(typ="safe", pure=True)
     yaml.allow_duplicate_keys = False
@@ -63,6 +65,14 @@ def load_file(path: Path) -> ConfigFile:
         )
     _check_keys(content, label, ())
 
+    doc = content.pop(DOC_KEY, None)
+    if doc is None:
+        doc = ""
+    if not isinstance(doc, str):
+        raise ConfigError(
+            f"{label}: '{DOC_KEY}' describes the file, and has to be a string, "
+            f"not {doc!r}."
+        )
     defaults = content.pop(DEFAULTS_KEY, None)
     if defaults is None:
         defaults = {}
@@ -85,7 +95,9 @@ def load_file(path: Path) -> ConfigFile:
                 f"{label}: the entry {key!r} in '_defaults_' has to name a config, "
                 f"but is {name!r}.{hint}"
             )
-    return ConfigFile(path=path, label=label, defaults=defaults, values=content)
+    return ConfigFile(
+        path=path, label=label, defaults=defaults, values=content, doc=doc
+    )
 
 
 def _check_keys(mapping: dict[Any, Any], label: str, path: tuple[str, ...]) -> None:

@@ -127,7 +127,7 @@ def test_option_class_cannot_have_a_field_called_option() -> None:
         validate_schema(C)
 
 
-@pytest.mark.parametrize("name", ["_self_", "_defaults_", "_option_"])
+@pytest.mark.parametrize("name", ["_self_", "_defaults_", "_option_", "_doc_"])
 def test_reserved_field_names(name: str) -> None:
     # Reserved on every class, not only on options of a group.
     cls = dataclass(type("C", (), {"__annotations__": {name: int}, name: 1}))

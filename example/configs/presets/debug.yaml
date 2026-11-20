@@ -1,3 +1,4 @@
+_doc_: Log locally and verbosely, for debugging.
 # A preset for the whole config, applied on top of any primary config with
 # `+presets/debug`. It only changes the values that it names.
 wandb:

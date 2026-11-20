@@ -1,4 +1,5 @@
 ---
+_doc_: good_run, on CelebA with blond hair as the target.
 # A primary config can be based on another primary config: `_self_` names it in the
 # same way as `--config-name` does. Select this one with
 # `--config-name experiments/good_run_blond`.

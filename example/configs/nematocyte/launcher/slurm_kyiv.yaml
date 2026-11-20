@@ -1,4 +1,5 @@
 ---
+_doc_: One GPU on the kyiv partition.
 # usage: nematocyte.launcher=slurm_kyiv
 
 _defaults_:

@@ -237,7 +237,11 @@ class WithSelf(TypedDict):
     _self_: int
 
 
-@pytest.mark.parametrize("cls", [WithDefaults, WithSelf])
+class WithDoc(TypedDict):
+    _doc_: str
+
+
+@pytest.mark.parametrize("cls", [WithDefaults, WithSelf, WithDoc])
 def test_reserved_names_are_rejected(cls: type) -> None:
     with pytest.raises(SchemaError, match=f"{cls.__name__}.* is reserved"):
         class_fields(cls)

@@ -807,3 +807,48 @@ def test_drop_warning_points_at_the_caller(config_dir: Path) -> None:
             Config, config_dir, config_name="good_run", overrides=["model=fcn"]
         )
     assert record[0].filename == __file__
+
+
+def test_doc_of_a_file_is_not_a_value(tmp_path: Path) -> None:
+    path = tmp_path / "file.yaml"
+    path.write_text("_doc_: |\n  What the file is for.\n\n  More.\nseed: 1\n")
+    file = load_file(path)
+    assert file.doc == "What the file is for.\n\nMore.\n"
+    assert file.values == {"seed": 1}
+
+
+def test_doc_can_be_null(tmp_path: Path) -> None:
+    path = tmp_path / "file.yaml"
+    path.write_text("_doc_:\nseed: 1\n")
+    assert load_file(path).doc == ""
+
+
+def test_doc_has_to_be_a_string(tmp_path: Path) -> None:
+    path = tmp_path / "file.yaml"
+    path.write_text("_doc_: 3\n")
+    with pytest.raises(ConfigError, match=r"(?s)file\.yaml.*'_doc_'.*string"):
+        load_file(path)
+
+
+def test_files_with_a_doc_compose(config_dir: Path) -> None:
+    # `good_run.yaml`, `single_linear_layer.yaml` and `presets/debug.yaml` have
+    # a `_doc_`; `experiments/good_run_blond.yaml` extends one that has.
+    config = nematocyte.compose(
+        Config,
+        config_dir,
+        config_name="experiments/good_run_blond",
+        overrides=["+presets/debug"],
+    )
+    assert config.seed == 0
+    assert config.model == Fcn(num_hidden=0, activation="selu")
+
+
+def test_doc_below_the_top_level_is_an_error(config_dir: Path) -> None:
+    write_files(config_dir, {"nested_doc.yaml": "opt:\n  _doc_: Fast.\n  lr: 1\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, config_name="nested_doc")
+    message = str(excinfo.value)
+    assert "nested_doc.yaml" in message
+    assert "'_doc_'" in message
+    assert "Opt" in message
+    assert "top level" in message
