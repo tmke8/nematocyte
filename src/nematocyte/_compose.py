@@ -16,7 +16,7 @@ from ._files import (
     check_unique,
     display_path,
     find_file,
-    list_names,
+    list_files,
     load_file,
 )
 from ._overrides import AddedConfig, Override, format_value, last_wins
@@ -71,6 +71,16 @@ def _hydra_defaults_hint(file: ConfigFile, fields: Collection[str]) -> str:
 def _option_fields(info: FieldInfo) -> set[str]:
     """The names of the fields of all options of a group."""
     return {name for cls in info.options.values() for name in class_fields(cls)}
+
+
+def _option_directories(info: FieldInfo) -> list[str]:
+    """The options of a group that have a directory, in the group's directory.
+
+    An option that is also a field of an option has none: the directory with
+    its name belongs to the field.
+    """
+    fields = _option_fields(info)
+    return [option for option in info.options if option not in fields]
 
 
 def _file_doc(path: Path) -> str:
@@ -246,25 +256,22 @@ class Composer:
         directory = self.directory(path)
         if directory is None:
             return {}
-        found: dict[str, Path] = {}
-        places = [(directory, "")]
-        if info.kind is Kind.GROUP:
-            fields = _option_fields(info)
-            places += [
+        places = [
+            (directory, ""),
+            *(
                 (directory / option, f"{option}/")
-                for option in info.options
-                if option not in fields
-            ]
-        for place, prefix in places:
-            for name in list_names(place):
-                # A file that no name can select is left out; the validator
-                # reports it.
-                if not _is_file_name(name):
-                    continue
-                file = find_file(place, name)
-                assert file is not None
-                found[prefix + name] = file
-        return dict(sorted(found.items()))
+                for option in _option_directories(info)
+            ),
+        ]
+        # A file that no name can select is left out; the validator reports it.
+        return dict(
+            sorted(
+                (prefix + name, file)
+                for place, prefix in places
+                for name, file in list_files(place).items()
+                if _is_file_name(name)
+            )
+        )
 
     def root_field_names(self) -> set[str]:
         return {*class_fields(self.config_cls), RESERVED_KEY}
@@ -281,11 +288,8 @@ class Composer:
         for suffix in SUFFIXES:
             clean = clean.removesuffix(suffix)
         path = PurePosixPath(clean)
-        if (
-            not path.parts
-            or path.is_absolute()
-            or not all(_is_file_name(part) for part in path.parts)
-        ):
+        # An absolute path starts with the part `/`, which is no file name.
+        if not path.parts or not all(_is_file_name(part) for part in path.parts):
             raise _error(
                 source,
                 f"{name!r} is not the name of a primary config. It is the "
@@ -311,8 +315,7 @@ class Composer:
             if (
                 info is not None
                 and len(middle) == 1
-                and middle[0] in info.options
-                and middle[0] not in _option_fields(info)
+                and middle[0] in _option_directories(info)
             ):
                 # The directory of an option holds configs of the group.
                 selection = f"{first}={middle[0]}/{path.name}"
@@ -572,10 +575,8 @@ class Composer:
             parent.children[info.name] = node
             return
 
-        directory = self.directory(path)
         option, stem = self._split_name(path, info, name, source)
-        if directory is not None and option is not None:
-            directory /= option
+        directory = self.directory(path if option is None else (*path, option))
         file_path = find_file(directory, stem) if directory is not None else None
         if file_path is None:
             candidates = [*info.options, *self.named_configs(path, info)]
@@ -657,7 +658,7 @@ class Composer:
                 f"the file, without '..', a backslash or a drive."
                 f"{self._available(path, info)}",
             )
-        if option in _option_fields(info):
+        if option not in _option_directories(info):
             owners = [
                 option_name
                 for option_name, cls in info.options.items()
