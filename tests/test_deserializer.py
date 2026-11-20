@@ -12,10 +12,10 @@ from dataclasses import (
 import enum
 import math
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NamedTuple
 from typing_extensions import sentinel
 
-from pydantic import Field
+from pydantic import AfterValidator, Field
 import pytest
 
 import nematocyte
@@ -478,6 +478,60 @@ def test_default_that_keeps_its_type_is_accepted(
     value = nematocyte.compose(root).value
     assert value == expected
     assert type(value) is type(expected)
+
+
+def test_plain_default_is_validated_once() -> None:
+    # A default of plain values loses nothing, so it is not checked again.
+    calls: list[object] = []
+
+    def count(value: object) -> object:
+        calls.append(value)
+        return value
+
+    counted = Annotated[Any, AfterValidator(count)]
+    root = make_dataclass(
+        "Root",
+        [
+            (
+                "value",
+                counted,
+                field(default_factory=lambda: {"a": (1, {3, 2.5}), "b": None}),
+            )
+        ],
+    )
+    assert nematocyte.compose(root).value == {"a": [1, [2.5, 3]], "b": None}
+    assert len(calls) == 1
+
+
+def test_plain_default_is_not_checked_even_where_the_union_differs() -> None:
+    # The price of not checking plain defaults (design/deserializer.md): the
+    # default itself would build a tuple of paths.
+    root = make_dataclass(
+        "Root",
+        [("value", tuple[Path, ...] | list[str], field(default=("x",)))],
+    )
+    assert nematocyte.compose(root).value == ["x"]
+
+
+def test_plain_set_default_for_a_list_is_accepted() -> None:
+    # The plain form of a set is sorted; the order of a set means nothing.
+    root = make_dataclass(
+        "Root", [("value", list[str], field(default_factory=lambda: {"b", "a"}))]
+    )
+    assert nematocyte.compose(root).value == ["a", "b"]
+
+
+def test_named_tuple_default_is_checked() -> None:
+    # A subclass of a plain container is not plain.
+    class Pair(NamedTuple):
+        color: Color
+        size: int
+
+    root = make_dataclass("Root", [("value", Any, field(default=Pair(Color.RED, 1)))])
+    with pytest.raises(
+        ConfigError, match=r"value: the default loses its type \(at 0\)"
+    ):
+        nematocyte.compose(root)
 
 
 def test_dataclass_default_without_eq_keeps_its_type() -> None:
