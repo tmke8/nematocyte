@@ -402,6 +402,204 @@ def test_named_configs_for_a_nested_field(config_dir: Path) -> None:
     assert config.model == Cnn(norm=BatchNorm(momentum=0.5))
 
 
+# -- the directory of an option -------------------------------------------
+
+_BLOND = "_defaults_:\n  _self_: celeba\nsuperclass: Blond_Hair\n"
+
+
+def test_config_in_the_directory_of_an_option(config_dir: Path) -> None:
+    write_files(config_dir, {"dm/celeba/blond.yaml": _BLOND})
+    config = nematocyte.compose(Config, config_dir, overrides=["dm=celeba/blond"])
+    assert config.dm == Celeba(superclass="Blond_Hair")
+
+
+def test_config_in_the_directory_of_an_option_from_a_file(config_dir: Path) -> None:
+    # Names are looked up from the group's directory, wherever the file is.
+    write_files(
+        config_dir,
+        {
+            "dm/celeba/blond.yaml": _BLOND,
+            "dm/celeba/blond_small.yaml": (
+                "_defaults_:\n  _self_: celeba/blond\ndefault_res: 32\n"
+            ),
+            "dm/blond_tiny.yaml": (
+                "_defaults_:\n  _self_: celeba/blond_small\ndefault_res: 8\n"
+            ),
+            "blond_run.yaml": "_defaults_:\n  dm: celeba/blond_small\n",
+        },
+    )
+    config = nematocyte.compose(Config, config_dir, config_name="blond_run")
+    assert config.dm == Celeba(superclass="Blond_Hair", default_res=32)
+    config = nematocyte.compose(Config, config_dir, overrides=["dm=blond_tiny"])
+    assert config.dm == Celeba(superclass="Blond_Hair", default_res=8)
+
+
+def test_config_in_the_directory_of_an_option_has_to_extend_it(
+    config_dir: Path,
+) -> None:
+    write_files(config_dir, {"dm/celeba/wrong.yaml": "_defaults_:\n  _self_: cmnist\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, overrides=["dm=celeba/wrong"])
+    message = str(excinfo.value)
+    assert "dm/celeba/wrong.yaml" in message
+    assert "'celeba'" in message
+    assert "'cmnist'" in message
+    assert "'dm'" in message
+
+
+def test_config_in_the_directory_of_an_option_needs_a_self(config_dir: Path) -> None:
+    write_files(config_dir, {"dm/celeba/bare.yaml": "superclass: Male\n"})
+    with pytest.raises(ConfigError, match=r"(?s)dm/celeba/bare\.yaml.*_self_"):
+        nematocyte.compose(Config, config_dir, overrides=["dm=celeba/bare"])
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("nope/blond", "OPTION/NAME"),
+        ("celeba/sub/blond", "OPTION/NAME"),
+        ("celeba/", "OPTION/NAME"),
+        ("celeba/..", "OPTION/NAME"),
+        ("celeba/../../blond", "OPTION/NAME"),
+        ("celeba/..\\..\\blond", "OPTION/NAME"),
+        ("celeba/C:blond", "OPTION/NAME"),
+        ("../blond", "OPTION/NAME"),
+        ("/blond", "OPTION/NAME"),
+        ("celeba/missing", "'celeba/missing'"),
+    ],
+)
+def test_name_with_a_slash_that_names_no_config(
+    config_dir: Path, name: str, expected: str
+) -> None:
+    write_files(config_dir, {"dm/celeba/blond.yaml": _BLOND})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, overrides=[f"dm={name}"])
+    message = str(excinfo.value)
+    assert "'dm'" in message
+    assert expected in message
+    # The configs in the directories of options are listed.
+    assert "celeba/blond" in message
+
+
+@pytest.mark.parametrize("field", ["dm", "opt"])
+@pytest.mark.parametrize("name", ["..", ".", "..\\blond", "C:blond", "c:\\blond"])
+def test_name_of_a_config_is_a_file_name(
+    config_dir: Path, field: str, name: str
+) -> None:
+    # A file next to the field's directory is not reached, on any platform.
+    write_files(
+        config_dir,
+        {"blond.yaml": _BLOND, "dm/celeba/blond.yaml": _BLOND, "opt/x.yaml": ""},
+    )
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, overrides=[f"{field}='{name}'"])
+    message = str(excinfo.value)
+    assert f"'{field}'" in message
+    assert repr(name) in message
+    assert "backslash" in message
+
+
+def test_name_of_a_config_from_a_file_is_a_file_name(config_dir: Path) -> None:
+    write_files(
+        config_dir,
+        {
+            "blond.yaml": _BLOND,
+            "run.yaml": "_defaults_:\n  dm: ../blond\n",
+            "dm/up.yaml": "_defaults_:\n  _self_: ..\\blond\n",
+        },
+    )
+    with pytest.raises(ConfigError, match=r"(?s)run\.yaml.*'\.\./blond'"):
+        nematocyte.compose(Config, config_dir, config_name="run")
+    with pytest.raises(ConfigError, match=r"(?s)dm/up\.yaml.*backslash"):
+        nematocyte.compose(Config, config_dir, overrides=["dm=up"])
+
+
+def test_name_of_a_config_can_have_any_character(config_dir: Path) -> None:
+    write_files(
+        config_dir, {"dm/größe 2.yaml": _BLOND, "dm/celeba/blond.v2.yaml": _BLOND}
+    )
+    for name in ["'größe 2'", "celeba/blond.v2"]:
+        config = nematocyte.compose(Config, config_dir, overrides=[f"dm={name}"])
+        assert config.dm == Celeba(superclass="Blond_Hair")
+    # The validator finds them under the same names.
+    results = nematocyte.validate_configs(Config, config_dir)
+    assert all(result.ok for result in results)
+
+
+@pytest.mark.parametrize(
+    "name", ["../blond", "/blond", "experiments/../blond", "..\\blond", "C:blond"]
+)
+def test_name_of_a_primary_config_is_a_path_in_the_config_directory(
+    config_dir: Path, name: str
+) -> None:
+    write_files(config_dir.parent, {"blond.yaml": "seed: 1\n"})
+    write_files(config_dir, {"blond.yaml": "seed: 2\n"})
+    for compose in [
+        lambda: nematocyte.compose(Config, config_dir, config_name=name),
+        lambda: nematocyte.compose(Config, config_dir, overrides=[f"+{name}"]),
+    ]:
+        with pytest.raises(ConfigError) as excinfo:
+            compose()
+        assert repr(name) in str(excinfo.value)
+        assert "backslash" in str(excinfo.value)
+
+
+def test_preset_has_no_directories_of_options(config_dir: Path) -> None:
+    write_files(config_dir, {"opt/fast/x.yaml": "lr: 1\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, overrides=["opt=fast/x"])
+    message = str(excinfo.value)
+    assert "'opt'" in message
+    assert "subconfig" in message
+    assert "'fast/x'" in message
+
+
+@dataclass
+class _WithB:
+    b: int = 1
+
+
+@dataclass
+class _Other:
+    x: int = 0
+
+
+@dataclass
+class _Ambiguous:
+    model: Annotated[_WithB, option("a")] | Annotated[_Other, option("b")] = field(
+        default_factory=_WithB
+    )
+
+
+def test_directory_of_an_option_that_is_also_a_field_is_ambiguous(
+    tmp_path: Path,
+) -> None:
+    # `b` is an option of `model`, and a field of the option `a`.
+    directory = write_files(
+        tmp_path / "c",
+        {
+            "model/b/x.yaml": "_defaults_:\n  _self_: b\n",
+            "model/a/y.yaml": "_defaults_:\n  _self_: a\nb: 3\n",
+        },
+    )
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(_Ambiguous, directory, overrides=["model=b/x"])
+    message = str(excinfo.value)
+    assert "model/b" in message
+    assert "ambiguous" in message
+    assert "'a'" in message
+    assert "'b'" in message
+    # Another option's directory is not affected.
+    config = nematocyte.compose(_Ambiguous, directory, overrides=["model=a/y"])
+    assert config.model == _WithB(b=3)
+
+
+def test_config_name_in_the_directory_of_an_option(config_dir: Path) -> None:
+    write_files(config_dir, {"dm/celeba/blond.yaml": _BLOND})
+    with pytest.raises(ConfigError, match="dm=celeba/blond"):
+        nematocyte.compose(Config, config_dir, config_name="dm/celeba/blond")
+
+
 def test_file_and_directory_with_the_same_stem_do_not_clash(tmp_path: Path) -> None:
     @dataclass
     class Encoder:

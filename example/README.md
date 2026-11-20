@@ -58,7 +58,7 @@ dm=cmnist                              The dataset to train on.
                                          celeba   Data-module for the CelebA dataset.
                                        * cmnist   Data-module for the ColoredMNIST dataset.
                                        From files:
-                                         celeba_male_blond           CelebA, with blond hair as the target and male as the subgroup.
+                                         celeba/male_blond           CelebA, with blond hair as the target and male as the subgroup.
                                          celeba_male_smiling         CelebA, with smiling as the target and male as the subgroup.
                                          celeba_male_smiling_small   celeba_male_smiling at a resolution of 64 pixels.
 dm.root=/srv/galene0/shared/data       [path] Directory in which the datasets are
@@ -295,6 +295,12 @@ _defaults_:
 default_res: 64
 ```
 
+When a group has many such files, you can sort them into subdirectories named after the option they extend. The file `configs/dm/celeba/male_blond.yaml` extends `celeba`, and is selected with its subdirectory in front:
+```bash
+python main.py dm=celeba/male_blond
+```
+A file in `configs/dm/celeba/` has to extend `celeba`, directly or through another file; nematocyte reports an error otherwise.
+
 ### Presets for subconfigs
 The `opt` subconfig is not a config group: there is only one class, `OptimisationCfg`. You can still save often-used values for it, in `configs/opt/`. The file `configs/opt/weight_decay_adamw.yaml` looks like this:
 ```yaml
@@ -449,7 +455,7 @@ A primary config can also be based on another primary config, so that an experim
 ```yaml
 _defaults_:
   _self_: good_run
-  dm: celeba_male_blond
+  dm: celeba/male_blond
 
 seed: 2
 
@@ -458,7 +464,7 @@ dm:
 ```
 The `_self_` entry names the primary config to start from, written in the same way as after the `+`. Here, `good_run.yaml` is loaded first, and then this file is applied on top: it selects a different option for `dm` and changes the seed. What `good_run.yaml` sets for `model` and `opt` is kept.
 
-Selecting an option for a config group always starts that group afresh: `dm` is now `celeba_male_blond` with its own values, and what `good_run.yaml` set under `dm` is gone. That is why `download: false` is set again here. The same happens on the command line: `python main.py +good_run model=fcn` gives you an FCN with its default values, so `activation` is `gelu`, not the `selu` from `good_run.yaml`. Because that is easy to miss, nematocyte warns about it:
+Selecting an option for a config group always starts that group afresh: `dm` is now `celeba/male_blond` with its own values, and what `good_run.yaml` set under `dm` is gone. That is why `download: false` is set again here. The same happens on the command line: `python main.py +good_run model=fcn` gives you an FCN with its default values, so `activation` is `gelu`, not the `selu` from `good_run.yaml`. Because that is easy to miss, nematocyte warns about it:
 ```
 DroppedValueWarning: The override 'model=fcn' resets the config values in 'model' to the values given by 'fcn'. This drops a value that was set for 'model' before:
     'model.activation=selu', set in `configs/good_run.yaml`

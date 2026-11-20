@@ -4,7 +4,7 @@ from collections.abc import Collection, Iterator, Sequence
 from dataclasses import dataclass
 import difflib
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 from typing import Any
 import warnings
@@ -76,6 +76,21 @@ def _option_fields(info: FieldInfo) -> set[str]:
 def _file_doc(path: Path) -> str:
     """The first paragraph of the `_doc_` of the config file at `path`."""
     return first_paragraph(load_file(path).doc)
+
+
+def _is_file_name(name: str) -> bool:
+    """Whether `name` is a plain file name on every platform.
+
+    Not `.` or `..`, and without a directory or a drive, so that the file is
+    looked for in the directory it is named in, on Linux, macOS and Windows.
+    Any other character is allowed: a quoted override or a name in a file can
+    be any string.
+    """
+    return (
+        name not in ("", ".", "..")
+        and PurePosixPath(name).name == name
+        and PureWindowsPath(name).name == name
+    )
 
 
 def _did_you_mean(name: str, names: Sequence[str]) -> str:
@@ -204,25 +219,48 @@ class Composer:
             return None
         return self.config_dir.joinpath(*path)
 
-    def named_configs(self, path: KeyPath) -> list[str]:
-        """The names of the config files for the field at `path`."""
-        directory = self.directory(path)
-        return list_names(directory) if directory is not None else []
+    def named_configs(self, path: KeyPath, info: FieldInfo) -> list[str]:
+        """The names of the config files for the field `info` at `path`.
 
-    def named_config_docs(self, path: KeyPath) -> dict[str, str]:
-        """The named configs for the field at `path`, with their docs.
+        For a group, the files in the directory of an option are included,
+        as `option/name`.
+        """
+        return list(self._named_files(path, info))
+
+    def named_config_docs(self, path: KeyPath, info: FieldInfo) -> dict[str, str]:
+        """The named configs for the field `info` at `path`, with their docs.
 
         A doc is the first paragraph of the file's `_doc_`; empty if it has none.
+        """
+        return {
+            name: _file_doc(file)
+            for name, file in self._named_files(path, info).items()
+        }
+
+    def _named_files(self, path: KeyPath, info: FieldInfo) -> dict[str, Path]:
+        """The config files for the field `info` at `path`, by name, sorted.
+
+        The directory of an option whose name is also a field of an option
+        is ambiguous, and left out; selecting from it is an error.
         """
         directory = self.directory(path)
         if directory is None:
             return {}
-        docs: dict[str, str] = {}
+        found: dict[str, Path] = {}
         for name in list_names(directory):
-            found = find_file(directory, name)
-            assert found is not None
-            docs[name] = _file_doc(found)
-        return docs
+            file = find_file(directory, name)
+            assert file is not None
+            found[name] = file
+        if info.kind is Kind.GROUP:
+            fields = _option_fields(info)
+            for option in info.options:
+                if option in fields:
+                    continue
+                for name in list_names(directory / option):
+                    file = find_file(directory / option, name)
+                    assert file is not None
+                    found[f"{option}/{name}"] = file
+        return dict(sorted(found.items()))
 
     def root_field_names(self) -> set[str]:
         return {*class_fields(self.config_cls), RESERVED_KEY}
@@ -239,8 +277,18 @@ class Composer:
         for suffix in SUFFIXES:
             clean = clean.removesuffix(suffix)
         path = PurePosixPath(clean)
-        if not path.parts or path.is_absolute() or ".." in path.parts:
-            raise _error(source, f"{name!r} is not the name of a primary config.")
+        if (
+            not path.parts
+            or path.is_absolute()
+            or not all(_is_file_name(part) for part in path.parts)
+        ):
+            raise _error(
+                source,
+                f"{name!r} is not the name of a primary config. It is the "
+                f"path of the file in {self.config_dir.name}/, with slashes "
+                f"between the directories, without '..', a backslash or a "
+                f"drive.",
+            )
         first = path.parts[0]
         if len(path.parts) > 1 and first in self.root_field_names():
             info = class_fields(self.config_cls).get(first)
@@ -255,12 +303,19 @@ class Composer:
                     f"Move the file to the top of {self.config_dir.name}/ "
                     f"or to a directory that matches no field.",
                 )
+            selected = path.name
+            if (
+                info is not None
+                and len(path.parts) == 3
+                and path.parts[1] in info.options
+            ):
+                selected = f"{path.parts[1]}/{path.name}"
             raise _error(
                 source,
                 f"{name!r} is not a primary config: the directory "
                 f"{self.config_dir.name}/{first}/ is named after the field "
                 f"{first!r}, so its files are named configs for that field. "
-                f"Select one with {first}={path.name}.",
+                f"Select one with {first}={selected}.",
             )
         found = find_file(self.config_dir / path.parent, path.name)
         if found is None:
@@ -456,7 +511,7 @@ class Composer:
         lines = ""
         if info.options:
             lines += f"\nOptions: {', '.join(info.options)}"
-        files = self.named_configs(path)
+        files = self.named_configs(path, info)
         if files:
             label = "From files" if info.kind is Kind.GROUP else "Presets"
             lines += f"\n{label}: {', '.join(files)}"
@@ -505,9 +560,12 @@ class Composer:
             return
 
         directory = self.directory(path)
-        file_path = find_file(directory, name) if directory is not None else None
+        option, stem = self._split_name(path, info, name, source)
+        if directory is not None and option is not None:
+            directory /= option
+        file_path = find_file(directory, stem) if directory is not None else None
         if file_path is None:
-            candidates = [*info.options, *self.named_configs(path)]
+            candidates = [*info.options, *self.named_configs(path, info)]
             kind = "option or config" if info.kind is Kind.GROUP else "config"
             raise _error(
                 source,
@@ -539,8 +597,69 @@ class Composer:
                 f"{_hydra_defaults_hint(file, _option_fields(info))}",
             )
         node = parent.children[info.name]
+        if option is not None and node.option != option:
+            raise _error(
+                file.label,
+                f"The file is in the directory of the option {option!r} of "
+                f"{format_path(path)!r}, so it has to extend {option!r}, but its "
+                f"chain of '_self_' ends at the option {node.option!r}. Move "
+                f"the file, or let its '_self_' name {option!r} or a config "
+                f"that extends it.",
+            )
         node.touched = True
         self._apply_body(node, file)
+
+    def _split_name(
+        self, path: KeyPath, info: FieldInfo, name: str, source: str
+    ) -> tuple[str | None, str]:
+        """The option whose directory a config `option/name` is in, and the name.
+
+        A name without a slash is in the field's own directory: `None`.
+        """
+        where = format_path(path)
+        if "/" not in name:
+            if not _is_file_name(name):
+                raise _error(
+                    source,
+                    f"{where!r} has no config called {name!r}. The name of a "
+                    f"config is the name of its file, without '..', a "
+                    f"backslash or a drive.{self._available(path, info)}",
+                )
+            return None, name
+        option, _, stem = name.partition("/")
+        if info.kind is not Kind.GROUP:
+            raise _error(
+                source,
+                f"{where!r} is a subconfig, and has no config called {name!r}: "
+                f"only a group has directories in its directory, one for each "
+                f"option, and a name with a slash is a config in one of them."
+                f"{self._available(path, info)}",
+            )
+        if option not in info.options or not _is_file_name(stem):
+            raise _error(
+                source,
+                f"{where!r} has no config called {name!r}. A name with a slash "
+                f"is a config in the directory of an option of the group, as "
+                f"in OPTION/NAME, one level deep, where NAME is the name of "
+                f"the file, without '..', a backslash or a drive."
+                f"{self._available(path, info)}",
+            )
+        if option in _option_fields(info):
+            owners = [
+                option_name
+                for option_name, cls in info.options.items()
+                if option in class_fields(cls)
+            ]
+            directory = self.directory((*path, option))
+            raise _error(
+                source,
+                f"The directory {directory} is ambiguous: {option!r} is an "
+                f"option of {where!r}, and also a field of the option "
+                f"{' and '.join(repr(o) for o in owners)}. It cannot hold the "
+                f"configs of the option {option!r}. Move them to the "
+                f"directory of {where!r}.",
+            )
+        return option, stem
 
 
 # -- what a selection drops ----------------------------------------------

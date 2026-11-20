@@ -121,7 +121,7 @@ A primary config that extends another one:
 # configs/experiments/good_run_blond.yaml
 _defaults_:
   _self_: good_run
-  dm: celeba_male_blond
+  dm: celeba/male_blond
 
 seed: 2
 ```
@@ -202,7 +202,7 @@ With `good_run.yaml`, which sets `model.activation: selu`,
 | --- | --- |
 | `opt: weight_decay_adamw`, in a file that extends it or as `opt=weight_decay_adamw` | `opt.weight_decay` is `0.01`, from the preset |
 | `model: fcn`, or `model=fcn` | An FCN with its class defaults. `activation: selu` is dropped, and `activation` is `gelu` |
-| `dm: celeba_male_blond` | `download` is back at its default. To keep `false`, it is set again |
+| `dm: celeba/male_blond` | `download` is back at its default. To keep `false`, it is set again |
 
 Hydra has no such rule. Tested on a copy of `hydra-example`, with the same
 `good_run` and the same preset:
@@ -330,8 +330,54 @@ A file and a directory with the same stem do not clash: `encoder.yaml` is an
 option of `model`, `encoder/` holds named configs for the field `encoder`.
 
 A subdirectory of `configs/model/` has to match a dataclass field of at least
-one option of `model`. Anything else is an error, because its files could be
-neither named configs nor primary configs.
+one option of `model`, or be the directory of an option (below). Anything
+else is an error, because its files could be neither named configs nor
+primary configs.
+
+### The configs of a group can be grouped by option
+
+A subdirectory of a group's directory that is named after an option of the
+group holds further named configs for the group, as if they were in the
+group's directory itself. Their name has the subdirectory in front:
+
+```yaml
+# configs/dm/celeba/male_blond.yaml
+_defaults_:
+  _self_: celeba
+
+superclass: Blond_Hair
+subclass: Male
+```
+
+is selected with `dm=celeba/male_blond`, on the command line or in
+`_defaults_`.
+
+- The file is a named config for `dm` in every way. Its `_self_` names are
+  looked up from `configs/dm/`, as for any named config of the group:
+  `_self_: celeba` is the option, and `_self_: celeba/male_blond` another
+  file in `configs/dm/celeba/`.
+- The chain of `_self_` of such a file has to end at the option that the
+  directory is named after. A file in `configs/dm/celeba/` whose chain ends
+  at `cmnist` is an error that names the file and both options.
+- Only a built-in option of the group, one from the annotations, has a
+  directory; a config from a file has none. The directory holds only config
+  files, no further directories.
+- A name with a slash is only the directory of an option of a group. For a
+  plain subconfig, which has no options, it is an error, as is a name whose
+  first part is not an option, such as `dm=other/x`.
+- The directory of an option whose name is also a field of some option of
+  the group is ambiguous, since its files could be named configs for that
+  field. Selecting from it is an error, and the validator reports its files.
+  This is only an error when the directory is there; a group can have an
+  option and a field of the same name otherwise.
+- `--help` lists the configs in the directories of options under
+  `From files:`, with the others, as `celeba/male_blond`.
+
+In Hydra, a name with a slash loads the file from any subdirectory of the
+group's directory, and nothing checks what the file extends. Tested on a
+copy of `hydra-example` with `dm/celeba/male_blond.yaml` and
+`dm/other/thing.yaml`: `dm=celeba/male_blond` and `dm=other/thing` both
+compose, with the content under `dm`.
 
 ### The schema is always enforced
 
@@ -442,6 +488,15 @@ Python version. Reading config files does not need to be fast (see above).
   name with or without the suffix. Two files whose names differ only in the
   suffix, such as `cnn.yaml` and `cnn.yml`, or `cnn.yaml` and `cnn.json5`, in
   the same directory, are an error, since the name is ambiguous.
+- The name of a config is the path of its file, without the suffix:
+  relative to the config directory for a primary config, and to the
+  field's directory for a named config. Each part between slashes has to be
+  a plain file name on every platform: not empty, not `.` or `..`, and
+  without a backslash or a drive (`C:`). So `dm=../blond`, `dm='..\blond'`
+  and `--config-name /etc/x` are errors, and a name never reaches a file
+  outside the directory it is looked up in, on Linux, macOS or Windows. Any
+  other character is allowed, since a quoted override or a name in a file
+  can be any string: `dm='größe 2'` selects `configs/dm/größe 2.yaml`.
 - A key of a subconfig or group with nothing under it (`model:` and then
   only comments, which YAML reads as null) is ignored.
 - A selection written among the values (`model: cnn` outside `_defaults_`)

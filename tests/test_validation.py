@@ -207,6 +207,71 @@ def test_files_that_belong_nowhere(config_dir: Path) -> None:
     assert "'experiments'" in found["model/experiments/x.yaml"]
 
 
+def test_files_in_the_directory_of_an_option(config_dir: Path) -> None:
+    write_files(
+        config_dir,
+        {
+            "dm/celeba/blond.yaml": (
+                "_defaults_:\n  _self_: celeba\nsuperclass: Blond_Hair\n"
+            ),
+            "dm/celeba/typo.yaml": "_defaults_:\n  _self_: celeba\nsuperclas: Male\n",
+            "dm/celeba/wrong.yaml": "_defaults_:\n  _self_: cmnist\n",
+            "dm/celeba/deeper/x.yaml": "_defaults_:\n  _self_: celeba\n",
+            "model/cnn/norm/x.yaml": "momentum: 0.2\n",
+            "model/cnn/wide.yaml": "_defaults_:\n  _self_: cnn\nkernel_size: 9\n",
+            # The group `model.norm` has directories of options too.
+            "model/norm/layernorm/tight.yaml": (
+                "_defaults_:\n  _self_: layernorm\neps: 1.e-8\n"
+            ),
+        },
+    )
+    found = errors(config_dir)
+    assert sorted(found) == [
+        "dm/celeba/deeper/x.yaml",
+        "dm/celeba/typo.yaml",
+        "dm/celeba/wrong.yaml",
+        "model/cnn/norm/x.yaml",
+    ]
+    assert "'superclas'" in found["dm/celeba/typo.yaml"]
+    assert "'cmnist'" in found["dm/celeba/wrong.yaml"]
+    for path in ["dm/celeba/deeper/x.yaml", "model/cnn/norm/x.yaml"]:
+        assert "belongs nowhere" in found[path]
+        assert "'cnn'" in found[path] or "'celeba'" in found[path]
+
+
+def test_directory_of_an_option_that_is_also_a_field(tmp_path: Path) -> None:
+    @dataclass
+    class WithB:
+        b: int = 1
+
+    @dataclass
+    class Other:
+        x: int = 0
+
+    @dataclass
+    class Root:
+        model: Annotated[WithB, option("a")] | Annotated[Other, option("b")] = field(
+            default_factory=WithB
+        )
+
+    write_files(
+        tmp_path,
+        {
+            "model/b/x.yaml": "_defaults_:\n  _self_: b\n",
+            "model/a/y.yaml": "_defaults_:\n  _self_: a\nb: 3\n",
+        },
+    )
+    results = {
+        result.path.as_posix(): result.error
+        for result in nematocyte.validate_configs(Root, tmp_path)
+    }
+    assert results["model/a/y.yaml"] is None
+    message = str(results["model/b/x.yaml"])
+    assert "ambiguous" in message
+    assert "'b'" in message
+    assert "'model'" in message
+
+
 def test_directory_that_matches_no_field_holds_primary_configs(
     config_dir: Path,
 ) -> None:

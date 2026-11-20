@@ -65,9 +65,17 @@ The kind follows from where the file is ([composition.md](composition.md)).
 - **Files under `configs/nematocyte/`**, the launcher and sweeper configs,
   are checked the same way against nematocyte's own schema.
 
+A file in the directory of an option of a group
+(`configs/dm/celeba/male_blond.yaml`) is a named config for the group, with
+the name `celeba/male_blond`, and is checked as one; its chain of `_self_`
+has to end at that option
+([composition.md](composition.md#the-configs-of-a-group-can-be-grouped-by-option)).
+
 Files that belong nowhere are reported: a file in a directory named after a
-field that is not a named config for it, or a subdirectory of a group's
-directory that matches no field.
+field that is not a named config for it, a subdirectory of a group's
+directory that matches neither a field nor an option, a directory inside
+the directory of an option, and the directory of an option whose name is
+also a field of an option.
 
 ### A named config is validated in the whole tree
 

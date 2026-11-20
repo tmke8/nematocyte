@@ -131,6 +131,21 @@ def test_configs_from_files_are_listed_with_their_docs(config_dir: Path) -> None
     assert "  slurm_test   The test partition, with one GPU.\n" in text
 
 
+def test_configs_in_the_directory_of_an_option_are_listed(config_dir: Path) -> None:
+    write_files(
+        config_dir,
+        {
+            "dm/celeba/blond.yaml": (
+                "_doc_: Blond hair.\n_defaults_:\n  _self_: celeba\n"
+                "superclass: Blond_Hair\n"
+            )
+        },
+    )
+    text = help_text(Config, config_dir)
+    assert "  celeba/blond " in text
+    assert "Blond hair." in text
+
+
 def test_nested_group_is_shown_with_its_path(config_dir: Path) -> None:
     text = help_text(Config, config_dir, ("model=cnn",))
     assert "model.norm=batchnorm" in text
