@@ -140,8 +140,9 @@ the docs as comments.
   shows the fields of the CNN.
 - The config files of a group, such as `single_linear_layer`, are listed
   after its options, one per line under `From files:`, with their docs
-  ([below](#docs-of-config-files)). The presets of a plain subconfig are
-  listed the same way, under `Presets:`.
+  ([below](#docs-of-config-files)). The configs in the directory of an
+  option are among them, as `celeba/male_blond`. The presets of a plain
+  subconfig are listed the same way, under `Presets:`.
 - `--help` also shows nematocyte's own settings and the flags (with
   `+NAME`), after the
   program's keys, as a block of their own, so that their keys do not widen

@@ -16,7 +16,7 @@ __all__ = [
     "check_unique",
     "display_path",
     "find_file",
-    "list_names",
+    "list_files",
     "load_file",
 ]
 
@@ -174,14 +174,14 @@ def check_unique(paths: list[Path]) -> None:
         seen[stem] = path
 
 
-def list_names(directory: Path) -> list[str]:
-    """The names of the config files in `directory`, sorted."""
+def list_files(directory: Path) -> dict[str, Path]:
+    """The config files in `directory`, by name."""
     if not directory.is_dir():
-        return []
+        return {}
     paths = [
         path
         for path in directory.iterdir()
         if path.is_file() and path.suffix in SUFFIXES
     ]
     check_unique(paths)
-    return sorted(path.stem for path in paths)
+    return {path.stem: path for path in paths}

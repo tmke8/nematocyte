@@ -35,8 +35,11 @@ class ValidationResult:
         return self.error is None
 
 
-def _classify(composer: Composer, relative: Path) -> KeyPath | None:
-    """The field that a file is a named config for; `None` for a primary config."""
+def _classify(composer: Composer, relative: Path) -> tuple[KeyPath, str] | None:
+    """The field that a file is a named config for, and the name it has there.
+
+    `None` for a primary config.
+    """
     root_fields = dict(class_fields(composer.config_cls))
     root_fields[RESERVED_KEY] = FieldInfo(
         name=RESERVED_KEY,
@@ -46,20 +49,32 @@ def _classify(composer: Composer, relative: Path) -> KeyPath | None:
         config_cls=composer.settings_cls,
     )
     candidates = [root_fields]
+    options: set[str] = set()
     path: list[str] = []
-    for index, part in enumerate(relative.parts[:-1]):
+    directories = relative.parts[:-1]
+    for index, part in enumerate(directories):
         infos = [fields[part] for fields in candidates if part in fields]
         here = "/".join(relative.parts[: index + 1])
+        parent = ".".join(path)
+        # A field keeps its directory when an option has the same name.
+        if part in options and not infos:
+            if index != len(directories) - 1:
+                raise ConfigError(
+                    f"{relative.as_posix()} belongs nowhere: the directory "
+                    f"{here}/ is named after the option {part!r} of "
+                    f"{parent!r}, and holds configs of {parent!r}, but no "
+                    f"directories."
+                )
+            return tuple(path), f"{part}/{relative.stem}"
         if not infos:
             if index == 0:
                 return None
-            parent = ".".join(path)
             raise ConfigError(
                 f"{relative.as_posix()} belongs nowhere: the directory {here}/ "
                 f"is inside the directory of the field {parent!r}, but "
-                f"{part!r} is not a field of {parent!r} that is a subconfig or "
-                "a group, so its files can be neither named configs nor "
-                "primary configs."
+                f"{part!r} is neither a field of {parent!r} that is a "
+                "subconfig or a group, nor an option of it, so its files can "
+                "be neither named configs nor primary configs."
             )
         nested = [info for info in infos if info.kind is not Kind.VALUE]
         if not nested:
@@ -71,13 +86,14 @@ def _classify(composer: Composer, relative: Path) -> KeyPath | None:
                 "primary configs either."
             )
         path.append(part)
+        options = {name for info in nested for name in info.options}
         candidates = [
             class_fields(cls)
             for info in nested
             for cls in (info.options.values() if info.options else [info.config_cls])
             if cls is not None
         ]
-    return tuple(path) if path else None
+    return (tuple(path), relative.stem) if path else None
 
 
 def _selections(
@@ -157,12 +173,13 @@ def _validate(
             f"{relative.as_posix()} is not a config file: those end in "
             f"{', '.join(SUFFIXES)}."
         )
-    path = _classify(composer, relative)
-    if path is None:
+    found = _classify(composer, relative)
+    if found is None:
         name = relative.with_suffix("").as_posix()
         _check_tree(composer, name, [], relative, construct=construct)
         return
-    selections = _selections(composer, config_name, path, relative.stem)
+    path, name = found
+    selections = _selections(composer, config_name, path, name)
     if len(selections) == 1:
         _check_tree(composer, config_name, selections[0], relative, construct=construct)
         return

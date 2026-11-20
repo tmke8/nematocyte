@@ -7,7 +7,7 @@ _defaults_:
   _self_: good_run
   # A selection made here replaces what `good_run.yaml` has for `dm`: the option it
   # selects, and the values it sets under `dm`.
-  dm: celeba_male_blond
+  dm: celeba/male_blond
 
 # Everything else that `good_run.yaml` sets is kept, unless it is set again here.
 seed: 2

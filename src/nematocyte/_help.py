@@ -95,7 +95,7 @@ class _Help:
                 self.row(f"{key}={_value_text(node, info)}", text)
                 continue
             child = node.children.get(info.name)
-            files = self.composer.named_config_docs((*node.path, info.name))
+            files = self.composer.named_config_docs((*node.path, info.name), info)
             self.gap()
             if info.kind is Kind.GROUP:
                 selected = child.option if child is not None else None

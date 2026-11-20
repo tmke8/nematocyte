@@ -268,6 +268,13 @@ See [composition.md](design/composition.md).
   writes `counts:` at the top, can be applied with `+counts_heavy`; it
   replaces the dict as a whole. For presets that go straight into the
   field, use a `TypedDict` instead.
+- In a group's directory, a subdirectory named after an option, such as
+  `configs/dm/celeba/`, holds further configs for the group, selected as
+  `dm=celeba/male_blond`. Each of them has to extend that option. In Hydra
+  a name with a slash loads a file from any subdirectory, and the file can
+  extend anything; in nematocyte a subdirectory that is neither an option
+  nor a field is an error, and a name with a slash is an error for a plain
+  subconfig.
 - Any other directory holds primary configs.
 
 See [composition.md](design/composition.md).

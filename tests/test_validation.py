@@ -207,6 +207,106 @@ def test_files_that_belong_nowhere(config_dir: Path) -> None:
     assert "'experiments'" in found["model/experiments/x.yaml"]
 
 
+def test_files_in_the_directory_of_an_option(config_dir: Path) -> None:
+    write_files(
+        config_dir,
+        {
+            "dm/celeba/blond.yaml": (
+                "_defaults_:\n  _self_: celeba\nsuperclass: Blond_Hair\n"
+            ),
+            "dm/celeba/typo.yaml": "_defaults_:\n  _self_: celeba\nsuperclas: Male\n",
+            "dm/celeba/wrong.yaml": "_defaults_:\n  _self_: cmnist\n",
+            "dm/celeba/deeper/x.yaml": "_defaults_:\n  _self_: celeba\n",
+            "model/cnn/norm/x.yaml": "momentum: 0.2\n",
+            "model/cnn/wide.yaml": "_defaults_:\n  _self_: cnn\nkernel_size: 9\n",
+            # The group `model.norm` has directories of options too.
+            "model/norm/layernorm/tight.yaml": (
+                "_defaults_:\n  _self_: layernorm\neps: 1.e-8\n"
+            ),
+        },
+    )
+    found = errors(config_dir)
+    assert sorted(found) == [
+        "dm/celeba/deeper/x.yaml",
+        "dm/celeba/typo.yaml",
+        "dm/celeba/wrong.yaml",
+        "model/cnn/norm/x.yaml",
+    ]
+    assert "'superclas'" in found["dm/celeba/typo.yaml"]
+    assert "'cmnist'" in found["dm/celeba/wrong.yaml"]
+    for path in ["dm/celeba/deeper/x.yaml", "model/cnn/norm/x.yaml"]:
+        assert "belongs nowhere" in found[path]
+        assert "'cnn'" in found[path] or "'celeba'" in found[path]
+
+
+@dataclass
+class _Inner:
+    depth: int = 1
+
+
+@dataclass
+class _SubconfigB:
+    b: _Inner = field(default_factory=_Inner)
+
+
+@dataclass
+class _ValueB:
+    b: int = 1
+
+
+@dataclass
+class _Other:
+    x: int = 0
+
+
+@dataclass
+class _SubconfigClash:
+    model: Annotated[_SubconfigB, option("a")] | Annotated[_Other, option("b")] = field(
+        default_factory=_SubconfigB
+    )
+
+
+@dataclass
+class _ValueClash:
+    model: Annotated[_ValueB, option("a")] | Annotated[_Other, option("b")] = field(
+        default_factory=_ValueB
+    )
+
+
+def test_field_keeps_its_directory_when_an_option_has_its_name(
+    tmp_path: Path,
+) -> None:
+    # `b` is an option of `model`, and a subconfig of the option `a`: the
+    # directory holds the named configs of the field, as without the option.
+    write_files(
+        tmp_path,
+        {
+            "model/b/deep.yaml": "depth: 9\n",
+            "model/b/bad.yaml": "_defaults_:\n  _self_: b\n",
+            "model/a/y.yaml": "_defaults_:\n  _self_: a\n",
+        },
+    )
+    results = {
+        result.path.as_posix(): result.error
+        for result in nematocyte.validate_configs(_SubconfigClash, tmp_path)
+    }
+    assert results["model/b/deep.yaml"] is None
+    assert results["model/a/y.yaml"] is None
+    # A file that extends the option `b` is checked as a preset for the field.
+    assert "'b'" in str(results["model/b/bad.yaml"])
+    assert "'model.b'" in str(results["model/b/bad.yaml"])
+
+
+def test_value_field_keeps_its_directory_too(tmp_path: Path) -> None:
+    # As for any field that is a value, a directory named after it is an error.
+    write_files(tmp_path, {"model/b/x.yaml": "_defaults_:\n  _self_: b\n"})
+    [result] = nematocyte.validate_configs(_ValueClash, tmp_path)
+    message = str(result.error)
+    assert "belongs nowhere" in message
+    assert "'model.b'" in message
+    assert "is a value" in message
+
+
 def test_directory_that_matches_no_field_holds_primary_configs(
     config_dir: Path,
 ) -> None:
