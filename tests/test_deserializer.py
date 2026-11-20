@@ -1,5 +1,6 @@
 """Building dataclass instances from the tree (`design/deserializer.md`)."""
 
+from collections.abc import Sequence
 from dataclasses import (
     KW_ONLY,
     FrozenInstanceError,
@@ -9,6 +10,7 @@ from dataclasses import (
     make_dataclass,
 )
 import enum
+import math
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from typing_extensions import sentinel
@@ -392,6 +394,132 @@ def test_default_values_are_validated_too() -> None:
     message = str(excinfo.value)
     assert "size" in message
     assert "default" in message
+
+
+# -- defaults that lose their type in plain form ------------------------------
+
+
+class Level(enum.IntEnum):
+    LOW = 1
+
+
+@dataclass
+class Adam:
+    lr: float = 0.1
+
+
+@dataclass(eq=False)
+class NoEq:
+    lr: float = 0.1
+
+
+TOKEN = object()
+
+
+@pytest.mark.parametrize(
+    ("annotation", "default", "where", "before", "after"),
+    [
+        (Any, Color.RED, "", "<Color.RED: 'red'>", "'red'"),
+        (Any, Path("/tmp"), "", "PosixPath('/tmp')", "'/tmp'"),
+        (Any, Adam(), "", "Adam(lr=0.1)", "{'lr': 0.1}"),
+        (object, Path("/tmp"), "", "PosixPath('/tmp')", "'/tmp'"),
+        (list[Any], [Path("/tmp")], " (at 0)", "PosixPath('/tmp')", "'/tmp'"),
+        (dict[str, Any], {"a": Adam()}, " (at a)", "Adam(lr=0.1)", "{'lr': 0.1}"),
+        (Any, ((1, Color.RED),), " (at 0.1)", "<Color.RED: 'red'>", "'red'"),
+        (Path | Any, Path("/tmp"), "", "PosixPath('/tmp')", "'/tmp'"),
+        (Path | str, Path("/tmp"), "", "PosixPath('/tmp')", "'/tmp'"),
+        (Color | str, Color.RED, "", "<Color.RED: 'red'>", "'red'"),
+        (Level | int, Level.LOW, "", "<Level.LOW: 1>", "1"),
+    ],
+)
+def test_default_that_loses_its_type_is_rejected(
+    annotation: Any, default: object, where: str, before: str, after: str
+) -> None:
+    root = make_dataclass(
+        "Root", [("value", annotation, field(default_factory=lambda: default))]
+    )
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(root)
+    message = str(excinfo.value)
+    assert f"value: the default loses its type{where}:" in message
+    assert f"{before} becomes {after}." in message
+    assert "the default of Root.value" in message
+
+
+@pytest.mark.parametrize(
+    ("annotation", "default", "expected"),
+    [
+        # A config file cannot tell a tuple, list or set apart.
+        (Any, (1, 2), [1, 2]),
+        (Any, {3, 1}, [1, 3]),
+        (Any, frozenset({(1, 2)}), [[1, 2]]),
+        (Sequence[int], (1, 2), [1, 2]),
+        (Sequence[Color], (Color.RED,), [Color.RED]),
+        # The type says what to build, so nothing is lost.
+        (Color, Color.RED, Color.RED),
+        (Path, Path("/tmp"), Path("/tmp")),
+        (tuple[int, ...], (1, 2), (1, 2)),
+        (list[Adam], [Adam()], [Adam()]),
+        (dict[Color, int], {Color.RED: 1}, {Color.RED: 1}),
+        # Conversions that pydantic makes of the default itself.
+        (float, 1, 1.0),
+        (Path, "/tmp", Path("/tmp")),
+        # Plain values, and objects that have no plain form.
+        (Any, {"a": [1, None]}, {"a": [1, None]}),
+        (Any, TOKEN, TOKEN),
+    ],
+)
+def test_default_that_keeps_its_type_is_accepted(
+    annotation: Any, default: object, expected: object
+) -> None:
+    root = make_dataclass(
+        "Root", [("value", annotation, field(default_factory=lambda: default))]
+    )
+    value = nematocyte.compose(root).value
+    assert value == expected
+    assert type(value) is type(expected)
+
+
+def test_dataclass_default_without_eq_keeps_its_type() -> None:
+    # Compared field by field: a rebuilt instance is not `==` to it.
+    root = make_dataclass(
+        "Root", [("items", list[NoEq], field(default_factory=lambda: [NoEq()]))]
+    )
+    [item] = nematocyte.compose(root).items
+    assert type(item) is NoEq
+
+
+def test_nan_default_keeps_its_type() -> None:
+    root = make_dataclass("Root", [("value", Any, field(default=float("nan")))])
+    assert math.isnan(nematocyte.compose(root).value)
+
+
+def test_default_that_loses_its_type_can_be_set(tmp_path: Path) -> None:
+    # Only a default that nothing sets is checked.
+    @dataclass
+    class Root:
+        value: Any = Color.RED
+
+    (tmp_path / "primary.yaml").write_text("value: red\n")
+    assert nematocyte.compose(Root, overrides=["value=blue"]).value == "blue"
+    assert nematocyte.compose(Root, tmp_path, config_name="primary").value == "red"
+
+
+def test_default_instance_that_loses_its_type_is_rejected() -> None:
+    # The value comes from the default instance of a subconfig.
+    @dataclass
+    class Sub:
+        color: Color | str = "red"
+
+    @dataclass
+    class Root:
+        sub: Sub = field(default_factory=lambda: Sub(color=Color.GREEN))
+
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Root)
+    message = str(excinfo.value)
+    assert "sub.color: the default loses its type" in message
+    assert "Sub.color" in message
 
 
 # -- types that pydantic cannot read -----------------------------------------

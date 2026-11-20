@@ -92,6 +92,23 @@ use `@dataclass(kw_only=True)`.
 
 See [deserializer.md](design/deserializer.md).
 
+### A default has to keep its type in a config file
+
+A default that would lose its type when written in a config file is an
+error. This happens where the type of the field does not say what to build:
+
+| Field and default | Hydra (OmegaConf 2.4) | nematocyte |
+| --- | --- | --- |
+| `color: Any = Color.RED` | `Color.RED` | Error |
+| `root: Any = Path("/data")` | `Path("/data")` | Error |
+| `opt: Any = field(default_factory=Adam)` | `Adam(lr=0.1)`, after `OmegaConf.to_object` | Error |
+| `root: Path \| str = Path("/data")` | `Path("/data")` | Error |
+| `sizes: Any = (1, 2)` | `(1, 2)` | `[1, 2]` |
+
+Give the field the type it holds (`color: Color`), or, for a choice between
+config classes, make it a group ([unions.md](design/unions.md)). See
+[deserializer.md](design/deserializer.md).
+
 ### Dict fields are open, and replaced as a whole
 
 For a field typed `dict[...]`, such as
@@ -243,14 +260,15 @@ See [composition.md](design/composition.md).
   `--config-name model/small` is an error.
 - A file at the top named after such a field, such as `configs/model.yaml`,
   is an error.
-- Any other directory holds primary configs. This includes a directory
-  named after a field typed `dict[...]`, such as `configs/counts/` for
-  `counts: dict[str, int]`: its files describe the root and have to write
-  `counts:` at the top. In Hydra every directory is a config group, so
-  `counts=heavy` puts the file's content into the dict and merges it with
-  the default. In nematocyte, `+counts/heavy` applies the file on top of the
-  primary config and replaces the dict as a whole. For presets that go
-  straight into the field, use a `TypedDict` instead.
+- A directory named after a field that is a plain value, such as
+  `configs/seed/`, or `configs/counts/` for `counts: dict[str, int]`, is an
+  error. In Hydra every directory is a config group, so `counts=heavy` puts
+  the file's content into the dict and merges it with the default. In
+  nematocyte, a primary config such as `configs/counts_heavy.yaml`, which
+  writes `counts:` at the top, can be applied with `+counts_heavy`; it
+  replaces the dict as a whole. For presets that go straight into the
+  field, use a `TypedDict` instead.
+- Any other directory holds primary configs.
 
 See [composition.md](design/composition.md).
 

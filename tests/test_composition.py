@@ -330,6 +330,36 @@ def test_directory_named_after_a_field_holds_no_primary_configs(
     assert "'model'" in message
 
 
+def test_directory_named_after_a_value_holds_no_primary_configs(
+    config_dir: Path,
+) -> None:
+    write_files(config_dir, {"seed/one.yaml": "seed: 1\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, config_name="seed/one")
+    message = str(excinfo.value)
+    assert "seed/one" in message
+    assert "configs/seed/" in message
+    assert "'seed'" in message
+    assert "is a value" in message
+    # A value has no named configs to select.
+    assert "seed=one" not in message
+
+
+def test_primary_config_for_a_dict_replaces_it_as_a_whole(config_dir: Path) -> None:
+    write_files(
+        config_dir,
+        {
+            "kwargs.yaml": "opt:\n  optimizer_kwargs:\n    amsgrad: true\n",
+            "kwargs_heavy.yaml": "opt:\n  optimizer_kwargs:\n    eps: 1.0e-6\n",
+        },
+    )
+    config = nematocyte.compose(
+        Config, config_dir, config_name="kwargs", overrides=["+kwargs_heavy"]
+    )
+    # Hydra would merge the two dicts.
+    assert config.opt.optimizer_kwargs == {"eps": 1e-6}
+
+
 @pytest.mark.parametrize(
     "name", ["model.yaml", "opt.yml", "nematocyte.yaml", "model.json5"]
 )

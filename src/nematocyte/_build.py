@@ -1,6 +1,9 @@
 """Turning the composed tree into config instances, with pydantic per value."""
 
+from collections.abc import Collection, Mapping
+import dataclasses
 from dataclasses import MISSING
+import math
 from typing import Any
 from typing_extensions import sentinel
 
@@ -14,7 +17,13 @@ from pydantic import (
 
 from ._errors import ConfigError, SchemaError
 from ._overrides import format_value
-from ._schema import OPTION_KEY, FieldInfo, Kind, is_typeddict_class
+from ._schema import (
+    OPTION_KEY,
+    FieldInfo,
+    Kind,
+    is_dict_or_frozendict,
+    is_typeddict_class,
+)
 from ._tree import Node, format_path
 from ._types import type_text
 
@@ -115,15 +124,148 @@ def _check_value(
         message += f"\n    Value: {value!r} ({origin}){field_line}"
         errors.append(message + hint)
         return _FAILED
-    inner = _bool_to_number(value, result)
-    if inner is not None:
-        location = f" (at {inner})" if inner else ""
-        errors.append(
-            f"{path}: a bool is not a number{location}; write 1 or 0 instead."
-            f"\n    Value: {value!r} ({origin}){field_line}"
-        )
+    problem = _bool_problem(value, result, origin) or _default_problem(
+        node, info, adapter, result, origin
+    )
+    if problem is not None:
+        errors.append(f"{path}: {problem}{field_line}")
         return _FAILED
     return result
+
+
+def _bool_problem(value: Any, result: Any, origin: str) -> str | None:
+    """The error if pydantic turned a bool into a number."""
+    inner = _bool_to_number(value, result)
+    if inner is None:
+        return None
+    location = f" (at {inner})" if inner else ""
+    return (
+        f"a bool is not a number{location}; write 1 or 0 instead."
+        f"\n    Value: {value!r} ({origin})"
+    )
+
+
+def _default_problem(
+    node: Node, info: FieldInfo, adapter: TypeAdapter[Any], result: Any, origin: str
+) -> str | None:
+    """The error if a default that nothing set loses its type in plain form.
+
+    `result` is what pydantic made of the plain form of the default. It is
+    compared with what pydantic makes of the default itself, so that a
+    conversion that pydantic does anyway, such as `1` to `1.0` for a float,
+    does not count.
+    """
+    if info.name in node.values:
+        return None
+    default = node.default_value(info)
+    try:
+        direct = adapter.validate_python(default, extra="forbid")
+    except ValidationError:
+        # Only the plain form is valid, as with `name: str = Path("x")`.
+        return None
+    lost = _difference(direct, result)
+    if lost is None:
+        return None
+    inner, before, after = lost
+    location = f" (at {inner})" if inner else ""
+    return (
+        f"the default loses its type{location}: as a config file would hold "
+        f"it, {before!r} becomes {after!r}. Give the field a type that builds "
+        f"{type(before).__name__} from that, or a default that a config file "
+        f"can hold.\n    Value: {default!r} ({origin})"
+    )
+
+
+type _Pairs = list[tuple[str, Any, Any]]
+
+
+def _difference(expected: Any, actual: Any) -> tuple[str, Any, Any] | None:
+    """The first place where `actual` differs from `expected`, with both values.
+
+    A list, tuple, set and frozenset count as the same, as do a dict and a
+    frozendict: a config file cannot tell them apart. The location is `""`
+    for the value itself, as for `_bool_to_number`.
+    """
+    if expected is actual:
+        return None
+    pairs = _parts(expected, actual)
+    if pairs is None:
+        return "", expected, actual
+    for location, item, out in pairs:
+        found = _difference(item, out)
+        if found is not None:
+            inner, before, after = found
+            joined = f"{location}.{inner}" if location and inner else location or inner
+            return joined, before, after
+    return None
+
+
+def _parts(expected: Any, actual: Any) -> _Pairs | None:
+    """The parts of two values that are compared; `None` if they differ already."""
+    if is_dict_or_frozendict(expected) and is_dict_or_frozendict(actual):
+        return _mapping_parts(expected, actual)
+    if isinstance(expected, _COLLECTIONS) and isinstance(actual, _COLLECTIONS):
+        return _collection_parts(expected, actual)
+    if type(expected) is not type(actual):
+        return None
+    if dataclasses.is_dataclass(expected) and not isinstance(expected, type):
+        return [
+            (field.name, getattr(expected, field.name), getattr(actual, field.name))
+            for field in dataclasses.fields(expected)
+            if field.init
+        ]
+    return [] if _equal(expected, actual) else None
+
+
+_COLLECTIONS = (list, tuple, set, frozenset)
+
+
+def _mapping_parts(
+    expected: Mapping[Any, Any], actual: Mapping[Any, Any]
+) -> _Pairs | None:
+    if len(expected) != len(actual):
+        return None
+    keys = {key: key for key in actual}
+    pairs: _Pairs = []
+    for key, item in expected.items():
+        if key not in keys:
+            return None
+        pairs.append(("", key, keys[key]))
+        pairs.append((str(key), item, actual[key]))
+    return pairs
+
+
+def _collection_parts(
+    expected: Collection[Any], actual: Collection[Any]
+) -> _Pairs | None:
+    if len(expected) != len(actual):
+        return None
+    if isinstance(expected, (set, frozenset)) or isinstance(actual, (set, frozenset)):
+        # Without an order, each item is matched with an equal one.
+        remaining = list(actual)
+        for item in expected:
+            index = next(
+                (
+                    i
+                    for i, out in enumerate(remaining)
+                    if _difference(item, out) is None
+                ),
+                None,
+            )
+            if index is None:
+                return None
+            del remaining[index]
+        return []
+    return [
+        (str(index), item, out)
+        for index, (item, out) in enumerate(zip(expected, actual, strict=True))
+    ]
+
+
+def _equal(expected: Any, actual: Any) -> bool:
+    if isinstance(expected, float) and math.isnan(expected):
+        return math.isnan(actual)
+    return bool(expected == actual)
 
 
 def _bool_to_number(value: Any, result: Any) -> str | None:
