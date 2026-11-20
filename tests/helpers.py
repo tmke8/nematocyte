@@ -136,6 +136,10 @@ class Config:
 
 CONFIG_FILES = {
     "good_run.yaml": """\
+_doc_: |
+  A good run, on small images.
+
+  More text that does not belong in an overview.
 _defaults_:
   model: single_linear_layer
   dm: celeba_small
@@ -177,6 +181,7 @@ dm:
 """,
     "presets/debug.yaml": """\
 # Applied on top of any primary config with +presets/debug.
+_doc_: Settings for debugging.
 seed: 0
 
 opt:
@@ -214,6 +219,7 @@ _defaults_:
 superclass: Blond_Hair
 """,
     "model/single_linear_layer.yaml": """\
+_doc_: An fcn without hidden layers.
 _defaults_:
   _self_: fcn
 
@@ -234,6 +240,7 @@ _defaults_:
 momentum: 0.5
 """,
     "opt/weight_decay_adamw.yaml": """\
+_doc_: AdamW with weight decay.
 lr: 1.0e-3
 weight_decay: 1.e-2
 """,
@@ -244,6 +251,7 @@ _defaults_:
 weight_decay: 0.1
 """,
     "nematocyte/launcher/slurm_test.yaml": """\
+_doc_: The test partition, with one GPU.
 _defaults_:
   _self_: submitit_slurm
 

@@ -22,11 +22,13 @@ from ._files import (
 from ._overrides import AddedConfig, Override, format_value, last_wins
 from ._schema import (
     DEFAULTS_KEY,
+    DOC_KEY,
     RESERVED_KEY,
     SELF_KEY,
     FieldInfo,
     Kind,
     class_fields,
+    first_paragraph,
     validate_schema,
 )
 from ._tree import (
@@ -69,6 +71,11 @@ def _hydra_defaults_hint(file: ConfigFile, fields: Collection[str]) -> str:
 def _option_fields(info: FieldInfo) -> set[str]:
     """The names of the fields of all options of a group."""
     return {name for cls in info.options.values() for name in class_fields(cls)}
+
+
+def _file_doc(path: Path) -> str:
+    """The first paragraph of the `_doc_` of the config file at `path`."""
+    return first_paragraph(load_file(path).doc)
 
 
 def _did_you_mean(name: str, names: Sequence[str]) -> str:
@@ -202,6 +209,21 @@ class Composer:
         directory = self.directory(path)
         return list_names(directory) if directory is not None else []
 
+    def named_config_docs(self, path: KeyPath) -> dict[str, str]:
+        """The named configs for the field at `path`, with their docs.
+
+        A doc is the first paragraph of the file's `_doc_`; empty if it has none.
+        """
+        directory = self.directory(path)
+        if directory is None:
+            return {}
+        docs: dict[str, str] = {}
+        for name in list_names(directory):
+            found = find_file(directory, name)
+            assert found is not None
+            docs[name] = _file_doc(found)
+        return docs
+
     def root_field_names(self) -> set[str]:
         return {*class_fields(self.config_cls), RESERVED_KEY}
 
@@ -270,6 +292,13 @@ class Composer:
             for path in paths
         ]
 
+    def primary_config_docs(self) -> dict[str, str]:
+        """The primary configs, as `--config-name` takes them, with their docs."""
+        return {
+            name: _file_doc(self.primary_file(name, "--help"))
+            for name in self.primary_configs()
+        }
+
     # -- applying files ----------------------------------------------------
 
     def _apply_primary(
@@ -324,6 +353,12 @@ class Composer:
     def _apply_values(self, node: Node, values: dict[Any, Any], label: str) -> None:
         for key, value in values.items():
             info = node.fields.get(key) if isinstance(key, str) else None
+            if info is None and key == DOC_KEY:
+                raise _error(
+                    label,
+                    f"'{DOC_KEY}' is under {node.describe()}, but it describes "
+                    f"the whole file, so it goes at the top level of the file.",
+                )
             if info is None:
                 raise _error(label, unknown_key_message(node, str(key)))
             if info.kind is Kind.VALUE:

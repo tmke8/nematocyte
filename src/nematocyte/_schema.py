@@ -57,6 +57,8 @@ RESERVED_KEY = "nematocyte"
 SELF_KEY = "_self_"
 DEFAULTS_KEY = "_defaults_"
 OPTION_KEY = "_option_"
+DOC_KEY = "_doc_"
+"""The top-level key of a config file that describes the file."""
 
 _OPTION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 
@@ -386,7 +388,7 @@ def class_fields(cls: type) -> dict[str, FieldInfo]:
 
 
 def _check_name(name: str, where: str) -> None:
-    if name in (SELF_KEY, DEFAULTS_KEY, OPTION_KEY):
+    if name in (SELF_KEY, DEFAULTS_KEY, OPTION_KEY, DOC_KEY):
         raise SchemaError(
             f"{where}: {name!r} is reserved and cannot be the name of a field."
         )

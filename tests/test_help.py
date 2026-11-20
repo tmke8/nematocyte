@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 import pytest
 from ruamel.yaml import YAML
 
-from nematocyte import option
+from nematocyte import ConfigError, option
 from nematocyte._compose import Composer
 from nematocyte._help import format_cfg, format_help
 from nematocyte._overrides import parse_override
@@ -114,11 +114,21 @@ def test_help_reflects_the_other_arguments() -> None:
     assert "seed=7 " in text
 
 
-def test_configs_from_files_are_listed_by_name(config_dir: Path) -> None:
+def test_configs_from_files_are_listed_with_their_docs(config_dir: Path) -> None:
     text = help_text(Config, config_dir)
-    assert "From files: my_cnn, single_linear_layer" in text
-    assert "Presets: strong_weight_decay, weight_decay_adamw" in text
-    assert "From files: slurm_test" in text
+    model = next(line for line in text.splitlines() if line.startswith("model="))
+    indent = " " * model.index("The model architecture.")
+    assert (
+        f"{indent}From files:\n"
+        f"{indent}  my_cnn\n"
+        f"{indent}  single_linear_layer   An fcn without hidden layers.\n"
+    ) in text
+    assert (
+        f"{indent}Presets:\n"
+        f"{indent}  strong_weight_decay\n"
+        f"{indent}  weight_decay_adamw    AdamW with weight decay.\n"
+    ) in text
+    assert "  slurm_test   The test partition, with one GPU.\n" in text
 
 
 def test_nested_group_is_shown_with_its_path(config_dir: Path) -> None:
@@ -126,7 +136,41 @@ def test_nested_group_is_shown_with_its_path(config_dir: Path) -> None:
     assert "model.norm=batchnorm" in text
     assert "* batchnorm   Batch normalisation." in text
     assert "model.norm.momentum=0.1" in text
-    assert "From files: my_batchnorm" in text
+    assert "From files:\n" in text
+    assert "  my_batchnorm\n" in text
+
+
+def test_primary_configs_are_listed_with_their_docs(config_dir: Path) -> None:
+    text = help_text(Config, config_dir)
+    block = text.split("Primary configs, for --config-name NAME or +NAME:\n")[1]
+    block = block.split("\n\n")[0]
+    assert block.splitlines() == [
+        "  experiments/cmnist_cnn",
+        "  experiments/good_run_blond",
+        # Only the first paragraph of the doc.
+        "  good_run                     A good run, on small images.",
+        "  presets/debug                Settings for debugging.",
+        # The doc of the config a file extends is not its own.
+        "  presets/debug_cnn",
+    ]
+    # Before nematocyte's own settings, after the program's keys.
+    assert (
+        text.index("gpu=") < text.index("Primary configs") < text.index("nematocyte:")
+    )
+
+
+def test_no_primary_configs_no_block(tmp_path: Path) -> None:
+    assert "Primary configs" not in help_text(Small)
+    configs = write_files(tmp_path / "configs", {"opt/fast.yaml": "lr: 0.1\n"})
+    assert "Primary configs" not in help_text(Small, configs)
+
+
+def test_doc_of_a_file_that_is_not_a_string_is_an_error(tmp_path: Path) -> None:
+    configs = write_files(
+        tmp_path / "configs", {"opt/fast.yaml": "_doc_: [a, b]\nlr: 0.1\n"}
+    )
+    with pytest.raises(ConfigError, match=r"(?s)fast\.yaml.*'_doc_'"):
+        help_text(Small, configs)
 
 
 def test_subconfig_falls_back_to_the_class_docstring() -> None:

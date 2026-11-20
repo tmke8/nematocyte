@@ -205,6 +205,15 @@ _defaults_:
 
 See [composition.md](design/composition.md).
 
+### `_doc_` describes a file
+
+A key `_doc_` at the top level of a config file describes the file.
+`--help` shows the first paragraph next to the name of the file, and also
+lists the primary configs with their docs. `_doc_` is not a config value,
+and no config class can have a field of that name. In Hydra, `--help`
+lists the files by name only, and `_doc_` would be an ordinary key. See
+[helptext.md](design/helptext.md#docs-of-config-files).
+
 ### The schema is always applied
 
 Every primary config is checked against the root dataclass that is given to

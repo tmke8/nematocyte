@@ -1,6 +1,11 @@
 ---
 # A primary config: it describes the whole configuration, starting from the defaults
 # in the `Config` class. Select it with `--config-name good_run`.
+# `_doc_` describes the file in `--help`. Only its first paragraph is shown there.
+_doc_: |
+  A good run: a single linear layer on CelebA, at a small resolution.
+
+  Every config file can have a `_doc_`, at its top level.
 _defaults_:
   # For each config group, we can choose which option we want.
   # The names are those declared in the `Config` class in `src/run.py`, plus the

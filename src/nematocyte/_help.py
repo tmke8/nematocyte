@@ -47,6 +47,17 @@ def _missing_note(node: Node, info: FieldInfo) -> str:
     return " (required)" if info.required else " (not set)"
 
 
+def _listing(heading: str, docs: dict[str, str]) -> list[str]:
+    """Config files, one per line under `heading`, each with its doc."""
+    if not docs:
+        return []
+    width = max(6, *(len(name) for name in docs)) + 3
+    return [
+        heading,
+        *(f"  {name:<{width}}{doc}".rstrip() for name, doc in docs.items()),
+    ]
+
+
 class _Help:
     def __init__(self, composer: Composer, width: int) -> None:
         self.composer = composer
@@ -84,7 +95,7 @@ class _Help:
                 self.row(f"{key}={_value_text(node, info)}", text)
                 continue
             child = node.children.get(info.name)
-            files = self.composer.named_configs((*node.path, info.name))
+            files = self.composer.named_config_docs((*node.path, info.name))
             self.gap()
             if info.kind is Kind.GROUP:
                 selected = child.option if child is not None else None
@@ -93,13 +104,12 @@ class _Help:
                 for name, cls in info.options.items():
                     mark = "*" if name == selected else " "
                     options.append(f"{mark} {name:<{width}}{class_doc(cls)}".rstrip())
-                after = [f"From files: {', '.join(files)}"] if files else []
-                self.row(f"{key}={selected or _REQUIRED}", info.doc, options, after)
+                options += _listing("From files:", files)
+                self.row(f"{key}={selected or _REQUIRED}", info.doc, options)
             else:
                 assert info.config_cls is not None
                 doc = info.doc or class_doc(info.config_cls)
-                after = [f"Presets: {', '.join(files)}"] if files else []
-                self.row(f"{key}:", doc, [], after)
+                self.row(f"{key}:", doc, _listing("Presets:", files))
             if child is not None:
                 self.node(child, key + ".")
             self.gap()
@@ -143,6 +153,11 @@ def format_help(composer: Composer, root: Node, width: int | None = None) -> str
     helper = _Help(composer, width)
     helper.node(root, "")
     lines += helper.render()
+    if primary := composer.primary_config_docs():
+        lines += [
+            "",
+            *_listing("Primary configs, for --config-name NAME or +NAME:", primary),
+        ]
     # nematocyte's own settings are a block of their own, so that their keys
     # do not widen the column of the program's keys.
     own = _Help(composer, width)

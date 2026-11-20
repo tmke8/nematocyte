@@ -92,6 +92,13 @@ def test_broken_preset(config_dir: Path) -> None:
     assert "Opt" in found["opt/typo.yaml"]
 
 
+def test_doc_that_is_not_a_string(config_dir: Path) -> None:
+    write_files(config_dir, {"opt/listed.yaml": "_doc_:\n  - a\nlr: 1\n"})
+    found = errors(config_dir)
+    assert list(found) == ["opt/listed.yaml"]
+    assert "'_doc_'" in found["opt/listed.yaml"]
+
+
 def test_files_under_the_reserved_key(config_dir: Path) -> None:
     write_files(
         config_dir,

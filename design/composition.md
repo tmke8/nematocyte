@@ -95,8 +95,8 @@ superclass: Smiling
   of the root dataclass. There is no leading slash, and a primary config
   reads the same whichever directory it is in.
 - `_defaults_` and `_self_` are reserved: no config class can have a field
-  with either name ([unions.md](unions.md#reserved-names)). In Hydra
-  `_self_` means something else, as described above.
+  with either name ([deserializer.md](deserializer.md#reserved-names)). In
+  Hydra `_self_` means something else, as described above.
 - The key is not called `defaults` as in Hydra, because a name that is
   reserved below the root takes underscores, and `defaults` is a natural
   name for a field.
@@ -402,5 +402,11 @@ on YAML 1.1, such as `on` for a boolean.
 - `_defaults_` as a list, as in Hydra, is an error that shows the mapping
   form. An entry with `null` (Hydra's `- opt: null`) is an error that says
   it is not needed.
+- A key `_doc_` at the top level of a file describes the file, for
+  `--help` ([helptext.md](helptext.md#docs-of-config-files)). It is not a
+  value. It has to be a string; anything else is an error that names the
+  file. A `_doc_` below the top level is an error that says it belongs at
+  the top. A file does not take the `_doc_` of the config it extends with
+  `_self_`.
 - `nematocyte=NAME` selects a preset for all of nematocyte's settings, from a
   file directly in `configs/nematocyte/`. This follows from the general rule.

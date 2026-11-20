@@ -1,4 +1,5 @@
 ---
+_doc_: AdamW with a weight decay of 0.01.
 # A preset for the `opt` subconfig. `opt` is not a config group, so there is no option
 # to extend and no `_defaults_` entry: the values are applied on top of the defaults.
 lr: 1.0e-3

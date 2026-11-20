@@ -1,4 +1,5 @@
 ---
+_doc_: "A single linear layer: fcn without hidden layers."
 _defaults_:
   _self_: fcn
   norm: none

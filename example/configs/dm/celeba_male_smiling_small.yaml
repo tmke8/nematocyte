@@ -1,4 +1,5 @@
 ---
+_doc_: celeba_male_smiling at a resolution of 64 pixels.
 _defaults_:
   # You can also extend an option that is itself defined in a file.
   _self_: celeba_male_smiling

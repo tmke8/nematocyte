@@ -178,24 +178,6 @@ definition.
 
 ## Decided
 
-### Reserved names
-
-A name that is reserved below the root starts and ends with an underscore,
-so that it cannot get in the way of a field that a user would want to
-write. A name that is reserved only at the root may go without.
-
-| Name | Where it is reserved | Why |
-| --- | --- | --- |
-| `_defaults_` | Every config class | The key of every config file that says what the file builds on ([composition.md](composition.md)) |
-| `_self_` | Every config class | A key in `_defaults_`, next to the names of fields |
-| `_option_` | Every config class | The key that names the option of a group, in `to_dict` and in a TypedDict option. Reserved on every class, not only on options: one rule is simpler, and it keeps the name free |
-| `nematocyte` | The root config class | nematocyte's own settings ([cli.md](cli.md)) |
-
-- A field with a reserved name is an error that names the class and the
-  field. A TypedDict option declares its option in its `_option_` key, and
-  that key is not a field ([TypedDicts as options](#typeddicts-as-options)).
-- `defaults`, Hydra's name for the key, is not reserved.
-
 ### Details of declaring a group
 
 - A union that mixes a dataclass with something else, such as `Sub | int`,
