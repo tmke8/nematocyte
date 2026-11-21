@@ -126,18 +126,11 @@ against `torch.cuda.device_count()`, which gives a different answer on the
 test machine and fails in CI. The `gpu < -1` half belongs in
 `__post_init__`; the device count belongs in `run()`.
 
-For code that cannot follow the convention yet, there is an opt-in switch
-that stops before the constructors:
-
-```python
-nematocyte.validate_configs(Config, config_dir, construct=False)
-```
-
-Composition, interpolation,
-the checks for unknown and missing keys, and pydantic's check of every field
-value still happen; only the final `cls(**kwargs)` is skipped, and with it
-every `__post_init__`. This is possible because nematocyte walks the
-dataclass nodes itself ([deserializer.md](deserializer.md)).
+There is no switch to skip the constructors: pydantic runs every
+`__post_init__` as it validates the dataclass
+([deserializer.md](deserializer.md)). A check like the device count has to
+move out of `__post_init__` before the config files can be validated; see
+[Rejected ideas](#skipping-the-constructors).
 
 ### One result per file
 
@@ -187,9 +180,23 @@ of a multirun, before any job is submitted ([multirun.md](multirun.md)).
 ### Details
 
 - `validate_configs` and `Validator` take `config_name`, for the primary
-  config that supplies the rest of the tree, and `construct`.
+  config that supplies the rest of the tree.
+- A field whose type pydantic cannot read is an error in the config class
+  ([deserializer.md](deserializer.md#details-of-building)), and so is raised
+  by the constructor of `Validator`.
 
 ## Rejected ideas
+
+### Skipping the constructors
+
+`validate_configs(..., construct=False)` validated everything but skipped
+the constructors, and with them every `__post_init__`, for code that checks
+its environment there.
+
+**Dropped because** pydantic validates the whole config in one call
+([deserializer.md](deserializer.md)), and builds each dataclass as it
+validates it. There is no point at which every value is checked but no
+constructor has run.
 
 ### Building only the node a file describes
 

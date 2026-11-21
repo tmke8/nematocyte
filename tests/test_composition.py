@@ -7,10 +7,11 @@ import sys
 from typing import Annotated, Any
 import warnings
 
+from pydantic import Discriminator, Tag
 import pytest
 
 import nematocyte
-from nematocyte import ConfigError, DroppedValueWarning, option
+from nematocyte import ConfigError, DroppedValueWarning
 from nematocyte._compose import Composer
 from nematocyte._files import load_file
 from nematocyte._schema import class_fields
@@ -576,9 +577,10 @@ class _Other:
 @dataclass
 class _Clash:
     # `b` is an option of `model`, and a field of the option `a`.
-    model: Annotated[_WithB, option("a")] | Annotated[_Other, option("b")] = field(
-        default_factory=_WithB
-    )
+    model: Annotated[
+        Annotated[_WithB, Tag("a")] | Annotated[_Other, Tag("b")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=_WithB)
 
 
 def test_field_keeps_its_directory_when_an_option_has_its_name(
@@ -678,10 +680,11 @@ def test_file_and_directory_with_the_same_stem_do_not_clash(tmp_path: Path) -> N
 
     @dataclass
     class Root:
-        model: (
-            Annotated[WithEncoder, option("with_encoder")]
-            | Annotated[Plain, option("plain")]
-        ) = field(default_factory=WithEncoder)
+        model: Annotated[
+            Annotated[WithEncoder, Tag("with_encoder")]
+            | Annotated[Plain, Tag("plain")],
+            Discriminator(nematocyte.pick),
+        ] = field(default_factory=WithEncoder)
 
     directory = write_files(
         tmp_path / "c",

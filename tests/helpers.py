@@ -7,7 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from nematocyte import option
+from pydantic import Discriminator, Tag
+
+import nematocyte
 from nematocyte._build import build
 from nematocyte._compose import Composer
 from nematocyte._interpolation import resolve
@@ -30,10 +32,10 @@ class LayerNorm:
     eps: float = 1e-5
 
 
-type Norm = (
-    Annotated[BatchNorm, option("batchnorm")]
-    | Annotated[LayerNorm, option("layernorm")]
-)
+type Norm = Annotated[
+    Annotated[BatchNorm, Tag("batchnorm")] | Annotated[LayerNorm, Tag("layernorm")],
+    Discriminator(nematocyte.pick),
+]
 
 
 @dataclass(kw_only=True)
@@ -57,7 +59,10 @@ class Cnn:
     norm: Norm = field(default_factory=BatchNorm, doc="The normalisation layer.")
 
 
-type Model = Annotated[Fcn, option("fcn")] | Annotated[Cnn, option("cnn")]
+type Model = Annotated[
+    Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
+    Discriminator(nematocyte.pick),
+]
 
 
 @dataclass(kw_only=True)
@@ -119,9 +124,10 @@ class Wandb:
 class Config:
     """Train a model on a dataset."""
 
-    dm: Annotated[Celeba, option("celeba")] | Annotated[Cmnist, option("cmnist")] = (
-        field(default_factory=Cmnist, doc="The dataset to train on.")
-    )
+    dm: Annotated[
+        Annotated[Celeba, Tag("celeba")] | Annotated[Cmnist, Tag("cmnist")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=Cmnist, doc="The dataset to train on.")
     model: Model = field(default_factory=Fcn, doc="The model architecture.")
     opt: Opt = field(default_factory=Opt)
     wandb: Wandb = field(default_factory=Wandb)

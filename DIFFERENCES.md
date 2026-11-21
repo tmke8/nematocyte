@@ -134,16 +134,16 @@ fields one by one: `opt.lr=0.1`. See [cli.md](design/cli.md).
 
 ### Groups are declared in the type of the field
 
-There is no `ConfigStore`. A group is a field whose type is a union of named
-dataclasses:
+There is no `ConfigStore`. A group is a field whose type is a union of
+dataclasses, each named with pydantic's `Tag`:
 
 ```python
 @dataclass(kw_only=True)
 class Config:
-    model: (
-        Annotated[FcnFactory, nematocyte.option("fcn")]
-        | Annotated[CnnFactory, nematocyte.option("cnn")]
-    ) = field(default_factory=FcnFactory)
+    model: Annotated[
+        Annotated[FcnFactory, Tag("fcn")] | Annotated[CnnFactory, Tag("cnn")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=FcnFactory)
 ```
 
 - Every option is listed where the field is declared. Another module cannot
@@ -167,6 +167,13 @@ and imports it itself. See [unions.md](design/unions.md).
 
 A dataclass field cannot be `X | None`, and a group cannot have `None` as an
 option. See [unions.md](design/unions.md).
+
+### A hand-written `__init__` is not called
+
+pydantic builds the config objects: it sets the fields and calls
+`__post_init__`, but not an `__init__` written in the class. OmegaConf's
+`to_object` calls the constructor. Put that work in `__post_init__`. See
+[deserializer.md](design/deserializer.md#details-of-building).
 
 ### Selecting an option starts the node again
 

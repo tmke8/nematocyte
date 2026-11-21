@@ -3,7 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Annotated, Literal, NotRequired, TypedDict
 
-from nematocyte import option
+import nematocyte
+from pydantic import Discriminator, Tag
 from torch import nn
 
 type Activation = Literal["relu", "gelu", "selu", "silu"]
@@ -21,11 +22,12 @@ def _get_activation(activation: Activation) -> nn.Module:
             return nn.SiLU()
 
 
-type NormType = (
-    Annotated[BatchNorm, option("BN")]
-    | Annotated[LayerNorm, option("LN")]
-    | Annotated[NoNorm, option("none")]
-)
+type NormType = Annotated[
+    Annotated[BatchNorm, Tag("BN")]
+    | Annotated[LayerNorm, Tag("LN")]
+    | Annotated[NoNorm, Tag("none")],
+    Discriminator(nematocyte.pick),
+]
 
 
 class BatchNormKwargs(TypedDict):

@@ -12,8 +12,8 @@ changing code.
 | --- | --- |
 | `FEATURES.md` | The scope: the Hydra features the example project relies on |
 | `DIFFERENCES.md` | What works differently from Hydra, for users. Add an entry when a change makes nematocyte behave differently from Hydra in a way a user would notice |
-| `design/deserializer.md` | Building config instances from the config tree, with pydantic for field values, and TypedDict configs |
-| `design/unions.md` | Config groups as annotated unions, `nematocyte.option`, and how defaults work |
+| `design/deserializer.md` | Building config instances from the config tree with one call to pydantic, and TypedDict configs |
+| `design/unions.md` | Config groups as tagged unions with `nematocyte.pick`, and how defaults work |
 | `design/composition.md` | How config files are found and merged into one tree |
 | `design/cli.md` | The override grammar, the flags, and the reserved `nematocyte` key |
 | `design/interpolation.md` | `${...}` references and the `now` resolver |
@@ -71,7 +71,7 @@ The public API has to be understood by every type checker, not only ty:
 - Use only standard typing features. No plugin for any checker, and nothing
   that only one checker understands.
 - The API that carries the most type information has to work in all of
-  them: the annotated unions with `nematocyte.option`, the
+  them: the tagged unions with `Tag` and `nematocyte.pick`, the
   `@nematocyte.main(Config, ...)` decorator, which lets a checker verify
   that the function takes `Config`, and `nematocyte.compose`, which returns
   an instance of the class it is given.

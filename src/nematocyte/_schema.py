@@ -31,15 +31,27 @@ from typing import (
 # Unlike `typing.is_typeddict`, this also recognises `typing_extensions.TypedDict`,
 # which is a class of its own, for `closed=True` and other newer features.
 from typing_extensions import TypeForm, is_typeddict
+import warnings
+
+from pydantic import (
+    Discriminator,
+    PydanticSchemaGenerationError,
+    PydanticUserError,
+    Tag,
+    TypeAdapter,
+)
 
 from ._errors import SchemaError
+from ._types import type_text
 
 __all__ = [
     "RESERVED_KEY",
     "FieldInfo",
     "Kind",
-    "Option",
+    "Selected",
+    "class_adapter",
     "class_doc",
+    "field_adapter",
     "class_fields",
     "config_class",
     "first_paragraph",
@@ -47,7 +59,7 @@ __all__ = [
     "is_dict_or_frozendict",
     "is_exact_dict_or_frozendict",
     "is_typeddict_class",
-    "option",
+    "pick",
     "typeddict_option",
     "validate_schema",
 ]
@@ -64,27 +76,40 @@ DOC_KEY = "_doc_"
 _OPTION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 
 
-@dataclass(frozen=True, slots=True)
-class Option:
-    """The name of a member of a group. Created with :func:`option`."""
+class Selected(dict[str, Any]):
+    """The fields of a node of a group, with the option that is selected.
 
-    name: str
-
-
-def option(name: str) -> Option:
-    """Name a member of a config group.
-
-    A group is a field whose type is a union of dataclasses, each of which is
-    annotated with its name::
-
-        model: Annotated[Fcn, option("fcn")] | Annotated[Cnn, option("cnn")]
+    nematocyte hands this to pydantic, where :func:`pick` reads the option.
     """
+
+    __slots__ = ("option",)
+
+    def __init__(self, option: str, fields: Mapping[str, Any]) -> None:
+        super().__init__(fields)
+        self.option = option
+
+
+def pick(value: Any) -> str | None:
+    """Pick the option of a group of dataclasses, for pydantic.
+
+    A group is a union whose members carry a pydantic ``Tag``, with this
+    function as the ``Discriminator``::
+
+        model: Annotated[
+            Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
+            Discriminator(nematocyte.pick),
+        ]
+    """
+    return value.option if isinstance(value, Selected) else None
+
+
+def _check_option_name(name: object, where: str) -> str:
     if not isinstance(name, str) or _OPTION_NAME.fullmatch(name) is None:
         raise SchemaError(
-            f"{name!r} is not a valid name for an option. A name starts with a "
-            "letter or an underscore, followed by letters, digits, '_' or '-'."
+            f"{where}: {name!r} is not a valid name for an option. A name starts "
+            "with a letter or an underscore, followed by letters, digits, '_' or '-'."
         )
-    return Option(name)
+    return name
 
 
 class Kind(enum.Enum):
@@ -116,6 +141,12 @@ class FieldInfo:
     """For a group: the classes of the options, by name."""
     config_cls: type | None = None
     """For a subconfig: its class."""
+    tagged: bool = False
+    """For a group: whether the union has a `Discriminator`.
+
+    pydantic then puts the option into the location of an error, after the
+    name of the field.
+    """
     field: dataclasses.Field[Any] | None = None
     initvar: bool = False
     required: bool = True
@@ -272,14 +303,18 @@ def typeddict_option(cls: type) -> str | None:
         )
     if OPTION_KEY not in cast("Any", cls).__required_keys__:
         raise SchemaError(f"{where}: the key {OPTION_KEY!r} cannot be NotRequired.")
-    try:
-        return option(args[0]).name
-    except SchemaError as exc:
-        raise SchemaError(f"{where}: {exc}") from None
+    return _check_option_name(args[0], where)
 
 
-def _option_name(member: type, member_names: list[Option], where: str) -> str:
-    """The name of a member of a group: from `option()`, or a TypedDict's key."""
+_GROUP_SPELLING = (
+    'Annotated[Annotated[A, Tag("a")] | Annotated[B, Tag("b")], '
+    "Discriminator(nematocyte.pick)]"
+)
+_TYPEDDICT_GROUP_SPELLING = 'Annotated[A | B, Discriminator("_option_")]'
+
+
+def _option_name(member: type, tags: list[Tag], where: str) -> str:
+    """The name of a member of a group: from its `Tag`, or a TypedDict's key."""
     if is_typeddict_class(member):
         name = typeddict_option(member)
         if name is None:
@@ -289,34 +324,63 @@ def _option_name(member: type, member_names: list[Option], where: str) -> str:
                 f'{OPTION_KEY}: Literal["..."].'
             )
         return name
-    if len(member_names) != 1:
-        problem = "has no name" if not member_names else "has more than one name"
+    if len(tags) != 1:
+        problem = "has no name" if not tags else "has more than one name"
         raise SchemaError(
             f"{where}: the member {member.__name__} of the group {problem}. "
-            f"Every member needs one name: "
-            f'Annotated[{member.__name__}, nematocyte.option("...")].'
+            f"Every member needs one Tag, and the union needs nematocyte.pick: "
+            f"{_GROUP_SPELLING}."
         )
-    return member_names[0].name
+    return _check_option_name(tags[0].tag, where)
 
 
-def _analyse(annotation: Any, where: str) -> tuple[Kind, dict[str, type], type | None]:
-    members = list(_members(annotation))
+def _check_discriminator(metadata: list[Any], *, typeddicts: bool, where: str) -> None:
+    """Check that the union of a group has the discriminator that it needs."""
+    found = [m for m in metadata if isinstance(m, Discriminator)]
+    if len(found) == 1 and (
+        found[0].discriminator == OPTION_KEY
+        if typeddicts
+        else found[0].discriminator is pick
+    ):
+        return
+    spelling = _TYPEDDICT_GROUP_SPELLING if typeddicts else _GROUP_SPELLING
+    raise SchemaError(
+        f"{where}: the union of a group needs exactly one Discriminator, as in "
+        f"{spelling}."
+    )
+
+
+def _group_members(annotation: Any) -> tuple[list[tuple[Any, list[Any]]], list[Any]]:
+    """The members of a union with their metadata, and the metadata of the union."""
+    inner, outer = _unwrap(annotation)
+    if get_origin(inner) in (Union, types.UnionType):
+        return list(_members(inner)), outer
+    # A group with one option: its Tag and the Discriminator are both in the
+    # metadata that was unwrapped.
+    return [(inner, outer)], outer
+
+
+def _analyse(
+    annotation: Any, where: str
+) -> tuple[Kind, dict[str, type], type | None, bool]:
+    members, outer = _group_members(annotation)
     if not any(is_config_class(member) for member, _ in members):
-        return Kind.VALUE, {}, None
+        return Kind.VALUE, {}, None, False
 
-    names = [[m for m in metadata if isinstance(m, Option)] for _, metadata in members]
-    for (member, _), member_names in zip(members, names, strict=True):
-        if is_typeddict_class(member) and member_names:
+    tags = [[m for m in metadata if isinstance(m, Tag)] for _, metadata in members]
+    for (member, _), member_tags in zip(members, tags, strict=True):
+        if is_typeddict_class(member) and member_tags:
             raise SchemaError(
-                f"{where}: nematocyte.option() is not used for a TypedDict "
+                f"{where}: a Tag is not used for a TypedDict "
                 f"({member.__name__}). A TypedDict names its option in its own "
                 f'key instead: {OPTION_KEY}: Literal["..."].'
             )
-    if len(members) == 1 and not names[0]:
+    discriminated = any(isinstance(m, Discriminator) for m in outer)
+    if len(members) == 1 and not tags[0] and not discriminated:
         config_cls = members[0][0]
         assert isinstance(config_cls, type)
         if not is_typeddict_class(config_cls) or typeddict_option(config_cls) is None:
-            return Kind.CONFIG, {}, config_cls
+            return Kind.CONFIG, {}, config_cls, False
 
     typeddicts = [m for m, _ in members if is_typeddict_class(m)]
     dataclasses_ = [
@@ -330,7 +394,7 @@ def _analyse(annotation: Any, where: str) -> tuple[Kind, dict[str, type], type |
         )
 
     options: dict[str, type] = {}
-    for (member, _), member_names in zip(members, names, strict=True):
+    for (member, _), member_tags in zip(members, tags, strict=True):
         if member is type(None):
             raise SchemaError(
                 f"{where}: None is not allowed as a member of a group, and a "
@@ -342,7 +406,7 @@ def _analyse(annotation: Any, where: str) -> tuple[Kind, dict[str, type], type |
                 f"config group, and all of its members have to be dataclasses "
                 f"or TypedDicts; {_type_name(member)} is not."
             )
-        name = _option_name(member, member_names, where)
+        name = _option_name(member, member_tags, where)
         if name in options:
             raise SchemaError(
                 f"{where}: the option name {name!r} is used for both "
@@ -353,7 +417,10 @@ def _analyse(annotation: Any, where: str) -> tuple[Kind, dict[str, type], type |
                 f"{where}: the class {member.__name__} is listed twice in the group."
             )
         options[name] = member
-    return Kind.GROUP, options, None
+    if len(options) > 1:
+        # pydantic needs no discriminator to pick the only option.
+        _check_discriminator(outer, typeddicts=bool(typeddicts), where=where)
+    return Kind.GROUP, options, None, discriminated
 
 
 _FIELDS_CACHE: dict[type, dict[str, FieldInfo]] = {}
@@ -417,7 +484,7 @@ def _dataclass_fields(
             continue
         where = f"{cls.__name__}.{name}"
         _check_name(name, where)
-        kind, options, config_cls = _analyse(hint, where)
+        kind, options, config_cls, tagged = _analyse(hint, where)
         result[name] = FieldInfo(
             name=name,
             kind=kind,
@@ -425,6 +492,7 @@ def _dataclass_fields(
             owner=cls,
             options=options,
             config_cls=config_cls,
+            tagged=tagged,
             field=field,
             initvar=initvar,
         )
@@ -441,7 +509,7 @@ def _typeddict_fields(
         hint = _strip_qualifiers(raw_hint)
         where = f"{cls.__name__}.{name}"
         _check_name(name, where)
-        kind, options, config_cls = _analyse(hint, where)
+        kind, options, config_cls, tagged = _analyse(hint, where)
         required = name in required_keys
         if not required and kind is not Kind.VALUE:
             raise SchemaError(
@@ -455,6 +523,7 @@ def _typeddict_fields(
             owner=cls,
             options=options,
             config_cls=config_cls,
+            tagged=tagged,
             required=required,
         )
 
@@ -472,6 +541,13 @@ def validate_schema(cls: type, *, root: bool = True) -> None:
             "nematocyte's own settings and cannot be the name of a field of the "
             "root config class."
         )
+    for _ in _reachable(cls):
+        pass
+    class_adapter(cls)
+
+
+def _reachable(cls: type) -> Iterator[type]:
+    """`cls` and every config class under it, each checked by `class_fields`."""
     seen: set[type] = set()
     todo = [cls]
     while todo:
@@ -479,10 +555,98 @@ def validate_schema(cls: type, *, root: bool = True) -> None:
         if current in seen:
             continue
         seen.add(current)
+        yield current
         for info in class_fields(current).values():
             if info.config_cls is not None:
                 todo.append(info.config_cls)
             todo.extend(info.options.values())
+
+
+_CLASS_ADAPTERS: dict[type, TypeAdapter[Any]] = {}
+
+
+def class_adapter(cls: type) -> TypeAdapter[Any]:
+    """The adapter for a whole config class, with everything under it.
+
+    A field whose type pydantic cannot read is a `SchemaError`.
+    """
+    cached = _CLASS_ADAPTERS.get(cls)
+    if cached is None:
+        try:
+            with warnings.catch_warnings():
+                # pydantic warns that it does not enforce `ReadOnly` in a
+                # TypedDict, which nematocyte ignores anyway.
+                warnings.filterwarnings("ignore", "Item .* `ReadOnly` qualifier")
+                cached = TypeAdapter(cls)
+        except (PydanticSchemaGenerationError, PydanticUserError) as exc:
+            raise SchemaError(_unreadable(cls, exc)) from exc
+        _CLASS_ADAPTERS[cls] = cached
+    return cached
+
+
+def _adapter_for(annotation: Any, owner: type | None) -> TypeAdapter[Any] | None:
+    """An adapter for the type of a field, with the pydantic config of its class.
+
+    `None` if pydantic cannot read the type.
+    """
+    config = getattr(owner, "__pydantic_config__", None)
+    for attempt in (config, None) if config is not None else (None,):
+        try:
+            return TypeAdapter(annotation, config=attempt)
+        except PydanticUserError:
+            # A type with a config of its own, such as a dataclass, refuses
+            # another one, and is tried without; a type that pydantic cannot
+            # read fails either way.
+            continue
+    return None
+
+
+_FIELD_ADAPTERS: dict[tuple[type | None, str], TypeAdapter[Any] | None] = {}
+
+
+def field_adapter(info: FieldInfo) -> TypeAdapter[Any] | None:
+    """The adapter for the type of one field; `None` if pydantic cannot read it."""
+    key = (info.owner, info.name)
+    if key not in _FIELD_ADAPTERS:
+        _FIELD_ADAPTERS[key] = _adapter_for(info.annotation, info.owner)
+    return _FIELD_ADAPTERS[key]
+
+
+def _unreadable(cls: type, exc: Exception) -> str:
+    """The error for a config class that pydantic cannot read, naming the field."""
+    for config_cls in _reachable(cls):
+        for info in class_fields(config_cls).values():
+            if info.kind is Kind.VALUE and field_adapter(info) is None:
+                return (
+                    f"{config_cls.__name__}.{info.name}: pydantic cannot handle "
+                    f"the type {type_text(info.annotation)}, so a config file "
+                    f"could not set the field. A value that is made from the "
+                    f"config, such as a torch.device, can be a property of the "
+                    f"class instead."
+                )
+        for name, annotation in _hidden_fields(config_cls):
+            if _adapter_for(annotation, config_cls) is None:
+                return (
+                    f"{config_cls.__name__}.{name}: pydantic cannot handle the "
+                    f"type {type_text(annotation)}. It reads a field with "
+                    f"init=False too, if the field has a default. Leave out the "
+                    f"default and set the field in __post_init__, or make the "
+                    f"value a property of the class."
+                )
+    return f"{cls.__name__}: pydantic cannot handle the class:\n{exc}"
+
+
+def _hidden_fields(cls: type) -> Iterator[tuple[str, Any]]:
+    """The fields with `init=False` and a default, which pydantic reads too."""
+    if not dataclasses.is_dataclass(cls):
+        return
+    hints = typing.get_type_hints(cls, include_extras=True)
+    for field in dataclasses.fields(cls):
+        has_default = (
+            field.default is not MISSING or field.default_factory is not MISSING
+        )
+        if not field.init and has_default:
+            yield field.name, hints.get(field.name, field.type)
 
 
 def first_paragraph(text: str) -> str:

@@ -100,12 +100,6 @@ class Node:
         """The selection that made the node; `None` for a default."""
         self.touched = False
         """Whether a config file or an override selected or set something here."""
-        self.checked = False
-        """Whether the values were checked already, when the tree was composed.
-
-        True for the tree of a multirun job, which holds every value as set,
-        defaults included.
-        """
         if expand:
             for info in self.fields.values():
                 if info.kind is not Kind.VALUE and info.name not in self.children:
@@ -222,7 +216,6 @@ def _from_plain(
     rebuild: _Rebuild,
 ) -> Node:
     node = Node(cls, path, option=option, expand=False)
-    node.checked = rebuild.checked
     for key, value in plain.items():
         if key == OPTION_KEY and option is not None:
             # The option of a group node, which was read by the parent.
@@ -287,24 +280,20 @@ def _from_plain(
 @dataclass(frozen=True)
 class _Rebuild:
     source: str
-    checked: bool
     errors: list[str]
 
 
-def node_from_plain(
-    cls: type, plain: Mapping[Any, Any], *, source: str, checked: bool
-) -> Node:
+def node_from_plain(cls: type, plain: Mapping[Any, Any], *, source: str) -> Node:
     """Rebuild the tree from plain dicts, such as `Node.to_plain_tree` gives.
 
     The mapping of a group names its option under ``_option_``. A key that the
     mapping leaves out takes the default in the class. `source` says where the
-    values were set, for error messages. `checked` says that the values were
-    checked already, when the tree was composed.
+    values were set, for error messages.
 
     An unknown key, a missing or unknown option, and a subconfig that is not
     a mapping are errors, which are collected and raised together.
     """
-    rebuild = _Rebuild(source, checked, [])
+    rebuild = _Rebuild(source, [])
     node = _from_plain(cls, plain, (), None, rebuild)
     if rebuild.errors:
         raise ConfigError("Error in the configuration:\n" + "\n".join(rebuild.errors))

@@ -12,10 +12,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Annotated, Any, Literal, NotRequired, TypedDict, cast
 
+from pydantic import Discriminator, Tag
 import pytest
 
 import nematocyte
-from nematocyte import ConfigError, SchemaError, option
+from nematocyte import ConfigError, SchemaError
 
 from .helpers import Celeba, Cnn, Config, Fcn, LayerNorm, Opt, empty_config_dir
 
@@ -121,8 +122,11 @@ class Plain(TypedDict):
 
 class TypedConfig(TypedDict):
     seed: int
-    optimizer: Sgd | Adam
-    model: Annotated[Fcn, option("fcn")] | Annotated[Cnn, option("cnn")]
+    optimizer: Annotated[Sgd | Adam, Discriminator("_option_")]
+    model: Annotated[
+        Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
+        Discriminator(nematocyte.pick),
+    ]
     plain: Plain
 
 
@@ -325,7 +329,10 @@ def test_errors_are_collected() -> None:
 
 @dataclass
 class NoDefault:
-    model: Annotated[Fcn, option("fcn")] | Annotated[Cnn, option("cnn")]
+    model: Annotated[
+        Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
+        Discriminator(nematocyte.pick),
+    ]
 
 
 def test_left_out_group_without_a_default() -> None:
@@ -344,23 +351,15 @@ class Device:
     """A type that pydantic cannot read."""
 
 
-DEVICE = Device()
-
-
 @dataclass
 class WithDevice:
-    device: Device = DEVICE
+    device: Device = field(default_factory=Device)
     seed: int = 0
 
 
 def test_value_of_a_type_that_pydantic_cannot_read() -> None:
-    assert nematocyte.from_run_config(WithDevice, {"seed": 1}).device is DEVICE
-    with pytest.raises(ConfigError) as info:
-        nematocyte.from_run_config(WithDevice, {"device": "cpu"})
-    message = str(info.value)
-    assert "device" in message
-    assert "WithDevice.device" in message
-    assert "from_run_config()" in message
+    with pytest.raises(SchemaError, match=r"WithDevice\.device"):
+        nematocyte.from_run_config(WithDevice, {"seed": 1})
 
 
 def test_not_a_config_class() -> None:

@@ -4,18 +4,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any
 
+from pydantic import Discriminator, Tag
 import pytest
 
 import nematocyte
-from nematocyte import ConfigError, SchemaError, option
+from nematocyte import ConfigError, SchemaError
 import nematocyte._validation as nematocyte_validation
 
 from .helpers import CONFIG_FILES, Config, write_files
 
 
-def errors(config_dir: Path, *, construct: bool = True) -> dict[str, str]:
+def errors(config_dir: Path) -> dict[str, str]:
     """The files with an error, by their path."""
-    results = nematocyte.validate_configs(Config, config_dir, construct=construct)
+    results = nematocyte.validate_configs(Config, config_dir)
     return {
         result.path.as_posix(): str(result.error)
         for result in results
@@ -154,9 +155,10 @@ class Large:
 
 @dataclass
 class Shared:
-    net: Annotated[Small, option("small")] | Annotated[Large, option("large")] = field(
-        default_factory=Small
-    )
+    net: Annotated[
+        Annotated[Small, Tag("small")] | Annotated[Large, Tag("large")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=Small)
 
 
 def test_named_config_for_a_field_of_several_options_fits_each(
@@ -261,16 +263,18 @@ class _Other:
 
 @dataclass
 class _SubconfigClash:
-    model: Annotated[_SubconfigB, option("a")] | Annotated[_Other, option("b")] = field(
-        default_factory=_SubconfigB
-    )
+    model: Annotated[
+        Annotated[_SubconfigB, Tag("a")] | Annotated[_Other, Tag("b")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=_SubconfigB)
 
 
 @dataclass
 class _ValueClash:
-    model: Annotated[_ValueB, option("a")] | Annotated[_Other, option("b")] = field(
-        default_factory=_ValueB
-    )
+    model: Annotated[
+        Annotated[_ValueB, Tag("a")] | Annotated[_Other, Tag("b")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=_ValueB)
 
 
 def test_field_keeps_its_directory_when_an_option_has_its_name(
@@ -333,22 +337,6 @@ def test_post_init_runs(config_dir: Path) -> None:
     found = errors(config_dir)
     assert list(found) == ["bad_gpu.yaml"]
     assert "Invalid GPU index -5" in found["bad_gpu.yaml"]
-
-
-def test_construct_false_skips_post_init_only(config_dir: Path) -> None:
-    write_files(
-        config_dir,
-        {
-            "bad_gpu.yaml": "gpu: -5\n",
-            "bad_type.yaml": "gpu: minus-five\n",
-            "bad_key.yaml": "gppu: 1\n",
-        },
-    )
-    found = errors(config_dir, construct=False)
-    assert sorted(found) == ["bad_key.yaml", "bad_type.yaml"]
-    validator = nematocyte.Validator(Config, config_dir, construct=False)
-    assert validator.validate("bad_gpu.yaml").ok
-    assert not validator.validate("bad_key.yaml").ok
 
 
 @dataclass
@@ -471,6 +459,18 @@ def test_validator_for_an_unsupported_class(config_dir: Path) -> None:
         nematocyte.Validator(Reserved, config_dir)
 
 
+def test_validator_for_a_type_that_pydantic_cannot_read(config_dir: Path) -> None:
+    class Device:
+        pass
+
+    @dataclass
+    class WithDevice:
+        device: Device = field(default_factory=Device)
+
+    with pytest.raises(SchemaError, match=r"WithDevice\.device"):
+        nematocyte.Validator(WithDevice, config_dir)
+
+
 # -- sweeper parameters -------------------------------------------------------
 
 
@@ -532,7 +532,10 @@ def test_group_through_union_alias(tmp_path: Path) -> None:
 
     @dataclass
     class Root:
-        part: Annotated[A, option("a")] | Annotated[B, option("b")]
+        part: Annotated[
+            Annotated[A, Tag("a")] | Annotated[B, Tag("b")],
+            Discriminator(nematocyte.pick),
+        ]
 
     directory = write_files(
         tmp_path / "c",

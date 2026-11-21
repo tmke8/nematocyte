@@ -15,11 +15,11 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, NamedTuple
 from typing_extensions import sentinel
 
-from pydantic import AfterValidator, Field
+from pydantic import AfterValidator, ConfigDict, Discriminator, Field, Tag
 import pytest
 
 import nematocyte
-from nematocyte import ConfigError
+from nematocyte import ConfigError, SchemaError
 
 from .helpers import Celeba, Cmnist, Config, Fcn
 
@@ -182,6 +182,25 @@ def test_post_init_error_in_a_subconfig_names_the_path() -> None:
     assert "Sub" in message
 
 
+def test_post_init_error_of_another_kind_keeps_its_message() -> None:
+    # pydantic collects only a `ValueError` or an `AssertionError`; anything
+    # else stops the validation, and its location is lost.
+    @dataclass
+    class Sub:
+        x: int = 1
+
+        def __post_init__(self) -> None:
+            if self.x < 0:
+                raise TypeError("x must not be negative")
+
+    @dataclass
+    class Root:
+        sub: Sub = field(default_factory=Sub)
+
+    with pytest.raises(ConfigError, match="TypeError: x must not be negative"):
+        nematocyte.compose(Root, overrides=["sub.x=-1"])
+
+
 def test_field_without_default_is_required() -> None:
     @dataclass
     class Root:
@@ -209,10 +228,10 @@ def test_triple_question_mark_is_an_ordinary_string(tmp_path: Path) -> None:
 def test_group_without_default_needs_a_selection() -> None:
     @dataclass
     class Root:
-        dm: (
-            Annotated[Celeba, nematocyte.option("celeba")]
-            | Annotated[Cmnist, nematocyte.option("cmnist")]
-        )
+        dm: Annotated[
+            Annotated[Celeba, Tag("celeba")] | Annotated[Cmnist, Tag("cmnist")],
+            Discriminator(nematocyte.pick),
+        ]
 
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(Root)
@@ -220,6 +239,21 @@ def test_group_without_default_needs_a_selection() -> None:
     assert "dm" in message
     assert "celeba" in message
     assert type(nematocyte.compose(Root, overrides=["dm=celeba"]).dm) is Celeba
+
+
+def test_hand_written_init_is_not_called() -> None:
+    # pydantic sets the fields and calls `__post_init__`, but not `__init__`.
+    @dataclass
+    class Root:
+        lr: float = 0.1
+
+        def __init__(self, lr: float = 0.1) -> None:
+            self.lr = lr
+            self.scaled = lr * 10
+
+    config = nematocyte.compose(Root, overrides=["lr=0.5"])
+    assert config.lr == 0.5
+    assert not hasattr(config, "scaled")
 
 
 def test_initvar_and_init_false_fields() -> None:
@@ -258,10 +292,10 @@ class FrozenAdam:
 class FrozenRoot:
     seed: int = 0
     sub: FrozenSub = field(default_factory=FrozenSub)
-    opt: (
-        Annotated[FrozenSgd, nematocyte.option("sgd")]
-        | Annotated[FrozenAdam, nematocyte.option("adam")]
-    ) = field(default_factory=FrozenSgd)
+    opt: Annotated[
+        Annotated[FrozenSgd, Tag("sgd")] | Annotated[FrozenAdam, Tag("adam")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=FrozenSgd)
     doubled: int = field(default=0, init=False)
 
     def __post_init__(self) -> None:
@@ -300,10 +334,10 @@ class KwOnlyRoot:
     _: KW_ONLY
     size: int = 1
     sub: KwOnlySub = field(default_factory=lambda: KwOnlySub(1))
-    dm: (
-        Annotated[Celeba, nematocyte.option("celeba")]
-        | Annotated[Cmnist, nematocyte.option("cmnist")]
-    ) = field(default_factory=Cmnist)
+    dm: Annotated[
+        Annotated[Celeba, Tag("celeba")] | Annotated[Cmnist, Tag("cmnist")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=Cmnist)
 
 
 def test_kw_only_marker(tmp_path: Path) -> None:
@@ -337,7 +371,7 @@ def test_kw_only_marker(tmp_path: Path) -> None:
     ],
 )
 def test_bool_is_rejected_for_a_number(override: str, where: str) -> None:
-    # pydantic's lax mode would accept `true` as `1`; the walk rejects it.
+    # pydantic's lax mode would accept `true` as `1`; nematocyte rejects it.
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(Types, overrides=[override])
     message = str(excinfo.value)
@@ -359,6 +393,42 @@ def test_bool_is_kept_where_the_type_allows_it() -> None:
     assert config.anything is True
     assert config.mixed == [1, True]
     assert config.mixed[1] is True
+
+
+def test_bool_is_reported_next_to_the_other_errors() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Types, overrides=["i=true", "f=abc"])
+    message = str(excinfo.value)
+    assert "Types.f" in message
+    assert "a bool is not a number" in message
+
+
+def test_bool_is_rejected_for_an_initvar() -> None:
+    @dataclass
+    class Root:
+        scale: InitVar[int] = 2
+
+        def __post_init__(self, scale: int) -> None:
+            pass
+
+    with pytest.raises(ConfigError, match="a bool is not a number"):
+        nematocyte.compose(Root, overrides=["scale=true"])
+
+
+def test_value_changed_by_post_init_is_not_an_error() -> None:
+    # The checks compare with the value before the constructor ran.
+    @dataclass
+    class Root:
+        root: Path = Path("data")
+        flag: bool = False
+
+        def __post_init__(self) -> None:
+            self.root = self.root.resolve()
+            self.flag = int(self.flag)  # ty: ignore[invalid-assignment]
+
+    config = nematocyte.compose(Root, overrides=["flag=true"])
+    assert config.root == Path("data").resolve()
+    assert config.flag == 1
 
 
 def test_bool_default_for_a_number_is_rejected() -> None:
@@ -583,62 +653,70 @@ class Device:
     """A class that pydantic does not know, like `torch.device`."""
 
 
-CPU = Device()
 BN = sentinel("BN")
 LN = sentinel("LN")
 
 
 @dataclass
-class Opaque:
-    device: Device = field(default=CPU, doc="Where to run.")
-    norm: BN | LN | None = LN
+class WithDevice:
+    device: Device = field(default_factory=Device, doc="Where to run.")
     seed: int = 0
 
 
-def test_default_of_a_type_pydantic_cannot_read_is_kept() -> None:
-    config = nematocyte.compose(Opaque)
-    assert config.device is CPU
-    assert config.norm is LN
+@dataclass
+class WithSentinel:
+    norm: BN | LN | None = LN
+
+
+@dataclass
+class WithHiddenDevice:
+    seed: int = 0
+    _device: Device | None = field(default=None, init=False)
 
 
 @pytest.mark.parametrize(
-    ("override", "type_name"),
-    [("device=cpu", "Device"), ("norm=BN", "BN | LN | null"), ("norm=3", "BN")],
+    ("cls", "where"),
+    [
+        (WithDevice, "WithDevice.device"),
+        (WithSentinel, "WithSentinel.norm"),
+        (WithHiddenDevice, "WithHiddenDevice._device"),
+    ],
 )
-def test_type_pydantic_cannot_read_cannot_be_overridden(
-    override: str, type_name: str
-) -> None:
-    with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(Opaque, overrides=[override])
+def test_type_pydantic_cannot_read_is_a_schema_error(cls: type, where: str) -> None:
+    with pytest.raises(SchemaError) as excinfo:
+        nematocyte.compose(cls)
     message = str(excinfo.value)
-    key = override.split("=", maxsplit=1)[0]
-    assert f"{key}:" in message
-    assert f"Opaque.{key} ({type_name}" in message
-    assert override in message
-    assert "cannot be set" in message
+    assert where in message
+    assert "property" in message
 
 
-def test_type_pydantic_cannot_read_cannot_be_set_in_a_file(tmp_path: Path) -> None:
-    (tmp_path / "primary.yaml").write_text("device: cuda\n")
+def test_init_false_field_of_a_type_pydantic_cannot_read_without_a_default() -> None:
+    # pydantic leaves out a field with init=False and no default.
+    @dataclass
+    class Root:
+        seed: int = 0
+        _device: Device = field(init=False)
+
+        def __post_init__(self) -> None:
+            self._device = Device()
+
+    assert isinstance(nematocyte.compose(Root)._device, Device)
+
+
+@dataclass
+class ArbitraryTypes:
+    __pydantic_config__ = ConfigDict(arbitrary_types_allowed=True)
+
+    device: Device = field(default_factory=Device, doc="Where to run.")
+    seed: int = 0
+
+
+def test_pydantic_config_of_the_class_is_honoured() -> None:
+    config = nematocyte.compose(ArbitraryTypes, overrides=["seed=1"])
+    assert isinstance(config.device, Device)
     with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(Opaque, tmp_path, config_name="primary")
+        nematocyte.compose(ArbitraryTypes, overrides=["device=cpu"])
     message = str(excinfo.value)
     assert "device:" in message
-    assert "primary.yaml" in message
-    assert "Opaque.device (Device). Where to run." in message
-
-
-def test_multirun_job_keeps_a_default_pydantic_cannot_read(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    # A job rebuilds its config from the resolved tree, where the default is
-    # set like any other value.
-    seen: list[Opaque] = []
-
-    @nematocyte.main(Opaque, config_path=tmp_path)
-    def main(config: Opaque) -> None:
-        seen.append(config)
-
-    main(["-m", "seed=1,2"])
-    capsys.readouterr()
-    assert [(c.seed, c.device, c.norm) for c in seen] == [(1, CPU, LN), (2, CPU, LN)]
+    assert "ArbitraryTypes.device (Device). Where to run." in message
+    assert "device=cpu" in message

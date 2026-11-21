@@ -395,7 +395,7 @@ does not survive the round trip: `3.10` becomes `'3.1'`. The setting cannot
 be limited to ints.
 
 To revisit if quoting turns out to be needed often. An int-only conversion
-would have to be written by hand in the walk over dataclass fields.
+would have to be written by hand, before the tree goes to pydantic.
 
 ### Scalars reach the validator as text
 

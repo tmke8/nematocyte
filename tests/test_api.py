@@ -10,10 +10,11 @@ import subprocess
 import sys
 from typing import Annotated
 
+from pydantic import Discriminator, Tag
 import pytest
 
 import nematocyte
-from nematocyte import ConfigError, option
+from nematocyte import ConfigError
 
 from .helpers import Cnn, Config, Fcn, empty_config_dir, write_files
 
@@ -28,7 +29,7 @@ def test_public_names() -> None:
         "output_dir",
         "log_level",
         "configure_logging",
-        "option",
+        "pick",
         "validate_configs",
         "Validator",
     ):
@@ -206,7 +207,10 @@ def test_to_dict_of_an_instance_that_is_no_option() -> None:
 
     @dataclass
     class Root:
-        model: Annotated[Fcn, option("fcn")] | Annotated[Cnn, option("cnn")]
+        model: Annotated[
+            Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
+            Discriminator(nematocyte.pick),
+        ]
 
     with pytest.raises(ConfigError, match="Other"):
         nematocyte.to_dict(Root(model=Other()))  # ty: ignore[invalid-argument-type]

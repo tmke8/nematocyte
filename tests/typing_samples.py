@@ -14,8 +14,9 @@ from typing import Annotated, Any, Literal, NotRequired, TypedDict, assert_type,
 import typing_extensions
 import warnings
 
+from pydantic import Discriminator, Tag
+
 import nematocyte
-from nematocyte import option
 
 
 @dataclass(kw_only=True)
@@ -34,23 +35,28 @@ class Opt:
 
 
 # A group through a reusable alias ...
-type Model = Annotated[Fcn, option("fcn")] | Annotated[Cnn, option("cnn")]
+type Model = Annotated[
+    Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
+    Discriminator(nematocyte.pick),
+]
 
 
 @dataclass(kw_only=True)
 class Config:
     model: Model = field(default_factory=Fcn, doc="The model architecture.")
     # ... and a group that is declared inline.
-    encoder: Annotated[Fcn, option("fcn")] | Annotated[Cnn, option("cnn")] = field(
-        default_factory=Cnn
-    )
+    encoder: Annotated[
+        Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=Cnn)
     opt: Opt = field(default_factory=Opt)
     seed: int = 42
 
 
 # -- annotated unions ----------------------------------------------------------
 
-assert_type(option("fcn"), nematocyte.Option)
+# `nematocyte.pick` is accepted as the discriminator of a group.
+assert_type(Discriminator(nematocyte.pick), Discriminator)
 
 
 def use_groups(config: Config) -> None:
@@ -148,16 +154,14 @@ assert_type(validator, nematocyte.Validator)
 result = validator.validate(Path("primary.yaml"))
 assert_type(result, nematocyte.ValidationResult)
 assert_type(
-    nematocyte.Validator(Config, "configs", config_name="x", construct=False).validate(
-        "dm/a.yaml"
-    ),
+    nematocyte.Validator(Config, "configs", config_name="x").validate("dm/a.yaml"),
     nematocyte.ValidationResult,
 )
 assert_type(result.path, Path)
 assert_type(result.error, nematocyte.ConfigError | None)
 assert_type(result.ok, bool)
 assert_type(
-    nematocyte.validate_configs(Config, "configs", config_name="x", construct=False),
+    nematocyte.validate_configs(Config, "configs", config_name="x"),
     list[nematocyte.ValidationResult],
 )
 
