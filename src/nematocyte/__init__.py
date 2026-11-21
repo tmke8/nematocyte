@@ -16,8 +16,7 @@ from ._run import job_num as job_num
 from ._run import log_level as log_level
 from ._run import output_dir as output_dir
 from ._run import run_config as run_config
-from ._schema import Option as Option
-from ._schema import option as option
+from ._schema import pick as pick
 from ._types import JSONValue as JSONValue
 from ._validation import ValidationResult as ValidationResult
 from ._validation import Validator as Validator
@@ -28,7 +27,6 @@ __all__ = [
     "DroppedValueWarning",
     "EntryPoint",
     "JSONValue",
-    "Option",
     "SchemaError",
     "ValidationResult",
     "Validator",
@@ -38,8 +36,8 @@ __all__ = [
     "job_num",
     "log_level",
     "main",
-    "option",
     "output_dir",
+    "pick",
     "run_config",
     "to_dict",
     "validate_configs",

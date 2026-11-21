@@ -16,10 +16,11 @@ from typing import (
 )
 import typing_extensions as te
 
+from pydantic import Discriminator, Tag
 import pytest
 
 import nematocyte
-from nematocyte import ConfigError, SchemaError, option
+from nematocyte import ConfigError, SchemaError
 from nematocyte._compose import Composer
 from nematocyte._help import format_cfg, format_help
 from nematocyte._overrides import parse_override
@@ -70,8 +71,11 @@ class Adam(TypedDict):
     eps: NotRequired[float]
 
 
-type Optimizer = Sgd | Adam
-type Model = Annotated[Fcn, option("fcn")] | Annotated[Cnn, option("cnn")]
+type Optimizer = Annotated[Sgd | Adam, Discriminator("_option_")]
+type Model = Annotated[
+    Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
+    Discriminator(nematocyte.pick),
+]
 
 
 class Root(TypedDict):
@@ -141,16 +145,28 @@ def test_one_typeddict_with_an_option_key_is_a_group_of_one() -> None:
     assert fields["opt"].kind is Kind.CONFIG
 
 
-def test_option_is_an_error_for_a_typeddict() -> None:
+def test_a_group_of_typeddicts_needs_the_option_key_as_its_discriminator() -> None:
     @dataclass
     class Config:
-        optimizer: Annotated[Sgd, option("sgd")] | Adam
+        optimizer: Sgd | Adam
 
     with pytest.raises(SchemaError) as info:
         class_fields(Config)
     message = str(info.value)
     assert "Config.optimizer" in message
-    assert "option() is not used for a TypedDict (Sgd)" in message
+    assert 'Discriminator("_option_")' in message
+
+
+def test_option_is_an_error_for_a_typeddict() -> None:
+    @dataclass
+    class Config:
+        optimizer: Annotated[Sgd, Tag("sgd")] | Adam
+
+    with pytest.raises(SchemaError) as info:
+        class_fields(Config)
+    message = str(info.value)
+    assert "Config.optimizer" in message
+    assert "a Tag is not used for a TypedDict (Sgd)" in message
 
 
 def test_a_typeddict_in_a_group_needs_an_option_key() -> None:
@@ -205,7 +221,7 @@ def test_option_key_has_to_be_one_literal_name(
 def test_a_group_cannot_mix_dataclasses_and_typeddicts() -> None:
     @dataclass
     class Mixed:
-        thing: Annotated[Fcn, option("fcn")] | Sgd
+        thing: Annotated[Fcn, Tag("fcn")] | Sgd
 
     with pytest.raises(SchemaError) as info:
         class_fields(Mixed)
@@ -699,7 +715,7 @@ class ClosedAdam(te.TypedDict, closed=True):
 @dataclass(kw_only=True)
 class WithClosed:
     opt: ClosedOpt = field(default_factory=lambda: ClosedOpt(lr=0.1))
-    optimizer: ClosedSgd | ClosedAdam = field(
+    optimizer: Annotated[ClosedSgd | ClosedAdam, Discriminator("_option_")] = field(
         default_factory=lambda: ClosedSgd(_option_="sgd")
     )
 

@@ -5,10 +5,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
+from pydantic import Discriminator, Tag
 import pytest
 
 import nematocyte
-from nematocyte import ConfigError, option
+from nematocyte import ConfigError
 from nematocyte._interpolation import resolve
 
 from .helpers import Config, compose_tree, write_files
@@ -32,9 +33,10 @@ class Model:
 
 @dataclass(kw_only=True)
 class Root:
-    dm: Annotated[Small, option("small")] | Annotated[Large, option("large")] = field(
-        default_factory=Small
-    )
+    dm: Annotated[
+        Annotated[Small, Tag("small")] | Annotated[Large, Tag("large")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=Small)
     model: Model = field(default_factory=Model)
     seed: int = 42
     lr: float = 5e-05

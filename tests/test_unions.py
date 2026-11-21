@@ -4,8 +4,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated
 
+from pydantic import Discriminator, Tag
+
 import nematocyte
-from nematocyte import option
 
 from .helpers import write_files
 
@@ -21,7 +22,10 @@ class Cnn:
     stride: int = 2
 
 
-type Model = Annotated[Fcn, option("fcn")] | Annotated[Cnn, option("cnn")]
+type Model = Annotated[
+    Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
+    Discriminator(nematocyte.pick),
+]
 
 
 @dataclass

@@ -3,9 +3,11 @@
 from dataclasses import InitVar, dataclass, field
 from typing import Annotated, ClassVar
 
+from pydantic import Discriminator, Tag
 import pytest
 
-from nematocyte import ConfigError, SchemaError, option
+import nematocyte
+from nematocyte import ConfigError, SchemaError
 from nematocyte._schema import Kind, class_doc, class_fields, validate_schema
 
 from .helpers import BatchNorm, Celeba, Cmnist, Cnn, Config, DataModule, Fcn, LayerNorm
@@ -60,10 +62,48 @@ def test_ordinary_union_stays_a_value() -> None:
 def test_group_with_one_option() -> None:
     @dataclass
     class C:
-        a: Annotated[A, option("only")]
+        a: Annotated[A, Tag("only")]
 
     assert class_fields(C)["a"].kind is Kind.GROUP
     assert class_fields(C)["a"].options == {"only": A}
+
+
+def test_group_with_one_option_and_a_discriminator() -> None:
+    @dataclass
+    class C:
+        a: Annotated[Annotated[A, Tag("only")], Discriminator(nematocyte.pick)]
+
+    assert class_fields(C)["a"].options == {"only": A}
+    assert nematocyte.compose(C, overrides=["a=only"]) == C(a=A())
+
+
+def _other_discriminator(_value: object) -> str:
+    return "a"
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        (),
+        (Discriminator(_other_discriminator),),
+        (Discriminator("x"),),
+        (Discriminator(nematocyte.pick), Discriminator(nematocyte.pick)),
+    ],
+)
+def test_group_needs_nematocyte_pick_as_its_discriminator(
+    metadata: tuple[object, ...],
+) -> None:
+    union = Annotated[A, Tag("a")] | Annotated[B, Tag("b")]
+
+    @dataclass
+    class C:
+        data: Annotated[union, *metadata] if metadata else union  # ty: ignore[invalid-type-form]
+
+    with pytest.raises(SchemaError) as excinfo:
+        class_fields(C)
+    message = str(excinfo.value)
+    assert "C.data" in message
+    assert "Discriminator(nematocyte.pick)" in message
 
 
 def test_unnamed_member_is_an_error() -> None:
@@ -81,7 +121,7 @@ def test_unnamed_member_is_an_error() -> None:
 def test_partly_named_union_is_an_error() -> None:
     @dataclass
     class C:
-        data: Annotated[A, option("a")] | B
+        data: Annotated[A, Tag("a")] | B
 
     with pytest.raises(SchemaError, match="B"):
         class_fields(C)
@@ -90,7 +130,7 @@ def test_partly_named_union_is_an_error() -> None:
 def test_none_in_a_group_is_an_error() -> None:
     @dataclass
     class C:
-        data: Annotated[A, option("a")] | None = None
+        data: Annotated[A, Tag("a")] | None = None
 
     with pytest.raises(SchemaError, match="None"):
         class_fields(C)
@@ -108,7 +148,10 @@ def test_optional_dataclass_field_is_an_error() -> None:
 def test_duplicate_option_name_is_an_error() -> None:
     @dataclass
     class C:
-        data: Annotated[A, option("a")] | Annotated[B, option("a")]
+        data: Annotated[
+            Annotated[A, Tag("a")] | Annotated[B, Tag("a")],
+            Discriminator(nematocyte.pick),
+        ]
 
     with pytest.raises(SchemaError, match="'a'"):
         class_fields(C)
@@ -121,7 +164,10 @@ def test_option_class_cannot_have_a_field_called_option() -> None:
 
     @dataclass
     class C:
-        data: Annotated[Bad, option("bad")] | Annotated[A, option("a")]
+        data: Annotated[
+            Annotated[Bad, Tag("bad")] | Annotated[A, Tag("a")],
+            Discriminator(nematocyte.pick),
+        ]
 
     with pytest.raises(SchemaError, match=r"Bad\._option_"):
         validate_schema(C)
@@ -171,8 +217,15 @@ def test_schema_errors_are_config_errors() -> None:
 
 
 def test_invalid_option_name() -> None:
-    with pytest.raises(SchemaError):
-        option("not a name")
+    @dataclass
+    class C:
+        data: Annotated[
+            Annotated[A, Tag("not a name")] | Annotated[B, Tag("b")],
+            Discriminator(nematocyte.pick),
+        ]
+
+    with pytest.raises(SchemaError, match="C.data"):
+        class_fields(C)
 
 
 def test_initvar_classvar_and_init_false() -> None:

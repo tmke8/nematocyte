@@ -3,9 +3,11 @@
 from dataclasses import dataclass, field
 from functools import cached_property
 import logging
-from typing import Annotated, Any
+from typing import Annotated
 
-from nematocyte import JSONValue, option
+import nematocyte
+from nematocyte import JSONValue
+from pydantic import Discriminator, Tag
 import torch
 
 from src.datasets import CelebADataModule, ColoredMNISTDataModule
@@ -29,14 +31,15 @@ class Config:
     # The options of a group are listed right here in the type of the field, each
     # with the name under which it is selected (`dm=celeba`, `model=cnn`).
     # The default says which option is used if nothing is selected.
-    dm: (
-        Annotated[CelebADataModule, option("celeba")]
-        | Annotated[ColoredMNISTDataModule, option("cmnist")]
-    ) = field(default_factory=ColoredMNISTDataModule, doc="The dataset to train on.")
-    model: (
-        Annotated[FcnFactory, option("fcn")]
-        | Annotated[SimpleCNNFactory, option("cnn")]
-    ) = field(default_factory=FcnFactory, doc="The model architecture.")
+    dm: Annotated[
+        Annotated[CelebADataModule, Tag("celeba")]
+        | Annotated[ColoredMNISTDataModule, Tag("cmnist")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=ColoredMNISTDataModule, doc="The dataset to train on.")
+    model: Annotated[
+        Annotated[FcnFactory, Tag("fcn")] | Annotated[SimpleCNNFactory, Tag("cnn")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=FcnFactory, doc="The model architecture.")
 
     # These are normal subconfigs. Note that in dataclasses, the default must not be
     # mutable, so we use `default_factory`.

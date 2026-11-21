@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
+from pydantic import Discriminator, Field, Tag
 
-from ._schema import option
+from ._schema import pick
 
 __all__ = [
     "BasicLauncher",
@@ -165,10 +165,10 @@ type Direction = Literal["minimize", "maximize"]
 class OptunaSweeper:
     """Searches for the best values with Optuna."""
 
-    sampler: (
-        Annotated[TpeSampler, option("tpe")]
-        | Annotated[RandomSampler, option("random")]
-    ) = field(default_factory=TpeSampler, doc="The algorithm that proposes the values.")
+    sampler: Annotated[
+        Annotated[TpeSampler, Tag("tpe")] | Annotated[RandomSampler, Tag("random")],
+        Discriminator(pick),
+    ] = field(default_factory=TpeSampler, doc="The algorithm that proposes the values.")
     direction: Direction | list[Direction] = field(
         default="minimize",
         doc="Whether the return value is minimized or maximized. A list, for "
@@ -197,14 +197,15 @@ type LogLevel = Literal["debug", "info", "warn"]
 class Settings:
     """nematocyte's own settings."""
 
-    launcher: (
-        Annotated[BasicLauncher, option("basic")]
-        | Annotated[SubmititSlurmLauncher, option("submitit_slurm")]
-    ) = field(default_factory=BasicLauncher, doc="How the jobs of a multirun are run.")
-    sweeper: (
-        Annotated[BasicSweeper, option("basic")]
-        | Annotated[OptunaSweeper, option("optuna")]
-    ) = field(
+    launcher: Annotated[
+        Annotated[BasicLauncher, Tag("basic")]
+        | Annotated[SubmititSlurmLauncher, Tag("submitit_slurm")],
+        Discriminator(pick),
+    ] = field(default_factory=BasicLauncher, doc="How the jobs of a multirun are run.")
+    sweeper: Annotated[
+        Annotated[BasicSweeper, Tag("basic")] | Annotated[OptunaSweeper, Tag("optuna")],
+        Discriminator(pick),
+    ] = field(
         default_factory=BasicSweeper,
         doc="How a multirun turns the swept values into jobs.",
     )

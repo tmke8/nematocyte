@@ -145,14 +145,12 @@ def _check_tree(
     config_name: str | None,
     overrides: list[Override],
     relative: Path,
-    *,
-    construct: bool,
 ) -> None:
     # The selections that the validator makes itself are in no file, so what
     # they drop is not warned about; a primary config is composed as in a run.
     root = composer.compose(config_name, overrides, warn=not overrides)
     resolve(root, datetime.now())
-    build(root, skip=RESERVED_KEY, construct=construct)
+    build(root, skip=RESERVED_KEY)
     # nematocyte's own settings are always built: their classes are its own.
     settings = build(root.children[RESERVED_KEY])
     assert isinstance(settings, Settings)
@@ -163,9 +161,7 @@ def _check_tree(
         )
 
 
-def _validate(
-    composer: Composer, relative: Path, config_name: str | None, *, construct: bool
-) -> None:
+def _validate(composer: Composer, relative: Path, config_name: str | None) -> None:
     if composer.config_dir is None or not (composer.config_dir / relative).is_file():
         raise ConfigError(f"There is no config file {relative.as_posix()}.")
     if relative.suffix not in SUFFIXES:
@@ -176,19 +172,19 @@ def _validate(
     found = _classify(composer, relative)
     if found is None:
         name = relative.with_suffix("").as_posix()
-        _check_tree(composer, name, [], relative, construct=construct)
+        _check_tree(composer, name, [], relative)
         return
     path, name = found
     selections = _selections(composer, config_name, path, name)
     if len(selections) == 1:
-        _check_tree(composer, config_name, selections[0], relative, construct=construct)
+        _check_tree(composer, config_name, selections[0], relative)
         return
     # The file is checked with every option that has its field; it has to fit
     # all of them, since any of them can be selected when it is used.
     failures: list[str] = []
     for overrides in selections:
         try:
-            _check_tree(composer, config_name, overrides, relative, construct=construct)
+            _check_tree(composer, config_name, overrides, relative)
         except ConfigError as exc:
             shown = " ".join(override.text for override in overrides[:-1])
             failures.append(f"With {shown or 'the option that is selected'}:\n{exc}")
@@ -214,8 +210,6 @@ class Validator:
         config_name: A primary config that supplies the rest of the tree
             when a named config is checked. Only needed if some field of the
             root config class has no default.
-        construct: With `False`, the dataclasses are not constructed, so no
-            `__post_init__` runs. Every other check is still made.
 
     Raises:
         SchemaError: If the config class is declared in an unsupported way.
@@ -229,12 +223,10 @@ class Validator:
         config_dir: str | os.PathLike[str],
         *,
         config_name: str | None = None,
-        construct: bool = True,
     ) -> None:
         self._directory = Path(config_dir)
         self._composer = Composer(config_class(config_cls), self._directory, Settings)
         self._config_name = config_name
-        self._construct = construct
 
     def validate(self, path: str | os.PathLike[str]) -> ValidationResult:
         """Check one config file.
@@ -247,12 +239,7 @@ class Validator:
         if relative.is_absolute():
             relative = relative.relative_to(self._directory.absolute())
         try:
-            _validate(
-                self._composer,
-                relative,
-                self._config_name,
-                construct=self._construct,
-            )
+            _validate(self._composer, relative, self._config_name)
         except ConfigError as exc:
             return ValidationResult(relative, exc)
         return ValidationResult(relative, None)
@@ -263,7 +250,6 @@ def validate_configs(
     config_dir: str | os.PathLike[str],
     *,
     config_name: str | None = None,
-    construct: bool = True,
 ) -> list[ValidationResult]:
     """Check every config file in the config directory; one result per file.
 
@@ -273,9 +259,7 @@ def validate_configs(
     directory = Path(config_dir)
     if not directory.is_dir():
         raise ConfigError(f"The config directory {directory} does not exist.")
-    validator = Validator(
-        config_cls, directory, config_name=config_name, construct=construct
-    )
+    validator = Validator(config_cls, directory, config_name=config_name)
     files = sorted(
         path.relative_to(directory)
         for path in directory.rglob("*")

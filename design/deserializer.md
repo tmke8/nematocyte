@@ -6,9 +6,10 @@ How the composed config tree becomes dataclass instances.
 
 ### Conclusion
 
-Use **pydantic**, but only as the validator for individual field values.
-nematocyte itself should own the config tree (plain `dict`/`list` until the very
-end) and the walk over dataclass nodes.
+Use **pydantic**, and hand it the whole tree in one call. nematocyte itself
+owns the config tree (plain `dict`/`list` until the very end) and the choice
+of the option of every group, which it attaches to the tree for pydantic to
+read.
 
 Neither library replaces OmegaConf on its own. OmegaConf is three things: a
 mergeable tree, an interpolation engine, and a type validator. cattrs and
@@ -39,7 +40,7 @@ in the table was observed, not taken from documentation.
 | Unknown keys | `Converter(forbid_extra_keys=True)` | `validate_python(..., extra="forbid")`, per call, pydantic 2.12 or later; applies to nested dataclasses too. `TypeAdapter(config=...)` is refused for dataclasses |
 | Error reporting | All errors collected, with paths. Wording is generic ("invalid value for type, expected int") and needs a custom formatter | All errors collected, with paths, specific wording and the offending input |
 | Value constraints, e.g. `Annotated[float, Field(ge=0, le=1)]` | Ignored | Enforced |
-| Picking the concrete class for a field typed as an abstract base | One hook on the converter. The composer hands over a `dict` subclass that carries the chosen class; single pass, error paths intact, works at any depth | No external hook. The node has to be instantiated first and passed in as an instance (accepted for a base-typed field; an instance of the wrong class is rejected) |
+| Picking the concrete class for a field typed as an abstract base | One hook on the converter. The composer hands over a `dict` subclass that carries the chosen class; single pass, error paths intact, works at any depth | No external hook. Either the node is instantiated first and passed in as an instance (accepted for a base-typed field; an instance of the wrong class is rejected), or the field is typed as a tagged union with a callable `Discriminator`, which can read the choice from a `dict` subclass; single pass, error paths intact, with the tag in them |
 | Changing how a type is handled without editing user code (enum by name, `torch.device`, ...) | Yes: hooks live on the converter and also apply inside containers | No: behaviour is attached to annotations or class config. An unknown class inside a dataclass is a schema error; `arbitrary_types_allowed` can only be passed for non-dataclass adapters and then only does an `isinstance` check |
 | Enums | By value only | By value only |
 | Dumping to a plain dict (for logging) | **Silently drops subclass fields** of a base-typed field unless a hook dispatches on the runtime type | **Silently drops subclass fields** unless `serialize_as_any=True` |
@@ -73,64 +74,67 @@ variant that does work was considered and rejected; see
 pydantic has no converter object that nematocyte could own and customise. Two
 consequences:
 
-1. **Config groups cannot be resolved inside pydantic.** There is no way to
-   say "at path `model`, build a `SimpleCNNFactory`" without annotating the
-   user's classes. (Where that choice comes from is in [unions.md](unions.md).)
+1. **Config groups cannot be resolved by nematocyte inside pydantic.** There
+   is no way to say "at path `model`, build a `SimpleCNNFactory`" without
+   annotating the user's classes. So the user's annotation does it: a group
+   is a tagged union with `nematocyte.pick` as its discriminator
+   ([unions.md](unions.md)), and nematocyte hands each node of a group to
+   pydantic as a `Selected`, a `dict` that carries the option that
+   composition chose. `pick` returns that option, and pydantic builds the
+   member with that `Tag`.
 2. **Per-type behaviour cannot be changed globally**, e.g. accepting enum
    members by name as Hydra does, or converting a string to `torch.device`.
+   A type that pydantic cannot read is an error in the schema; a value made
+   from the config, such as a `torch.device`, belongs in a property of the
+   class (as `Config.device` in the example).
 
-Both are solved by the same structure: nematocyte walks the dataclass nodes
-itself and calls pydantic per field.
+With that, the whole tree goes to pydantic in one call:
 
 ```text
 build(cls, node):
-    for each field of cls:
-        group field        -> build(chosen_class, node[field])
-        dataclass field    -> build(field_type, node[field])
-        registered type    -> user-supplied converter
-        anything else      -> TypeAdapter(field_type).validate_python(node[field])
-    report unknown and missing keys
-    return cls(**kwargs)          # runs __post_init__
+    data = node as plain dicts, each node of a group as Selected(option, fields)
+    instance = TypeAdapter(cls).validate_python(data, extra="forbid")
+        # checks every value and runs every constructor and __post_init__
+    on errors: map each location back to its node and field, skipping the
+               tag of a group, and report it with where the value was set
+    check bools and defaults against instance
 ```
-
-The `registered type` branch is not in the first version. No field in
-`hydra-example` needs a converter, and the walk leaves room to add one.
 
 A field without a default has to be given a value, and a missing one is
 reported with its path. Hydra's marker for a mandatory value, `???`, is not
 implemented: a dataclass field without a default already says the same. In
 a config file, `???` is an ordinary string.
 
-A sketch of this (about 30 lines) built the `hydra-example` config, collected
-every error across the tree with full paths, and surfaced the `__post_init__`
-message. The walk is not wasted effort: the same schema traversal is needed
-anyway for `--help`, for checking that a CLI override names a real key, and
-for interpolation ([interpolation.md](interpolation.md)).
+nematocyte still walks the tree: to hand it over, to map pydantic's errors
+back to the file or override that set a value and to the doc of the field,
+and for the checks pydantic does not make. The same schema traversal is
+needed anyway for `--help`, for checking that a CLI override names a real
+key, and for interpolation ([interpolation.md](interpolation.md)).
 
 Costs of this approach, to be aware of:
 
-- nematocyte handles `InitVar` and `init=False` fields itself.
 - A key missing from the config does not always fall back to the class
   default. Unless an option of a group is named for the field, the value
   comes from the field's default instance (see
-  [unions.md](unions.md#defaults)).
-- Group fields and registered converters are only recognised as direct fields
-  of a dataclass, not nested inside `list[...]` or `dict[...]`. Hydra has the
-  same limitation for groups.
-- Enum-by-name inside a container would need annotation rewriting. Using
-  `Literal` or `StrEnum` avoids the problem.
-- pydantic's lax mode accepts `seed: true` as `1`. The walk rejects it: a
+  [unions.md](unions.md#defaults)). nematocyte fills in every value before
+  the tree goes to pydantic.
+- Group fields are only recognised as direct fields of a dataclass, not
+  nested inside `list[...]` or `dict[...]`. Hydra has the same limitation.
+- Enum by name needs a validator in the annotation, such as pydantic's
+  `BeforeValidator`. Using `Literal` or `StrEnum` avoids the problem.
+- pydantic's lax mode accepts `seed: true` as `1`. nematocyte rejects it: a
   bool that pydantic turned into a number is an error, also inside a list,
   tuple or dict. Where the type allows a bool (`int | bool`, `Any`), it is
-  kept.
+  kept. The check compares the instance with the tree, so it is only made
+  once pydantic accepts everything else.
+- pydantic runs the constructors as it validates, so they cannot be
+  skipped ([validation.md](validation.md#skipping-the-constructors)).
 - A number is rejected for a `str` field, in config files and on the command
   line alike, and has to be quoted. See [cli.md](cli.md) for why this is not
   relaxed.
 
-The alternative is to hand whole dataclass nodes to pydantic and only
-instantiate group nodes ahead of time. That is less code and also worked in
-testing, but gives up control over third-party types and the wording of
-structural errors.
+nematocyte used to call pydantic once per field instead; see
+[Rejected ideas](#validating-each-field-on-its-own).
 
 ### When cattrs would be the better choice
 
@@ -144,10 +148,13 @@ validation behaviour we would own.
 
 ## Decided
 
-### Details of the walk
+### Details of building
 
+- The whole tree is validated in one call to `validate_python` with
+  `extra="forbid"`, on the adapter of the root class. pydantic runs every
+  constructor, and with it every `__post_init__`, as part of it.
 - Default values are validated by pydantic as well. Every value goes through
-  one path: the resolved tree in plain form, then pydantic, then the
+  one path: the resolved tree in plain form, then pydantic, which calls the
   constructor. A value that nothing set is the default, converted to plain
   form (`Path` to `str` and so on) and validated like any other. This is
   what lets a job build its config from the resolved tree alone
@@ -162,7 +169,8 @@ validation behaviour we would own.
   `Color.RED` or `Adam()` would silently become `'/tmp'`, `'red'` or
   `{'lr': 0.1}`. The error names the field, the class, the default and what
   it becomes. A default that pydantic validates to the same result from
-  both forms is fine.
+  both forms is fine. The check compares the instance that pydantic built
+  with the default, so it is made once pydantic accepts everything else.
 
   | Field | Default | Result |
   | --- | --- | --- |
@@ -195,18 +203,22 @@ validation behaviour we would own.
   from its plain form, and the field arrives as `["x"]` without an error.
 - A bool that pydantic turns into a number is an error (see above).
 - An `InitVar` is not kept on an instance, so under a default instance its
-  value falls back to the default in the class.
+  value falls back to the default in the class. For the same reason, the
+  checks for a bool and for a default that loses its type do not apply to
+  it.
 - `init=False` fields are not config keys. They cannot be set, and `to_dict`
   leaves them out, since a config file could not hold them.
-- A type that pydantic cannot handle (such as `torch.device`) is accepted
-  for a default value, by an `isinstance` check. It cannot be set from a
-  config file, since registered converters are not in the first version: a
-  value for it in a config file or an override is an error, which names
-  the field and where the value was set. Where the type is not a class at
-  all, such as a sentinel from `typing_extensions`, pydantic does not check
-  the default either. A multirun job does not repeat the error for its
-  rebuilt tree, which holds the defaults as set values; the main process
-  has checked every job before the first one runs.
+- A field whose type pydantic cannot handle, such as `torch.device` or a
+  sentinel from `typing_extensions`, is an error in the config class, which
+  names the field. It could not be set from a config file anyway. It is
+  found when the classes are checked, before any config file is read. A
+  value made from the config, such as a `torch.device`, belongs in a
+  property of the class.
+- A `ValueError` or an `AssertionError` from a constructor is reported with
+  the path and the class of its node, next to the other errors in the tree.
+  pydantic passes any other exception on: it stops the validation, and is
+  reported with its type and message, but without its path and without the
+  other errors.
 - An invalid value names the class and the type of the field in its error,
   next to the doc: `Field: Opt.lr (float). Learning rate.`
 
@@ -245,7 +257,7 @@ class Opt(TypedDict):
 - A TypedDict can be used wherever a dataclass can: as the root, as a plain
   subconfig, or as an option of a group. Dataclasses and TypedDicts can be
   mixed in one tree, but not within a group. An option of a group names
-  itself in a key `_option_`, not with `nematocyte.option()`; see
+  itself in a key `_option_`, not with a `Tag`; see
   [unions.md](unions.md#typeddicts-as-options).
 - `typing.TypedDict` and `typing_extensions.TypedDict` are both accepted;
   the second is a class of its own, which `typing.is_typeddict` does not
@@ -259,8 +271,10 @@ class Opt(TypedDict):
 - `NotRequired` is only for values. A subconfig or a group cannot be
   `NotRequired`, for the reasons in
   [unions.md](unions.md#no-optional-dataclass-fields-for-now).
-- `Required`, `NotRequired` and `ReadOnly` are stripped before the type is
-  read; pydantic sees the type inside them. `ReadOnly` has no other effect.
+- `Required`, `NotRequired` and `ReadOnly` are stripped before nematocyte
+  reads the type of a key; pydantic reads them itself. `ReadOnly` has no
+  other effect: pydantic warns that it does not enforce it, and nematocyte
+  silences that warning.
 - A TypedDict key has no doc; see [helptext.md](helptext.md).
 - The default of a dataclass field typed as a TypedDict is a dict, such as
   `field(default_factory=lambda: Opt(lr=0.1))`, or, as an experimental
@@ -358,3 +372,26 @@ no input for a list or for `None`, so `list[int]`, `tuple[...]` and
 that YAML already gives: `123` and `"123"` would be the same, a `str` field
 would take a number, `"yes"` would be a `bool`, and a field typed `Any`
 would hold `"0.1"` instead of `0.1`.
+
+### Validating each field on its own
+
+nematocyte walked the dataclass nodes itself, called pydantic with a
+`TypeAdapter` for the type of each field, and called the constructor of
+each node with the results. Groups needed nothing in pydantic, so they were
+written in tyro's spelling, `Annotated[Fcn, option("fcn")] | ...`.
+
+It allowed what whole-class validation cannot:
+
+- skipping the constructors (`construct=False` in
+  [validation.md](validation.md#skipping-the-constructors)),
+- a field whose type pydantic cannot read, with a default that was checked
+  with `isinstance`,
+- the path of a node in the error from any exception its constructor
+  raised, and the other errors next to it,
+- the check for a bool next to the other errors.
+
+**Rejected in favour of** one call for the whole tree. The groups are then
+pydantic's own tagged unions, so `TypeAdapter(Config)` validates and
+describes a whole config without nematocyte, and nematocyte keeps no
+validation machinery of its own beyond mapping the errors back and the two
+checks pydantic does not make.

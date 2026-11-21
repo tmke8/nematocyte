@@ -134,16 +134,16 @@ fields one by one: `opt.lr=0.1`. See [cli.md](design/cli.md).
 
 ### Groups are declared in the type of the field
 
-There is no `ConfigStore`. A group is a field whose type is a union of named
-dataclasses:
+There is no `ConfigStore`. A group is a field whose type is a union of
+dataclasses, each named with pydantic's `Tag`:
 
 ```python
 @dataclass(kw_only=True)
 class Config:
-    model: (
-        Annotated[FcnFactory, nematocyte.option("fcn")]
-        | Annotated[CnnFactory, nematocyte.option("cnn")]
-    ) = field(default_factory=FcnFactory)
+    model: Annotated[
+        Annotated[FcnFactory, Tag("fcn")] | Annotated[CnnFactory, Tag("cnn")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=FcnFactory)
 ```
 
 - Every option is listed where the field is declared. Another module cannot

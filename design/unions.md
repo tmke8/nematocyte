@@ -6,29 +6,39 @@ config classes.
 ## Declaring a group
 
 A group is declared in the type of the field, as a union whose members carry
-their names. This is how tyro does it.
+their names. It is written as pydantic's own tagged union: each member has a
+`Tag` with its name, and the union has `nematocyte.pick` as its
+`Discriminator`.
 
 ```python
 @dataclass
 class Config:
-    data: (
-        Annotated[WikiDataConfig, nematocyte.option("wiki")]
-        | Annotated[HelpSteerDataConfig, nematocyte.option("helpsteer")]
-    )
+    data: Annotated[
+        Annotated[WikiDataConfig, Tag("wiki")]
+        | Annotated[HelpSteerDataConfig, Tag("helpsteer")],
+        Discriminator(nematocyte.pick),
+    ]
 ```
 
-The marker is called `option`, the word Hydra uses for a member of a group
+The members are the options of the group, the word Hydra uses
 (`group=option`, "Available options in 'model'").
+
+pydantic validates the whole config in one call
+([deserializer.md](deserializer.md)), and so has to know which member a node
+of the group is. In this spelling it needs no help from nematocyte beyond
+`pick`, which reads the option that composition selected. The spelling is
+longer than tyro's `Annotated[X, option("x")]`, which nematocyte used before,
+but it is standard pydantic, and `TypeAdapter(Config)` understands it.
 
 This replaces the registry in `hydra-example` (`CONFIG_GROUPS`, passed to
 `register_hydra_config`), where the field is typed as an abstract base and the
 allowed classes are listed somewhere else.
 
-A prototype on Python 3.15 read the names and classes back with
-`typing.get_type_hints(Config, include_extras=True)`. It also covered:
+The names and classes are read back with
+`typing.get_type_hints(Config, include_extras=True)`. This covers:
 
 - **A reusable alias.**
-  `type Model = Annotated[Fcn, option("fcn")] | Annotated[Cnn, option("cnn")]`
+  `type Model = Annotated[Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")], Discriminator(nematocyte.pick)]`
   can be used for several fields. The alias has to be unwrapped through
   `__value__`.
 - **No common base class.** The members only have to be dataclasses. A base
@@ -40,8 +50,9 @@ Things to get right:
 
 - `include_extras=True` is required. Without it `get_type_hints` strips
   `Annotated`, and the names are gone.
-- The union never reaches pydantic. nematocyte handles group fields itself
-  and gives pydantic the fields of the chosen class (see
+- The union reaches pydantic as it is written. nematocyte hands over the node
+  of a group as a `Selected`, a `dict` that also carries the name of the
+  selected option, and `pick` returns that name (see
   [deserializer.md](deserializer.md)).
 
 The names in the annotations are the built-in options. YAML files in the
@@ -50,7 +61,7 @@ group's directory add further options on top, as before (see
 
 ### Every member needs a name
 
-A union of dataclasses with an unnamed member, such as a plain
+A union of dataclasses with a member without a `Tag`, such as a plain
 `WikiDataConfig | HelpSteerDataConfig`, is an error. Names are not derived
 from the class names, unlike in tyro.
 
@@ -90,7 +101,7 @@ For when this is added, the points that need an answer:
 - A single optional dataclass, `ema: EmaCfg | None = None`. There is nothing
   to select by name, and a dict value (`ema={}`) is not allowed. Under the
   rule that every member needs a name it would be
-  `Annotated[EmaCfg, option("on")] | None`, switched on with `ema=on`.
+  `Annotated[EmaCfg, Tag("on")] | None`, switched on with `ema=on`.
 
 ## Defaults
 
@@ -183,10 +194,18 @@ definition.
 - A union that mixes a dataclass with something else, such as `Sub | int`,
   is an error. A union with a dataclass in it is a group, and all of its
   members have to be named dataclasses.
-- A single `Annotated[X, option("x")]` is a group with one option.
+- A union of two or more options needs exactly one `Discriminator`, and it
+  has to be `nematocyte.pick`. Without one, pydantic would guess the member
+  from the fields of the node, and a node of `Fcn` could be built as a
+  `Cnn`. A missing or different discriminator is an error that names the
+  field.
+- A single `Annotated[X, Tag("x")]` is a group with one option. It needs no
+  `Discriminator`, since there is nothing to choose; one is allowed.
+- A member with more than one `Tag` is an error.
 - A class can be in a group only once, and an option name only once.
-- An option name starts with a letter or an underscore, followed by letters,
-  digits, `_` or `-`, so that it can be typed unquoted.
+- An option name, the string in the `Tag`, starts with a letter or an
+  underscore, followed by letters, digits, `_` or `-`, so that it can be
+  typed unquoted.
 - The default of a plain dataclass field has to be an instance of exactly
   the declared class; an instance of a subclass is an error, since the node
   is built as the declared class. The default of a group field has to be an
@@ -212,7 +231,7 @@ class LayerNorm(TypedDict):
 
 @dataclass
 class Model:
-    norm: BatchNorm | LayerNorm = field(
+    norm: Annotated[BatchNorm | LayerNorm, Discriminator("_option_")] = field(
         default_factory=lambda: LayerNorm(_option_="LN")
     )
 ```
@@ -226,11 +245,12 @@ apart by that key, which type checkers use to narrow the union:
   the rules for one. It cannot be `NotRequired`; `ReadOnly` is allowed.
 - In the built dict, `_option_` is the first key, as it is in the output of
   `to_dict` for a dataclass option.
-- `nematocyte.option()` is not used for a TypedDict; it is an error there.
-  The union of TypedDicts is written without `Annotated`.
+- A `Tag` is not used for a TypedDict; it is an error there. A union of two
+  or more TypedDicts has pydantic's own `Discriminator("_option_")`, which
+  reads the key; without it, the union is an error that names the field.
 - A TypedDict in a group without the key is an error. A single TypedDict
   with the key, as the type of a field, is a group with one option, like a
-  single `Annotated[X, option("x")]`; one without the key is a plain
+  single `Annotated[X, Tag("x")]`; one without the key is a plain
   subconfig. The root cannot have the key.
 - `_option_` is not a config key. A config file or an override cannot set
   it; the option is selected as for any group, and a file in the group's
@@ -262,9 +282,10 @@ Two things follow:
 - The same group can appear at several paths with different choices
   (`encoder: Model`, `decoder: Model`); the choice is keyed by path, not by
   type. Tested with both cattrs and pydantic.
-- The `_option_` key of a TypedDict option is not a tag in this sense: it
-  is written by nematocyte into the built dict, after composition chose the
-  option, and is never read from a config.
+- The `_option_` key of a TypedDict option, and the `Tag` of a dataclass
+  option, are not tags in this sense. nematocyte attaches the option to the
+  data it hands to pydantic, after composition chose it, and pydantic's
+  discriminator reads it there. It is never read from a config file.
 - Because the data carries no tag, a dumped config is not self-describing.
   Whatever is written out for reproducibility has to record the choices next
   to the values, e.g. in `_defaults_`, so that it can be loaded again.
@@ -272,8 +293,7 @@ Two things follow:
   ([api.md](api.md)).
 
 How the chosen class is then handed to the validator is covered in
-[deserializer.md](deserializer.md): pydantic cannot take it directly, so
-nematocyte walks the dataclass nodes itself.
+[deserializer.md](deserializer.md).
 
 ## No `_target_`
 

@@ -4,10 +4,12 @@ from dataclasses import KW_ONLY, dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+from pydantic import Discriminator, Tag
 import pytest
 from ruamel.yaml import YAML
 
-from nematocyte import ConfigError, option
+import nematocyte
+from nematocyte import ConfigError
 from nematocyte._compose import Composer
 from nematocyte._help import format_cfg, format_help
 from nematocyte._overrides import parse_override
@@ -67,9 +69,10 @@ class Cnn:
 class Small:
     """Train a model on a dataset."""
 
-    model: Annotated[Fcn, option("fcn")] | Annotated[Cnn, option("cnn")] = field(
-        default_factory=Fcn, doc="The model architecture."
-    )
+    model: Annotated[
+        Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=Fcn, doc="The model architecture.")
     opt: Opt = field(default_factory=Opt)
     seed: int = field(default=42, doc="Random seed.")
     gpu: int = field(

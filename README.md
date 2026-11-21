@@ -9,8 +9,9 @@ command-line overrides.
 from dataclasses import dataclass, field
 from typing import Annotated
 
+from pydantic import Discriminator, Tag
+
 import nematocyte
-from nematocyte import option
 
 
 @dataclass(kw_only=True)
@@ -31,9 +32,10 @@ class Cnn:
 class Config:
     """Train a model."""
 
-    model: Annotated[Fcn, option("fcn")] | Annotated[Cnn, option("cnn")] = field(
-        default_factory=Fcn, doc="The model architecture."
-    )
+    model: Annotated[
+        Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=Fcn, doc="The model architecture.")
     seed: int = field(default=42, doc="Random seed.")
 
 

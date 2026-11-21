@@ -176,11 +176,6 @@ fields; those then take the default in the class.
   `to_dict`, nothing has to be flat.
 - The job of a multirun is rebuilt from its resolved tree in the same way,
   with the same checks; that tree always has every key.
-- A field whose type pydantic cannot read, such as `torch.device`
-  ([deserializer.md](deserializer.md#details-of-the-walk)), cannot be read
-  back: a value for it is an error, as in a config file. `config.json`
-  holds such a value as its text, so its key has to be removed first, which
-  gives the default in the class.
 
 ### The output directory
 
@@ -218,8 +213,8 @@ level of `logging`. Both are only for use inside a run; see
 
 ### Declaring a group
 
-`nematocyte.option("name")` names a member of an annotated union; see
-[unions.md](unions.md).
+`nematocyte.pick` is the `Discriminator` of a group of dataclasses, whose
+members are named with pydantic's `Tag`; see [unions.md](unions.md).
 
 ### Validating config files
 
@@ -238,8 +233,7 @@ See [validation.md](validation.md).
   `nematocyte.DroppedValueWarning` for a value that a selection drops
   ([composition.md](composition.md)),
   `nematocyte.ValidationResult` with `path`, `error` and `ok`,
-  `nematocyte.EntryPoint` for the type of the decorated function, and
-  `nematocyte.Option` for what `option()` returns.
+  and `nematocyte.EntryPoint` for the type of the decorated function.
 - `to_dict`: a value of an unknown type is left as it is; a set is sorted if
   it can be; a dataclass inside a list or dict becomes a dict without
   `_option_`; an instance of a subclass of an option gets the name of that

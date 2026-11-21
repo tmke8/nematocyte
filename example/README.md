@@ -566,15 +566,15 @@ class SimpleCNNFactory:
 ```
 
 ### Declaring a config group
-Which model factories can be chosen is declared in the `Config` class, in the type of the `model` field. Each option is given the name under which it is selected:
+Which model factories can be chosen is declared in the `Config` class, in the type of the `model` field. Each option is given the name under which it is selected, with pydantic's `Tag`, and `nematocyte.pick` tells pydantic which option was selected:
 
 ```python
 @dataclass(kw_only=True)
 class Config:
-    model: (
-        Annotated[FcnFactory, option("fcn")]
-        | Annotated[SimpleCNNFactory, option("cnn")]
-    ) = field(default_factory=FcnFactory)
+    model: Annotated[
+        Annotated[FcnFactory, Tag("fcn")] | Annotated[SimpleCNNFactory, Tag("cnn")],
+        Discriminator(nematocyte.pick),
+    ] = field(default_factory=FcnFactory)
 ```
 
 The default says which option is used if nothing is selected.
