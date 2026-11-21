@@ -6,7 +6,7 @@ from dataclasses import MISSING
 import math
 from typing import Any
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 from pydantic_core import ErrorDetails
 
 from ._errors import ConfigError
@@ -176,94 +176,49 @@ def _translate(node: Node, exc: ValidationError) -> tuple[list[str], set[_FieldK
     return texts, set(by_field)
 
 
-def _check_values(
+def _check_defaults(
     node: Node, errors: list[str], skip: str | None, failed: set[_FieldKey]
 ) -> None:
-    """The checks that pydantic does not make, for every value it accepted."""
+    """The check that pydantic does not make, for every default it accepted."""
     for info in node.fields.values():
         if info.name == skip:
             continue
         if info.kind is not Kind.VALUE:
             child = node.children.get(info.name)
             if child is not None:
-                _check_values(child, errors, None, failed)
+                _check_defaults(child, errors, None, failed)
             continue
-        if (id(node), info.name) in failed:
+        if info.name in node.values or (id(node), info.name) in failed:
             continue
-        problem = _value_problem(node, info)
+        problem = _default_problem(node, info)
         if problem is not None:
             path = format_path((*node.path, info.name))
             errors.append(f"{path}: {problem}{_field_line(node, info)}")
 
 
-def _value_problem(node: Node, info: FieldInfo) -> str | None:
-    """A bool that pydantic turned into a number, or a default that loses its type.
+def _default_problem(node: Node, info: FieldInfo) -> str | None:
+    """The error if a default that nothing set loses its type in plain form.
 
-    Both compare with what pydantic makes of the value of this field on its
-    own, before a constructor can change it. The field is only validated on
-    its own when the value holds a bool, or is a default that `to_plain`
-    changes in more than the kinds of its containers: only then can the two
-    forms of the default give different results.
+    What pydantic makes of the plain form of the default is compared with
+    what it makes of the default itself, for this field on its own, before
+    a constructor can change it. A conversion that pydantic does anyway,
+    such as `1` to `1.0` for a float, does not count. Only a default that
+    `to_plain` changes in more than the kinds of its containers is checked:
+    only then can the two forms give different results.
     """
-    if info.name in node.values:
-        value, default = node.values[info.name], MISSING
-    else:
-        # The plain form is made from the same object that it is compared
-        # with: a `default_factory` makes a new one each time.
-        default = node.default_value(info)
-        if default is MISSING:
-            return None
-        value = to_plain(default)
-    unset_default = default is not MISSING and not is_plain(default)
-    if not unset_default and not _has_bool(value):
+    default = node.default_value(info)
+    if default is MISSING or is_plain(default):
         return None
     adapter = field_adapter(info)
     if adapter is None:
         # A type that only the class's own pydantic config lets through.
         return None
     try:
-        result = adapter.validate_python(value, extra="forbid")
+        # The plain form is made from the same object that it is compared
+        # with: a `default_factory` makes a new one each time.
+        result = adapter.validate_python(to_plain(default), extra="forbid")
     except ValidationError:
         return None
-    origin = _origin(node, info)
-    problem = _bool_problem(value, result, origin)
-    if problem is None and unset_default:
-        problem = _default_problem(default, adapter, result, origin)
-    return problem
-
-
-def _has_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return True
-    if isinstance(value, (list, tuple)):
-        return any(_has_bool(item) for item in value)
-    if isinstance(value, dict):
-        return any(_has_bool(item) for item in value.values())
-    return False
-
-
-def _bool_problem(value: Any, result: Any, origin: str) -> str | None:
-    """The error if pydantic turned a bool into a number."""
-    inner = _bool_to_number(value, result)
-    if inner is None:
-        return None
-    location = f" (at {inner})" if inner else ""
-    return (
-        f"a bool is not a number{location}; write 1 or 0 instead."
-        f"\n    Value: {value!r} ({origin})"
-    )
-
-
-def _default_problem(
-    default: Any, adapter: TypeAdapter[Any], result: Any, origin: str
-) -> str | None:
-    """The error if a default that nothing set loses its type in plain form.
-
-    `result` is what pydantic made of the plain form of the default. It is
-    compared with what pydantic makes of the default itself, so that a
-    conversion that pydantic does anyway, such as `1` to `1.0` for a float,
-    does not count.
-    """
     try:
         direct = adapter.validate_python(default, extra="forbid")
     except ValidationError:
@@ -278,7 +233,7 @@ def _default_problem(
         f"the default loses its type{location}: as a config file would hold "
         f"it, {before!r} becomes {after!r}. Give the field a type that builds "
         f"{type(before).__name__} from that, or a default that a config file "
-        f"can hold.\n    Value: {default!r} ({origin})"
+        f"can hold.\n    Value: {default!r} ({_origin(node, info)})"
     )
 
 
@@ -290,7 +245,7 @@ def _difference(expected: Any, actual: Any) -> tuple[str, Any, Any] | None:
 
     A list, tuple, set and frozenset count as the same, as do a dict and a
     frozendict: a config file cannot tell them apart. The location is `""`
-    for the value itself, as for `_bool_to_number`.
+    for the value itself.
     """
     if expected is actual:
         return None
@@ -374,35 +329,6 @@ def _equal(expected: Any, actual: Any) -> bool:
     return bool(expected == actual)
 
 
-def _bool_to_number(value: Any, result: Any) -> str | None:
-    """Where pydantic turned a bool into a number; `None` if it did not.
-
-    pydantic's lax mode accepts `true` for an `int` or a `float`, as `1`.
-    The bools are found by comparing the value with the result, also inside
-    lists, tuples and dicts. The location is `""` for the value itself.
-    """
-    if isinstance(value, bool):
-        return None if isinstance(result, bool) else ""
-    pairs: list[tuple[str, Any, Any]] = []
-    sequences = isinstance(value, (list, tuple)) and isinstance(result, (list, tuple))
-    mappings = isinstance(value, dict) and isinstance(result, dict)
-    if sequences and len(value) == len(result):
-        pairs = [
-            (str(index), item, out)
-            for index, (item, out) in enumerate(zip(value, result, strict=True))
-        ]
-    elif mappings and len(value) == len(result):
-        pairs = [
-            (str(key), item, out)
-            for (key, item), out in zip(value.items(), result.values(), strict=True)
-        ]
-    for location, item, out in pairs:
-        inner = _bool_to_number(item, out)
-        if inner is not None:
-            return f"{location}.{inner}" if inner else location
-    return None
-
-
 def build(node: Node, *, skip: str | None = None) -> object:
     """Build the instance for `node`, and for everything under it.
 
@@ -425,7 +351,7 @@ def build(node: Node, *, skip: str | None = None) -> object:
         # A constructor raised something other than a `ValueError` or an
         # `AssertionError`; pydantic passes it on, without its location.
         errors = [f"{type(exc).__name__}: {exc}"]
-    _check_values(node, errors, skip, failed)
+    _check_defaults(node, errors, skip, failed)
     if errors:
         raise ConfigError("Error in the configuration:\n" + "\n".join(errors))
     return instance

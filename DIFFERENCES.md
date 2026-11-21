@@ -59,6 +59,20 @@ command line alike. OmegaConf converts it.
 The shell removes the quotes, so on the command line they have to be
 protected: `"wandb.name='123'"`. See [cli.md](design/cli.md).
 
+### A bool is a number
+
+`true` and `false` are accepted for an `int` or a `float` field, as `1` and
+`0`, also inside a list, tuple or dict. OmegaConf rejects them.
+
+| Written, for `seed: int` | Hydra (OmegaConf 2.4) | nematocyte |
+| --- | --- | --- |
+| `seed=true` | Error | `1` |
+| `seeds=[1,true]`, for `list[int]` | Error | `[1, 1]` |
+
+In Python, a `bool` is an `int`, and pydantic converts it. Where the type
+of the field allows a bool, such as `int | bool` or `Any`, it stays a bool.
+See [deserializer.md](design/deserializer.md#rejecting-a-bool-for-a-number).
+
 ### Config files are read as YAML 1.2
 
 Hydra reads config files with PyYAML, which implements YAML 1.1. A file

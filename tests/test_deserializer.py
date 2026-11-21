@@ -364,23 +364,22 @@ def test_kw_only_marker(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("override", "where"),
+    ("override", "name", "expected"),
     [
-        ("i=true", ""),
-        ("f=false", ""),
-        ("opt_i=true", ""),
-        ("ints=[1,true]", " (at 1)"),
-        ("pair=[true,a]", " (at 0)"),
-        ("int_map={1:true}", " (at 1)"),
+        ("i=true", "i", 1),
+        ("f=false", "f", 0.0),
+        ("opt_i=true", "opt_i", 1),
+        ("ints=[1,true]", "ints", [1, 1]),
+        ("pair=[true,a]", "pair", (1, "a")),
+        ("int_map={1:true}", "int_map", {1: 1}),
     ],
 )
-def test_bool_is_rejected_for_a_number(override: str, where: str) -> None:
-    # pydantic's lax mode would accept `true` as `1`; nematocyte rejects it.
-    with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(Types, overrides=[override])
-    message = str(excinfo.value)
-    assert f"a bool is not a number{where}" in message
-    assert f"Types.{override.split('=', maxsplit=1)[0]} (" in message
+def test_bool_is_accepted_as_a_number(
+    override: str, name: str, expected: object
+) -> None:
+    # As in Python, where a bool is an int; pydantic's lax mode converts it.
+    config = nematocyte.compose(Types, overrides=[override])
+    assert getattr(config, name) == expected
 
 
 def test_bool_is_kept_where_the_type_allows_it() -> None:
@@ -399,49 +398,25 @@ def test_bool_is_kept_where_the_type_allows_it() -> None:
     assert config.mixed[1] is True
 
 
-def test_bool_is_reported_next_to_the_other_errors() -> None:
-    with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(Types, overrides=["i=true", "f=abc"])
-    message = str(excinfo.value)
-    assert "Types.f" in message
-    assert "a bool is not a number" in message
-
-
-def test_bool_is_rejected_for_an_initvar() -> None:
-    @dataclass
-    class Root:
-        scale: InitVar[int] = 2
-
-        def __post_init__(self, scale: int) -> None:
-            pass
-
-    with pytest.raises(ConfigError, match="a bool is not a number"):
-        nematocyte.compose(Root, overrides=["scale=true"])
-
-
 def test_value_changed_by_post_init_is_not_an_error() -> None:
-    # The checks compare with the value before the constructor ran.
+    # The default check compares with the value before the constructor ran.
     @dataclass
     class Root:
         root: Path = Path("data")
-        flag: bool = False
 
         def __post_init__(self) -> None:
             self.root = self.root.resolve()
-            self.flag = int(self.flag)  # ty: ignore[invalid-assignment]
 
-    config = nematocyte.compose(Root, overrides=["flag=true"])
+    config = nematocyte.compose(Root)
     assert config.root == Path("data").resolve()
-    assert config.flag == 1
 
 
-def test_bool_default_for_a_number_is_rejected() -> None:
+def test_bool_default_for_a_number_is_accepted() -> None:
     @dataclass
     class Root:
         seed: int = True
 
-    with pytest.raises(ConfigError, match="the default of Root.seed"):
-        nematocyte.compose(Root)
+    assert nematocyte.compose(Root).seed == 1
 
 
 def test_unknown_key_in_a_nested_dataclass_value() -> None:
