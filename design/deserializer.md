@@ -97,7 +97,7 @@ build(cls, node):
         # checks every value and runs every constructor and __post_init__
     on errors: map each location back to its node and field, skipping the
                tag of a group, and report it with where the value was set
-    check bools and defaults against instance
+    check the defaults that nothing set, each against its field alone
 ```
 
 A field without a default has to be given a value, and a missing one is
@@ -122,11 +122,10 @@ Costs of this approach, to be aware of:
   nested inside `list[...]` or `dict[...]`. Hydra has the same limitation.
 - Enum by name needs a validator in the annotation, such as pydantic's
   `BeforeValidator`. Using `Literal` or `StrEnum` avoids the problem.
-- pydantic's lax mode accepts `seed: true` as `1`. nematocyte rejects it: a
-  bool that pydantic turned into a number is an error, also inside a list,
-  tuple or dict. Where the type allows a bool (`int | bool`, `Any`), it is
-  kept. To find it, nematocyte validates a value that holds a bool once
-  more, against the type of its field alone.
+- pydantic's lax mode accepts `seed: true` as `1`, and nematocyte keeps
+  that: a bool is a number, as it is in Python. Where the type allows a
+  bool (`int | bool`, `Any`), it stays a bool. See
+  [Rejecting a bool for a number](#rejecting-a-bool-for-a-number).
 - pydantic runs the constructors as it validates, so they cannot be
   skipped ([validation.md](validation.md#skipping-the-constructors)).
 - A number is rejected for a `str` field, in config files and on the command
@@ -158,20 +157,26 @@ validation behaviour we would own.
   constructor. A value that nothing set is the default, converted to plain
   form (`Path` to `str` and so on) and validated like any other. This is
   what lets a job build its config from the resolved tree alone
-  ([multirun.md](multirun.md)), and it makes a single run behave exactly
-  like a job. A sloppy default such as `size: int = None` is therefore an
-  error, which pydantic itself would let through; OmegaConf rejects it too.
+  ([multirun.md](multirun.md)), and `from_run_config` rebuild the config
+  object of a run from its saved `config.json`
+  ([api.md](api.md#reading-the-config-of-a-run-back)). It also makes a
+  single run behave exactly like a job. A sloppy default such as
+  `size: int = None` is therefore an error, which pydantic itself would let
+  through; OmegaConf rejects it too.
 - A default that loses its type in plain form is an error. Where the type
   of the field does not say what to build from the plain form, pydantic
   keeps it as it is: under `Any` or `object`, also inside `list[Any]` or
   `dict[str, Any]`, and in a union with a member that takes the plain form,
   such as `Path | str` or `Color | str`. A default `Path("/tmp")`,
   `Color.RED` or `Adam()` would silently become `'/tmp'`, `'red'` or
-  `{'lr': 0.1}`. The error names the field, the class, the default and what
-  it becomes. A default that pydantic validates to the same result from
-  both forms is fine. Both forms are validated against the type of the
-  field alone, so a constructor that changes the field later, such as a
-  `__post_init__` that resolves a path, does not count.
+  `{'lr': 0.1}`. Building every value from its plain form is what makes a
+  single run, a job of a multirun and `from_run_config` agree; this error
+  keeps that from changing a default without a word. The error names the
+  field, the class, the default and what it becomes. A default that
+  pydantic validates to the same result from both forms is fine. Both
+  forms are validated against the type of the field alone, so a
+  constructor that changes the field later, such as a `__post_init__` that
+  resolves a path, does not count.
 
   | Field | Default | Result |
   | --- | --- | --- |
@@ -193,16 +198,18 @@ validation behaviour we would own.
   depends on how pydantic matches their members, which the annotation does
   not show.
 
-  A default made only of plain values (`str`, `int`, `float`, `bool`,
-  `None`) in lists, tuples, sets, frozensets, dicts and frozendicts, and
-  not of their subclasses, is not checked. Its plain form differs only in
-  the kinds of the containers and the order of a set, so validating it a
-  second time and comparing the results would be wasted on almost every
-  default. The price is a contrived union, where the kind of container
-  changes which member pydantic picks: `tuple[Path, ...] | list[str]` with
-  the default `("x",)` builds `(Path("x"),)` from the default but `["x"]`
-  from its plain form, and the field arrives as `["x"]` without an error.
-- A bool that pydantic turns into a number is an error (see above).
+  A default that the conversion to plain form changes only in the kinds of
+  its containers and the order of a set is not checked. Only an enum
+  member, a path, a dataclass instance and a subclass of a container, such
+  as a `NamedTuple`, are converted; any other value, such as a `str`, an
+  `int`, `None` or a `date`, goes into both forms unchanged, inside lists,
+  tuples, sets, frozensets, dicts and frozendicts. Validating the field
+  twice on its own, once for each form, and comparing the results would be
+  wasted on almost every default. The price is a contrived union, where
+  the kind of container changes which member pydantic picks:
+  `tuple[Path, ...] | list[str]` with the default `("x",)` builds
+  `(Path("x"),)` from the default but `["x"]` from its plain form, and the
+  field arrives as `["x"]` without an error.
 - An `InitVar` is not kept on an instance, so under a default instance its
   value falls back to the default in the class.
 - `init=False` fields are not config keys. They cannot be set, and `to_dict`
@@ -217,12 +224,12 @@ validation behaviour we would own.
   reads its type too, although it is not a config key. Without a default,
   pydantic leaves the field out, and `__post_init__` can set it.
 - The pydantic config of a class (`__pydantic_config__`, or
-  `pydantic.with_config`) applies to its fields, also in the checks for a
-  bool and for a default that loses its type. With
+  `pydantic.with_config`) applies to its fields, also in the check for a
+  default that loses its type. With
   `arbitrary_types_allowed=True`, a field of any type is accepted, and
   pydantic checks its value with `isinstance`; a config file still cannot
-  set it. The two checks skip a field whose type pydantic can only read
-  with that setting.
+  set it. The check skips a field whose type pydantic can only read with
+  that setting.
 - pydantic does not call a hand-written `__init__` of a config dataclass:
   it creates the instance, sets the fields and calls `__post_init__`. Work
   that has to run when the config is built belongs in `__post_init__`.
@@ -406,6 +413,20 @@ It allowed what whole-class validation cannot:
 **Rejected in favour of** one call for the whole tree. The groups are then
 pydantic's own tagged unions, so `TypeAdapter(Config)` validates and
 describes a whole config without nematocyte, and nematocyte keeps no
-validation machinery of its own beyond mapping the errors back and the two
-checks pydantic does not make. Those two still validate a field on its own,
-but only where a value holds a bool or a default is not plain.
+validation machinery of its own beyond mapping the errors back and the
+check for a default that loses its type, which pydantic does not make. That
+check still validates a field on its own, but only for a default that is
+not plain.
+
+### Rejecting a bool for a number
+
+nematocyte rejected `seed: true` for an `int` or `float` field, also inside
+a list, tuple or dict, as OmegaConf does. Since pydantic's lax mode accepts
+it, every value that held a bool was validated a second time against the
+type of its field alone, and the result was searched for a bool that had
+become a number.
+
+**Rejected because** a `bool` is an `int` in Python, and a check that works
+against the language is not worth what it costs. With one pydantic call for
+the whole tree, the second validation was spent on every `bool` field that
+a config set, on the chance that the field was a number.

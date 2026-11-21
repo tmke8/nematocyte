@@ -59,6 +59,37 @@ command line alike. OmegaConf converts it.
 The shell removes the quotes, so on the command line they have to be
 protected: `"wandb.name='123'"`. See [cli.md](design/cli.md).
 
+### A bool is a number
+
+`true` and `false` are accepted for an `int` or a `float` field, as `1` and
+`0`, also inside a list, tuple or dict. OmegaConf rejects them.
+
+| Written, for `seed: int` | Hydra (OmegaConf 2.4) | nematocyte |
+| --- | --- | --- |
+| `seed=true` | Error | `1` |
+| `seeds=[1,true]`, for `list[int]` | Error | `[1, 1]` |
+
+In Python, a `bool` is an `int`, and pydantic converts it. Where the type
+of the field allows a bool, such as `int | bool` or `Any`, it stays a bool.
+See [deserializer.md](design/deserializer.md#rejecting-a-bool-for-a-number).
+
+To reject a bool for a field, give it pydantic's strict type:
+
+```python
+from pydantic import StrictFloat, StrictInt
+
+
+@dataclass
+class Config:
+    seed: StrictInt = 0
+    lr: StrictFloat = 1e-3
+    seeds: list[StrictInt] = field(default_factory=list)
+```
+
+A type checker sees `int` and `float`. `StrictFloat` still accepts an int,
+so `lr=1` works, but `StrictInt` also rejects `1.0` and `'3'`, which lax
+mode converts.
+
 ### Config files are read as YAML 1.2
 
 Hydra reads config files with PyYAML, which implements YAML 1.1. A file

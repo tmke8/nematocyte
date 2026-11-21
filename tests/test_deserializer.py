@@ -1,5 +1,6 @@
 """Building dataclass instances from the tree (`design/deserializer.md`)."""
 
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import (
     KW_ONLY,
@@ -9,17 +10,28 @@ from dataclasses import (
     field,
     make_dataclass,
 )
+import datetime
+from decimal import Decimal
 import enum
 import math
 from pathlib import Path
 from typing import Annotated, Any, Literal, NamedTuple
 from typing_extensions import sentinel
 
-from pydantic import AfterValidator, ConfigDict, Discriminator, Field, Tag
+from pydantic import (
+    AfterValidator,
+    ConfigDict,
+    Discriminator,
+    Field,
+    StrictFloat,
+    StrictInt,
+    Tag,
+)
 import pytest
 
 import nematocyte
 from nematocyte import ConfigError, SchemaError
+from nematocyte._plain import is_plain
 
 from .helpers import Celeba, Cmnist, Config, Fcn
 
@@ -360,23 +372,48 @@ def test_kw_only_marker(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("override", "where"),
+    ("override", "name", "expected"),
     [
-        ("i=true", ""),
-        ("f=false", ""),
-        ("opt_i=true", ""),
-        ("ints=[1,true]", " (at 1)"),
-        ("pair=[true,a]", " (at 0)"),
-        ("int_map={1:true}", " (at 1)"),
+        ("i=true", "i", 1),
+        ("f=false", "f", 0.0),
+        ("opt_i=true", "opt_i", 1),
+        ("ints=[1,true]", "ints", [1, 1]),
+        ("pair=[true,a]", "pair", (1, "a")),
+        ("int_map={1:true}", "int_map", {1: 1}),
     ],
 )
-def test_bool_is_rejected_for_a_number(override: str, where: str) -> None:
-    # pydantic's lax mode would accept `true` as `1`; nematocyte rejects it.
-    with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(Types, overrides=[override])
-    message = str(excinfo.value)
-    assert f"a bool is not a number{where}" in message
-    assert f"Types.{override.split('=', maxsplit=1)[0]} (" in message
+def test_bool_is_accepted_as_a_number(
+    override: str, name: str, expected: object
+) -> None:
+    # As in Python, where a bool is an int; pydantic's lax mode converts it.
+    config = nematocyte.compose(Types, overrides=[override])
+    assert getattr(config, name) == expected
+
+
+@pytest.mark.parametrize(
+    ("override", "accepted"),
+    [
+        ("seed=true", False),
+        ("seed=1.0", False),
+        ("seed=3", True),
+        ("lr=false", False),
+        ("lr=1", True),
+        ("seeds=[1,true]", False),
+    ],
+)
+def test_strict_types_reject_a_bool(override: str, *, accepted: bool) -> None:
+    # The workaround in DIFFERENCES.md.
+    @dataclass
+    class Root:
+        seed: StrictInt = 0
+        lr: StrictFloat = 1e-3
+        seeds: list[StrictInt] = field(default_factory=list)
+
+    if accepted:
+        nematocyte.compose(Root, overrides=[override])
+    else:
+        with pytest.raises(ConfigError, match=override.split("=", maxsplit=1)[0]):
+            nematocyte.compose(Root, overrides=[override])
 
 
 def test_bool_is_kept_where_the_type_allows_it() -> None:
@@ -395,49 +432,25 @@ def test_bool_is_kept_where_the_type_allows_it() -> None:
     assert config.mixed[1] is True
 
 
-def test_bool_is_reported_next_to_the_other_errors() -> None:
-    with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(Types, overrides=["i=true", "f=abc"])
-    message = str(excinfo.value)
-    assert "Types.f" in message
-    assert "a bool is not a number" in message
-
-
-def test_bool_is_rejected_for_an_initvar() -> None:
-    @dataclass
-    class Root:
-        scale: InitVar[int] = 2
-
-        def __post_init__(self, scale: int) -> None:
-            pass
-
-    with pytest.raises(ConfigError, match="a bool is not a number"):
-        nematocyte.compose(Root, overrides=["scale=true"])
-
-
 def test_value_changed_by_post_init_is_not_an_error() -> None:
-    # The checks compare with the value before the constructor ran.
+    # The default check compares with the value before the constructor ran.
     @dataclass
     class Root:
         root: Path = Path("data")
-        flag: bool = False
 
         def __post_init__(self) -> None:
             self.root = self.root.resolve()
-            self.flag = int(self.flag)  # ty: ignore[invalid-assignment]
 
-    config = nematocyte.compose(Root, overrides=["flag=true"])
+    config = nematocyte.compose(Root)
     assert config.root == Path("data").resolve()
-    assert config.flag == 1
 
 
-def test_bool_default_for_a_number_is_rejected() -> None:
+def test_bool_default_for_a_number_is_accepted() -> None:
     @dataclass
     class Root:
         seed: int = True
 
-    with pytest.raises(ConfigError, match="the default of Root.seed"):
-        nematocyte.compose(Root)
+    assert nematocyte.compose(Root).seed == 1
 
 
 def test_unknown_key_in_a_nested_dataclass_value() -> None:
@@ -571,6 +584,65 @@ def test_plain_default_is_validated_once() -> None:
     )
     assert nematocyte.compose(root).value == {"a": [1, [2.5, 3]], "b": None}
     assert len(calls) == 1
+
+
+def test_default_that_plain_form_keeps_is_validated_once() -> None:
+    # The conversion to plain form leaves a date and a Decimal as they are,
+    # so both forms of the default would be the same.
+    calls: list[object] = []
+
+    def count(value: object) -> object:
+        calls.append(value)
+        return value
+
+    default = {"when": (datetime.date(2026, 1, 1), Decimal("0.5"))}
+    root = make_dataclass(
+        "Root",
+        [
+            (
+                "value",
+                Annotated[Any, AfterValidator(count)],
+                field(default_factory=lambda: default),
+            )
+        ],
+    )
+    assert nematocyte.compose(root).value == {
+        "when": [datetime.date(2026, 1, 1), Decimal("0.5")]
+    }
+    assert len(calls) == 1
+
+
+class Pair(NamedTuple):
+    first: int
+    second: int
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"a": (1, {2.5, None}), "b": "x"},
+        [datetime.date(2026, 1, 1), Decimal("0.5")],
+    ],
+)
+def test_value_that_plain_form_keeps_is_plain(value: object) -> None:
+    # `to_plain` changes only the kinds of its containers.
+    assert is_plain(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        Color.RED,
+        [Path("x")],
+        {"opt": Adam()},
+        OrderedDict(a=1),
+        Pair(1, 2),
+        [frozenset({Color.RED})],
+    ],
+)
+def test_value_that_plain_form_converts_is_not_plain(value: object) -> None:
+    # Mirrors the branches of `to_plain` that convert a value.
+    assert not is_plain(value)
 
 
 def test_plain_default_is_not_checked_even_where_the_union_differs() -> None:
