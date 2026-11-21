@@ -158,20 +158,26 @@ validation behaviour we would own.
   constructor. A value that nothing set is the default, converted to plain
   form (`Path` to `str` and so on) and validated like any other. This is
   what lets a job build its config from the resolved tree alone
-  ([multirun.md](multirun.md)), and it makes a single run behave exactly
-  like a job. A sloppy default such as `size: int = None` is therefore an
-  error, which pydantic itself would let through; OmegaConf rejects it too.
+  ([multirun.md](multirun.md)), and `from_run_config` rebuild the config
+  object of a run from its saved `config.json`
+  ([api.md](api.md#reading-the-config-of-a-run-back)). It also makes a
+  single run behave exactly like a job. A sloppy default such as
+  `size: int = None` is therefore an error, which pydantic itself would let
+  through; OmegaConf rejects it too.
 - A default that loses its type in plain form is an error. Where the type
   of the field does not say what to build from the plain form, pydantic
   keeps it as it is: under `Any` or `object`, also inside `list[Any]` or
   `dict[str, Any]`, and in a union with a member that takes the plain form,
   such as `Path | str` or `Color | str`. A default `Path("/tmp")`,
   `Color.RED` or `Adam()` would silently become `'/tmp'`, `'red'` or
-  `{'lr': 0.1}`. The error names the field, the class, the default and what
-  it becomes. A default that pydantic validates to the same result from
-  both forms is fine. Both forms are validated against the type of the
-  field alone, so a constructor that changes the field later, such as a
-  `__post_init__` that resolves a path, does not count.
+  `{'lr': 0.1}`. Building every value from its plain form is what makes a
+  single run, a job of a multirun and `from_run_config` agree; this error
+  keeps that from changing a default without a word. The error names the
+  field, the class, the default and what it becomes. A default that
+  pydantic validates to the same result from both forms is fine. Both
+  forms are validated against the type of the field alone, so a
+  constructor that changes the field later, such as a `__post_init__` that
+  resolves a path, does not count.
 
   | Field | Default | Result |
   | --- | --- | --- |
