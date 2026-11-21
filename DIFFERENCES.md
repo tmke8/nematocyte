@@ -168,6 +168,13 @@ and imports it itself. See [unions.md](design/unions.md).
 A dataclass field cannot be `X | None`, and a group cannot have `None` as an
 option. See [unions.md](design/unions.md).
 
+### A hand-written `__init__` is not called
+
+pydantic builds the config objects: it sets the fields and calls
+`__post_init__`, but not an `__init__` written in the class. OmegaConf's
+`to_object` calls the constructor. Put that work in `__post_init__`. See
+[deserializer.md](design/deserializer.md#details-of-building).
+
 ### Selecting an option starts the node again
 
 When an option of a group is selected, by a config file or on the command

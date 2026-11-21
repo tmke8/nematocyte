@@ -157,6 +157,16 @@ def test_a_group_of_typeddicts_needs_the_option_key_as_its_discriminator() -> No
     assert 'Discriminator("_option_")' in message
 
 
+def test_discriminator_is_compared_by_value() -> None:
+    key = "".join(["_option", "_"])
+
+    @dataclass
+    class Config:
+        optimizer: Annotated[Sgd | Adam, Discriminator(key)]
+
+    assert class_fields(Config)["optimizer"].options == {"sgd": Sgd, "adam": Adam}
+
+
 def test_option_is_an_error_for_a_typeddict() -> None:
     @dataclass
     class Config:

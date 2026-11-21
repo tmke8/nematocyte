@@ -138,7 +138,5 @@ def from_run_config[C](config_cls: TypeForm[C], data: Mapping[str, JSONValue]) -
     """
     cls = config_class(config_cls)
     validate_schema(cls)
-    root = node_from_plain(
-        cls, data, source="the dict given to from_run_config()", checked=False
-    )
+    root = node_from_plain(cls, data, source="the dict given to from_run_config()")
     return cast("C", build(root))

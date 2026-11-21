@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, NamedTuple
 from typing_extensions import sentinel
 
-from pydantic import AfterValidator, Discriminator, Field, Tag
+from pydantic import AfterValidator, ConfigDict, Discriminator, Field, Tag
 import pytest
 
 import nematocyte
@@ -241,6 +241,21 @@ def test_group_without_default_needs_a_selection() -> None:
     assert type(nematocyte.compose(Root, overrides=["dm=celeba"]).dm) is Celeba
 
 
+def test_hand_written_init_is_not_called() -> None:
+    # pydantic sets the fields and calls `__post_init__`, but not `__init__`.
+    @dataclass
+    class Root:
+        lr: float = 0.1
+
+        def __init__(self, lr: float = 0.1) -> None:
+            self.lr = lr
+            self.scaled = lr * 10
+
+    config = nematocyte.compose(Root, overrides=["lr=0.5"])
+    assert config.lr == 0.5
+    assert not hasattr(config, "scaled")
+
+
 def test_initvar_and_init_false_fields() -> None:
     @dataclass
     class Root:
@@ -380,14 +395,40 @@ def test_bool_is_kept_where_the_type_allows_it() -> None:
     assert config.mixed[1] is True
 
 
-def test_bool_is_reported_once_the_other_errors_are_fixed() -> None:
-    # The check for a bool looks at what pydantic built, so there has to be
-    # a result.
+def test_bool_is_reported_next_to_the_other_errors() -> None:
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(Types, overrides=["i=true", "f=abc"])
     message = str(excinfo.value)
     assert "Types.f" in message
-    assert "a bool is not a number" not in message
+    assert "a bool is not a number" in message
+
+
+def test_bool_is_rejected_for_an_initvar() -> None:
+    @dataclass
+    class Root:
+        scale: InitVar[int] = 2
+
+        def __post_init__(self, scale: int) -> None:
+            pass
+
+    with pytest.raises(ConfigError, match="a bool is not a number"):
+        nematocyte.compose(Root, overrides=["scale=true"])
+
+
+def test_value_changed_by_post_init_is_not_an_error() -> None:
+    # The checks compare with the value before the constructor ran.
+    @dataclass
+    class Root:
+        root: Path = Path("data")
+        flag: bool = False
+
+        def __post_init__(self) -> None:
+            self.root = self.root.resolve()
+            self.flag = int(self.flag)  # ty: ignore[invalid-assignment]
+
+    config = nematocyte.compose(Root, overrides=["flag=true"])
+    assert config.root == Path("data").resolve()
+    assert config.flag == 1
 
 
 def test_bool_default_for_a_number_is_rejected() -> None:
@@ -627,9 +668,19 @@ class WithSentinel:
     norm: BN | LN | None = LN
 
 
+@dataclass
+class WithHiddenDevice:
+    seed: int = 0
+    _device: Device | None = field(default=None, init=False)
+
+
 @pytest.mark.parametrize(
     ("cls", "where"),
-    [(WithDevice, "WithDevice.device"), (WithSentinel, "WithSentinel.norm")],
+    [
+        (WithDevice, "WithDevice.device"),
+        (WithSentinel, "WithSentinel.norm"),
+        (WithHiddenDevice, "WithHiddenDevice._device"),
+    ],
 )
 def test_type_pydantic_cannot_read_is_a_schema_error(cls: type, where: str) -> None:
     with pytest.raises(SchemaError) as excinfo:
@@ -637,3 +688,35 @@ def test_type_pydantic_cannot_read_is_a_schema_error(cls: type, where: str) -> N
     message = str(excinfo.value)
     assert where in message
     assert "property" in message
+
+
+def test_init_false_field_of_a_type_pydantic_cannot_read_without_a_default() -> None:
+    # pydantic leaves out a field with init=False and no default.
+    @dataclass
+    class Root:
+        seed: int = 0
+        _device: Device = field(init=False)
+
+        def __post_init__(self) -> None:
+            self._device = Device()
+
+    assert isinstance(nematocyte.compose(Root)._device, Device)
+
+
+@dataclass
+class ArbitraryTypes:
+    __pydantic_config__ = ConfigDict(arbitrary_types_allowed=True)
+
+    device: Device = field(default_factory=Device, doc="Where to run.")
+    seed: int = 0
+
+
+def test_pydantic_config_of_the_class_is_honoured() -> None:
+    config = nematocyte.compose(ArbitraryTypes, overrides=["seed=1"])
+    assert isinstance(config.device, Device)
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(ArbitraryTypes, overrides=["device=cpu"])
+    message = str(excinfo.value)
+    assert "device:" in message
+    assert "ArbitraryTypes.device (Device). Where to run." in message
+    assert "device=cpu" in message

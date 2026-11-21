@@ -51,6 +51,7 @@ __all__ = [
     "Selected",
     "class_adapter",
     "class_doc",
+    "field_adapter",
     "class_fields",
     "config_class",
     "first_paragraph",
@@ -140,6 +141,12 @@ class FieldInfo:
     """For a group: the classes of the options, by name."""
     config_cls: type | None = None
     """For a subconfig: its class."""
+    tagged: bool = False
+    """For a group: whether the union has a `Discriminator`.
+
+    pydantic then puts the option into the location of an error, after the
+    name of the field.
+    """
     field: dataclasses.Field[Any] | None = None
     initvar: bool = False
     required: bool = True
@@ -330,8 +337,11 @@ def _option_name(member: type, tags: list[Tag], where: str) -> str:
 def _check_discriminator(metadata: list[Any], *, typeddicts: bool, where: str) -> None:
     """Check that the union of a group has the discriminator that it needs."""
     found = [m for m in metadata if isinstance(m, Discriminator)]
-    expected: Any = OPTION_KEY if typeddicts else pick
-    if len(found) == 1 and found[0].discriminator is expected:
+    if len(found) == 1 and (
+        found[0].discriminator == OPTION_KEY
+        if typeddicts
+        else found[0].discriminator is pick
+    ):
         return
     spelling = _TYPEDDICT_GROUP_SPELLING if typeddicts else _GROUP_SPELLING
     raise SchemaError(
@@ -350,10 +360,12 @@ def _group_members(annotation: Any) -> tuple[list[tuple[Any, list[Any]]], list[A
     return [(inner, outer)], outer
 
 
-def _analyse(annotation: Any, where: str) -> tuple[Kind, dict[str, type], type | None]:
+def _analyse(
+    annotation: Any, where: str
+) -> tuple[Kind, dict[str, type], type | None, bool]:
     members, outer = _group_members(annotation)
     if not any(is_config_class(member) for member, _ in members):
-        return Kind.VALUE, {}, None
+        return Kind.VALUE, {}, None, False
 
     tags = [[m for m in metadata if isinstance(m, Tag)] for _, metadata in members]
     for (member, _), member_tags in zip(members, tags, strict=True):
@@ -368,7 +380,7 @@ def _analyse(annotation: Any, where: str) -> tuple[Kind, dict[str, type], type |
         config_cls = members[0][0]
         assert isinstance(config_cls, type)
         if not is_typeddict_class(config_cls) or typeddict_option(config_cls) is None:
-            return Kind.CONFIG, {}, config_cls
+            return Kind.CONFIG, {}, config_cls, False
 
     typeddicts = [m for m, _ in members if is_typeddict_class(m)]
     dataclasses_ = [
@@ -408,7 +420,7 @@ def _analyse(annotation: Any, where: str) -> tuple[Kind, dict[str, type], type |
     if len(options) > 1:
         # pydantic needs no discriminator to pick the only option.
         _check_discriminator(outer, typeddicts=bool(typeddicts), where=where)
-    return Kind.GROUP, options, None
+    return Kind.GROUP, options, None, discriminated
 
 
 _FIELDS_CACHE: dict[type, dict[str, FieldInfo]] = {}
@@ -472,7 +484,7 @@ def _dataclass_fields(
             continue
         where = f"{cls.__name__}.{name}"
         _check_name(name, where)
-        kind, options, config_cls = _analyse(hint, where)
+        kind, options, config_cls, tagged = _analyse(hint, where)
         result[name] = FieldInfo(
             name=name,
             kind=kind,
@@ -480,6 +492,7 @@ def _dataclass_fields(
             owner=cls,
             options=options,
             config_cls=config_cls,
+            tagged=tagged,
             field=field,
             initvar=initvar,
         )
@@ -496,7 +509,7 @@ def _typeddict_fields(
         hint = _strip_qualifiers(raw_hint)
         where = f"{cls.__name__}.{name}"
         _check_name(name, where)
-        kind, options, config_cls = _analyse(hint, where)
+        kind, options, config_cls, tagged = _analyse(hint, where)
         required = name in required_keys
         if not required and kind is not Kind.VALUE:
             raise SchemaError(
@@ -510,6 +523,7 @@ def _typeddict_fields(
             owner=cls,
             options=options,
             config_cls=config_cls,
+            tagged=tagged,
             required=required,
         )
 
@@ -570,26 +584,69 @@ def class_adapter(cls: type) -> TypeAdapter[Any]:
     return cached
 
 
+def _adapter_for(annotation: Any, owner: type | None) -> TypeAdapter[Any] | None:
+    """An adapter for the type of a field, with the pydantic config of its class.
+
+    `None` if pydantic cannot read the type.
+    """
+    config = getattr(owner, "__pydantic_config__", None)
+    for attempt in (config, None) if config is not None else (None,):
+        try:
+            return TypeAdapter(annotation, config=attempt)
+        except PydanticUserError:
+            # A type with a config of its own, such as a dataclass, refuses
+            # another one, and is tried without; a type that pydantic cannot
+            # read fails either way.
+            continue
+    return None
+
+
+_FIELD_ADAPTERS: dict[tuple[type | None, str], TypeAdapter[Any] | None] = {}
+
+
+def field_adapter(info: FieldInfo) -> TypeAdapter[Any] | None:
+    """The adapter for the type of one field; `None` if pydantic cannot read it."""
+    key = (info.owner, info.name)
+    if key not in _FIELD_ADAPTERS:
+        _FIELD_ADAPTERS[key] = _adapter_for(info.annotation, info.owner)
+    return _FIELD_ADAPTERS[key]
+
+
 def _unreadable(cls: type, exc: Exception) -> str:
     """The error for a config class that pydantic cannot read, naming the field."""
-    values = (
-        info
-        for config_cls in _reachable(cls)
-        for info in class_fields(config_cls).values()
-        if info.kind is Kind.VALUE
-    )
-    for info in values:
-        try:
-            TypeAdapter(info.annotation)
-        except PydanticSchemaGenerationError, PydanticUserError:
-            owner = info.owner.__name__ if info.owner is not None else "?"
-            return (
-                f"{owner}.{info.name}: pydantic cannot handle the type "
-                f"{type_text(info.annotation)}, so a config file could not set "
-                f"the field. A value that is made from the config, such as a "
-                f"torch.device, can be a property of the class instead."
-            )
+    for config_cls in _reachable(cls):
+        for info in class_fields(config_cls).values():
+            if info.kind is Kind.VALUE and field_adapter(info) is None:
+                return (
+                    f"{config_cls.__name__}.{info.name}: pydantic cannot handle "
+                    f"the type {type_text(info.annotation)}, so a config file "
+                    f"could not set the field. A value that is made from the "
+                    f"config, such as a torch.device, can be a property of the "
+                    f"class instead."
+                )
+        for name, annotation in _hidden_fields(config_cls):
+            if _adapter_for(annotation, config_cls) is None:
+                return (
+                    f"{config_cls.__name__}.{name}: pydantic cannot handle the "
+                    f"type {type_text(annotation)}. It reads a field with "
+                    f"init=False too, if the field has a default. Leave out the "
+                    f"default and set the field in __post_init__, or make the "
+                    f"value a property of the class."
+                )
     return f"{cls.__name__}: pydantic cannot handle the class:\n{exc}"
+
+
+def _hidden_fields(cls: type) -> Iterator[tuple[str, Any]]:
+    """The fields with `init=False` and a default, which pydantic reads too."""
+    if not dataclasses.is_dataclass(cls):
+        return
+    hints = typing.get_type_hints(cls, include_extras=True)
+    for field in dataclasses.fields(cls):
+        has_default = (
+            field.default is not MISSING or field.default_factory is not MISSING
+        )
+        if not field.init and has_default:
+            yield field.name, hints.get(field.name, field.type)
 
 
 def first_paragraph(text: str) -> str:

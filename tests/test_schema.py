@@ -1,6 +1,6 @@
 """Reading the schema off the dataclasses (`design/unions.md`, `helptext.md`)."""
 
-from dataclasses import InitVar, dataclass, field
+from dataclasses import InitVar, dataclass, field, make_dataclass
 from typing import Annotated, ClassVar
 
 from pydantic import Discriminator, Tag
@@ -75,6 +75,25 @@ def test_group_with_one_option_and_a_discriminator() -> None:
 
     assert class_fields(C)["a"].options == {"only": A}
     assert nematocyte.compose(C, overrides=["a=only"]) == C(a=A())
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        Annotated[A, Tag("only")],
+        Annotated[Annotated[A, Tag("only")], Discriminator(nematocyte.pick)],
+    ],
+)
+def test_error_in_a_group_with_one_option(annotation: object) -> None:
+    # pydantic puts the option into the location only for a Discriminator.
+    root = make_dataclass("Root", [("a", annotation, field(default_factory=A))])
+
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(root, overrides=["a.x=abc"])
+    message = str(excinfo.value)
+    assert "a.x: Input should be a valid integer" in message
+    assert "A.x (int)" in message
+    assert "a.x=abc" in message
 
 
 def _other_discriminator(_value: object) -> str:

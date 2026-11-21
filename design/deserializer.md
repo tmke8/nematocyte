@@ -125,8 +125,8 @@ Costs of this approach, to be aware of:
 - pydantic's lax mode accepts `seed: true` as `1`. nematocyte rejects it: a
   bool that pydantic turned into a number is an error, also inside a list,
   tuple or dict. Where the type allows a bool (`int | bool`, `Any`), it is
-  kept. The check compares the instance with the tree, so it is only made
-  once pydantic accepts everything else.
+  kept. To find it, nematocyte validates a value that holds a bool once
+  more, against the type of its field alone.
 - pydantic runs the constructors as it validates, so they cannot be
   skipped ([validation.md](validation.md#skipping-the-constructors)).
 - A number is rejected for a `str` field, in config files and on the command
@@ -169,8 +169,9 @@ validation behaviour we would own.
   `Color.RED` or `Adam()` would silently become `'/tmp'`, `'red'` or
   `{'lr': 0.1}`. The error names the field, the class, the default and what
   it becomes. A default that pydantic validates to the same result from
-  both forms is fine. The check compares the instance that pydantic built
-  with the default, so it is made once pydantic accepts everything else.
+  both forms is fine. Both forms are validated against the type of the
+  field alone, so a constructor that changes the field later, such as a
+  `__post_init__` that resolves a path, does not count.
 
   | Field | Default | Result |
   | --- | --- | --- |
@@ -203,9 +204,7 @@ validation behaviour we would own.
   from its plain form, and the field arrives as `["x"]` without an error.
 - A bool that pydantic turns into a number is an error (see above).
 - An `InitVar` is not kept on an instance, so under a default instance its
-  value falls back to the default in the class. For the same reason, the
-  checks for a bool and for a default that loses its type do not apply to
-  it.
+  value falls back to the default in the class.
 - `init=False` fields are not config keys. They cannot be set, and `to_dict`
   leaves them out, since a config file could not hold them.
 - A field whose type pydantic cannot handle, such as `torch.device` or a
@@ -214,6 +213,19 @@ validation behaviour we would own.
   found when the classes are checked, before any config file is read. A
   value made from the config, such as a `torch.device`, belongs in a
   property of the class.
+- This includes a field with `init=False` that has a default: pydantic
+  reads its type too, although it is not a config key. Without a default,
+  pydantic leaves the field out, and `__post_init__` can set it.
+- The pydantic config of a class (`__pydantic_config__`, or
+  `pydantic.with_config`) applies to its fields, also in the checks for a
+  bool and for a default that loses its type. With
+  `arbitrary_types_allowed=True`, a field of any type is accepted, and
+  pydantic checks its value with `isinstance`; a config file still cannot
+  set it. The two checks skip a field whose type pydantic can only read
+  with that setting.
+- pydantic does not call a hand-written `__init__` of a config dataclass:
+  it creates the instance, sets the fields and calls `__post_init__`. Work
+  that has to run when the config is built belongs in `__post_init__`.
 - A `ValueError` or an `AssertionError` from a constructor is reported with
   the path and the class of its node, next to the other errors in the tree.
   pydantic passes any other exception on: it stops the validation, and is
@@ -385,13 +397,15 @@ It allowed what whole-class validation cannot:
 - skipping the constructors (`construct=False` in
   [validation.md](validation.md#skipping-the-constructors)),
 - a field whose type pydantic cannot read, with a default that was checked
-  with `isinstance`,
+  with `isinstance`, without opting in through the pydantic config of the
+  class,
+- a hand-written `__init__`, which was called like any constructor,
 - the path of a node in the error from any exception its constructor
-  raised, and the other errors next to it,
-- the check for a bool next to the other errors.
+  raised, and the other errors next to it.
 
 **Rejected in favour of** one call for the whole tree. The groups are then
 pydantic's own tagged unions, so `TypeAdapter(Config)` validates and
 describes a whole config without nematocyte, and nematocyte keeps no
 validation machinery of its own beyond mapping the errors back and the two
-checks pydantic does not make.
+checks pydantic does not make. Those two still validate a field on its own,
+but only where a value holds a bool or a default is not plain.

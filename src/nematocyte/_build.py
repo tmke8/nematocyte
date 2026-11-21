@@ -11,12 +11,14 @@ from pydantic_core import ErrorDetails
 
 from ._errors import ConfigError
 from ._overrides import format_value
+from ._plain import to_plain
 from ._schema import (
     OPTION_KEY,
     FieldInfo,
     Kind,
     Selected,
     class_adapter,
+    field_adapter,
     is_dict_or_frozendict,
     is_exact_dict_or_frozendict,
     is_typeddict_class,
@@ -25,17 +27,6 @@ from ._tree import Node, format_path, unknown_key_message
 from ._types import type_text
 
 __all__ = ["build"]
-
-_FIELD_ADAPTERS: dict[tuple[type | None, str], TypeAdapter[Any]] = {}
-
-
-def _field_adapter(info: FieldInfo) -> TypeAdapter[Any]:
-    """The adapter for the type of one field, to check its default."""
-    key = (info.owner, info.name)
-    cached = _FIELD_ADAPTERS.get(key)
-    if cached is None:
-        cached = _FIELD_ADAPTERS[key] = TypeAdapter(info.annotation)
-    return cached
 
 
 def _input(node: Node, skip: str | None) -> dict[str, Any]:
@@ -74,8 +65,8 @@ def _locate(node: Node, loc: _Loc) -> tuple[Node, FieldInfo | None, _Loc]:
     """The node and the field that an error of pydantic is about.
 
     The rest of the location is inside the value of the field; with no
-    field, it is inside the node. The tag of a group in the location is
-    skipped.
+    field, it is inside the node. The option of a group, which pydantic
+    puts into the location if the union has a `Discriminator`, is skipped.
     """
     current = node
     index = 0
@@ -87,7 +78,7 @@ def _locate(node: Node, loc: _Loc) -> tuple[Node, FieldInfo | None, _Loc]:
         child = current.children.get(info.name)
         if info.kind is Kind.VALUE or child is None:
             return current, info, loc[index + 1 :]
-        index += 2 if info.kind is Kind.GROUP else 1
+        index += 2 if info.tagged else 1
         current = child
     return current, None, ()
 
@@ -155,10 +146,13 @@ def _node_error(node: Node, rest: _Loc, error: ErrorDetails) -> str:
     return f"{where}{text}"
 
 
-def _translate(node: Node, exc: ValidationError) -> list[str]:
-    """pydantic's errors, as nematocyte reports them."""
-    by_field: dict[tuple[int, str], tuple[Node, FieldInfo, list[ErrorDetails]]] = {}
-    messages: list[str | tuple[int, str]] = []
+type _FieldKey = tuple[int, str]
+
+
+def _translate(node: Node, exc: ValidationError) -> tuple[list[str], set[_FieldKey]]:
+    """pydantic's errors, as nematocyte reports them, and the values they are about."""
+    by_field: dict[_FieldKey, tuple[Node, FieldInfo, list[ErrorDetails]]] = {}
+    messages: list[str | _FieldKey] = []
     for error in exc.errors():
         found, info, rest = _locate(node, error["loc"])
         if info is None:
@@ -176,43 +170,75 @@ def _translate(node: Node, exc: ValidationError) -> list[str]:
                 by_field[key] = (found, info, [])
                 messages.append(key)
             by_field[key][2].append({**error, "loc": rest})
-    return [
+    texts = [
         message if isinstance(message, str) else _value_error(*by_field[message])
         for message in messages
     ]
+    return texts, set(by_field)
 
 
-def _get(instance: Any, name: str) -> Any:
-    if isinstance(instance, dict):
-        return instance.get(name, MISSING)
-    return getattr(instance, name)
-
-
-def _check_result(
-    node: Node, instance: Any, errors: list[str], skip: str | None
+def _check_values(
+    node: Node, errors: list[str], skip: str | None, failed: set[_FieldKey]
 ) -> None:
-    """The checks that pydantic does not do, on what it built."""
+    """The checks that pydantic does not make, for every value it accepted."""
     for info in node.fields.values():
         if info.name == skip:
             continue
         if info.kind is not Kind.VALUE:
-            child = node.children[info.name]
-            _check_result(child, _get(instance, info.name), errors, None)
+            child = node.children.get(info.name)
+            if child is not None:
+                _check_values(child, errors, None, failed)
             continue
-        if info.initvar:
-            # Not kept on the instance, so there is nothing to compare.
+        if (id(node), info.name) in failed:
             continue
-        value = node.value(info)
-        if value is MISSING:
-            continue
-        result = _get(instance, info.name)
-        origin = _origin(node, info)
-        problem = _bool_problem(value, result, origin) or _default_problem(
-            node, info, result, origin
-        )
+        problem = _value_problem(node, info)
         if problem is not None:
             path = format_path((*node.path, info.name))
             errors.append(f"{path}: {problem}{_field_line(node, info)}")
+
+
+def _value_problem(node: Node, info: FieldInfo) -> str | None:
+    """A bool that pydantic turned into a number, or a default that loses its type.
+
+    Both compare with what pydantic makes of the value of this field on its
+    own, before a constructor can change it. The value is only validated
+    again when it holds a bool, or is a default that is not plain.
+    """
+    if info.name in node.values:
+        value, default = node.values[info.name], MISSING
+    else:
+        # The plain form is made from the same object that it is compared
+        # with: a `default_factory` makes a new one each time.
+        default = node.default_value(info)
+        if default is MISSING:
+            return None
+        value = to_plain(default)
+    unset_default = default is not MISSING and not _is_plain(default)
+    if not unset_default and not _has_bool(value):
+        return None
+    adapter = field_adapter(info)
+    if adapter is None:
+        # A type that only the class's own pydantic config lets through.
+        return None
+    try:
+        result = adapter.validate_python(value, extra="forbid")
+    except ValidationError:
+        return None
+    origin = _origin(node, info)
+    problem = _bool_problem(value, result, origin)
+    if problem is None and unset_default:
+        problem = _default_problem(default, adapter, result, origin)
+    return problem
+
+
+def _has_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (list, tuple)):
+        return any(_has_bool(item) for item in value)
+    if isinstance(value, dict):
+        return any(_has_bool(item) for item in value.values())
+    return False
 
 
 def _bool_problem(value: Any, result: Any, origin: str) -> str | None:
@@ -228,7 +254,7 @@ def _bool_problem(value: Any, result: Any, origin: str) -> str | None:
 
 
 def _default_problem(
-    node: Node, info: FieldInfo, result: Any, origin: str
+    default: Any, adapter: TypeAdapter[Any], result: Any, origin: str
 ) -> str | None:
     """The error if a default that nothing set loses its type in plain form.
 
@@ -237,13 +263,8 @@ def _default_problem(
     conversion that pydantic does anyway, such as `1` to `1.0` for a float,
     does not count.
     """
-    if info.name in node.values:
-        return None
-    default = node.default_value(info)
-    if _is_plain(default):
-        return None
     try:
-        direct = _field_adapter(info).validate_python(default, extra="forbid")
+        direct = adapter.validate_python(default, extra="forbid")
     except ValidationError:
         # Only the plain form is valid, as with `name: str = Path("x")`.
         return None
@@ -415,17 +436,17 @@ def build(node: Node, *, skip: str | None = None) -> object:
     assert node.cls is not None
     adapter = class_adapter(node.cls)
     errors: list[str] = []
+    failed: set[_FieldKey] = set()
     instance: object = None
     try:
         instance = adapter.validate_python(_input(node, skip), extra="forbid")
     except ValidationError as exc:
-        errors = _translate(node, exc)
+        errors, failed = _translate(node, exc)
     except Exception as exc:
         # A constructor raised something other than a `ValueError` or an
         # `AssertionError`; pydantic passes it on, without its location.
         errors = [f"{type(exc).__name__}: {exc}"]
-    else:
-        _check_result(node, instance, errors, skip)
+    _check_values(node, errors, skip, failed)
     if errors:
         raise ConfigError("Error in the configuration:\n" + "\n".join(errors))
     return instance

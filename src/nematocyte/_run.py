@@ -241,9 +241,7 @@ def configure_logging(*, file: bool = True) -> None:
 def run_job(entry: Entry, job: Job, start: StartDir) -> Any:
     """Build the config object of a job and call the function with it."""
     global _current  # noqa: PLW0603
-    root = node_from_plain(
-        entry.config_cls, job.config, source="the config of the job", checked=True
-    )
+    root = node_from_plain(entry.config_cls, job.config, source="the config of the job")
     config = build(root)
     previous = _current
     _current = _Context(start, job)
