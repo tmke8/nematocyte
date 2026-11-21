@@ -346,3 +346,15 @@ reason. Having to write `1.e-3` is acceptable, so that lax mode accepts
 `1e-3` is a side effect and not a requirement. Since config files are read
 as YAML 1.2 ([composition.md](composition.md)), the question no longer
 arises: `1e-3` is a float.
+
+### Validation from strings
+
+`TypeAdapter.validate_strings(value, strict=True)` validates input made of
+strings, as from environment variables.
+
+**Rejected because** it takes only a string or a dict of strings: there is
+no input for a list or for `None`, so `list[int]`, `tuple[...]` and
+`X | None` cannot be validated at all. It would also throw away the types
+that YAML already gives: `123` and `"123"` would be the same, a `str` field
+would take a number, `"yes"` would be a `bool`, and a field typed `Any`
+would hold `"0.1"` instead of `0.1`.
