@@ -18,7 +18,15 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, NamedTuple
 from typing_extensions import sentinel
 
-from pydantic import AfterValidator, ConfigDict, Discriminator, Field, Tag
+from pydantic import (
+    AfterValidator,
+    ConfigDict,
+    Discriminator,
+    Field,
+    StrictFloat,
+    StrictInt,
+    Tag,
+)
 import pytest
 
 import nematocyte
@@ -380,6 +388,32 @@ def test_bool_is_accepted_as_a_number(
     # As in Python, where a bool is an int; pydantic's lax mode converts it.
     config = nematocyte.compose(Types, overrides=[override])
     assert getattr(config, name) == expected
+
+
+@pytest.mark.parametrize(
+    ("override", "accepted"),
+    [
+        ("seed=true", False),
+        ("seed=1.0", False),
+        ("seed=3", True),
+        ("lr=false", False),
+        ("lr=1", True),
+        ("seeds=[1,true]", False),
+    ],
+)
+def test_strict_types_reject_a_bool(override: str, *, accepted: bool) -> None:
+    # The workaround in DIFFERENCES.md.
+    @dataclass
+    class Root:
+        seed: StrictInt = 0
+        lr: StrictFloat = 1e-3
+        seeds: list[StrictInt] = field(default_factory=list)
+
+    if accepted:
+        nematocyte.compose(Root, overrides=[override])
+    else:
+        with pytest.raises(ConfigError, match=override.split("=", maxsplit=1)[0]):
+            nematocyte.compose(Root, overrides=[override])
 
 
 def test_bool_is_kept_where_the_type_allows_it() -> None:

@@ -73,6 +73,23 @@ In Python, a `bool` is an `int`, and pydantic converts it. Where the type
 of the field allows a bool, such as `int | bool` or `Any`, it stays a bool.
 See [deserializer.md](design/deserializer.md#rejecting-a-bool-for-a-number).
 
+To reject a bool for a field, give it pydantic's strict type:
+
+```python
+from pydantic import StrictFloat, StrictInt
+
+
+@dataclass
+class Config:
+    seed: StrictInt = 0
+    lr: StrictFloat = 1e-3
+    seeds: list[StrictInt] = field(default_factory=list)
+```
+
+A type checker sees `int` and `float`. `StrictFloat` still accepts an int,
+so `lr=1` works, but `StrictInt` also rejects `1.0` and `'3'`, which lax
+mode converts.
+
 ### Config files are read as YAML 1.2
 
 Hydra reads config files with PyYAML, which implements YAML 1.1. A file
