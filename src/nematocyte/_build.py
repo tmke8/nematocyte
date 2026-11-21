@@ -11,7 +11,7 @@ from pydantic_core import ErrorDetails
 
 from ._errors import ConfigError
 from ._overrides import format_value
-from ._plain import to_plain
+from ._plain import is_plain, to_plain
 from ._schema import (
     OPTION_KEY,
     FieldInfo,
@@ -20,7 +20,6 @@ from ._schema import (
     class_adapter,
     field_adapter,
     is_dict_or_frozendict,
-    is_exact_dict_or_frozendict,
     is_typeddict_class,
 )
 from ._tree import Node, format_path, unknown_key_message
@@ -201,8 +200,10 @@ def _value_problem(node: Node, info: FieldInfo) -> str | None:
     """A bool that pydantic turned into a number, or a default that loses its type.
 
     Both compare with what pydantic makes of the value of this field on its
-    own, before a constructor can change it. The value is only validated
-    again when it holds a bool, or is a default that is not plain.
+    own, before a constructor can change it. The field is only validated on
+    its own when the value holds a bool, or is a default that `to_plain`
+    changes in more than the kinds of its containers: only then can the two
+    forms of the default give different results.
     """
     if info.name in node.values:
         value, default = node.values[info.name], MISSING
@@ -213,7 +214,7 @@ def _value_problem(node: Node, info: FieldInfo) -> str | None:
         if default is MISSING:
             return None
         value = to_plain(default)
-    unset_default = default is not MISSING and not _is_plain(default)
+    unset_default = default is not MISSING and not is_plain(default)
     if not unset_default and not _has_bool(value):
         return None
     adapter = field_adapter(info)
@@ -279,28 +280,6 @@ def _default_problem(
         f"{type(before).__name__} from that, or a default that a config file "
         f"can hold.\n    Value: {default!r} ({origin})"
     )
-
-
-_PLAIN_SCALARS = frozenset({str, int, float, bool, type(None)})
-_PLAIN_COLLECTIONS = frozenset({list, tuple, set, frozenset})
-
-
-def _is_plain(value: Any) -> bool:
-    """Whether `value` holds only plain scalars, in built-in containers.
-
-    Its plain form then differs from it only in the kinds of its containers
-    and the order of a set, which a config file cannot express, so the
-    check of a default can skip the second validation. Subclasses, such as a `NamedTuple` or an
-    `IntEnum`, are not plain.
-    """
-    kind = type(value)
-    if kind in _PLAIN_SCALARS:
-        return True
-    if kind in _PLAIN_COLLECTIONS:
-        return all(_is_plain(item) for item in value)
-    if is_exact_dict_or_frozendict(value):
-        return all(_is_plain(key) and _is_plain(item) for key, item in value.items())
-    return False
 
 
 type _Pairs = list[tuple[str, Any, Any]]

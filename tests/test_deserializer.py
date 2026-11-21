@@ -1,5 +1,6 @@
 """Building dataclass instances from the tree (`design/deserializer.md`)."""
 
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import (
     KW_ONLY,
@@ -9,6 +10,8 @@ from dataclasses import (
     field,
     make_dataclass,
 )
+import datetime
+from decimal import Decimal
 import enum
 import math
 from pathlib import Path
@@ -20,6 +23,7 @@ import pytest
 
 import nematocyte
 from nematocyte import ConfigError, SchemaError
+from nematocyte._plain import is_plain
 
 from .helpers import Celeba, Cmnist, Config, Fcn
 
@@ -571,6 +575,65 @@ def test_plain_default_is_validated_once() -> None:
     )
     assert nematocyte.compose(root).value == {"a": [1, [2.5, 3]], "b": None}
     assert len(calls) == 1
+
+
+def test_default_that_plain_form_keeps_is_validated_once() -> None:
+    # The conversion to plain form leaves a date and a Decimal as they are,
+    # so both forms of the default would be the same.
+    calls: list[object] = []
+
+    def count(value: object) -> object:
+        calls.append(value)
+        return value
+
+    default = {"when": (datetime.date(2026, 1, 1), Decimal("0.5"))}
+    root = make_dataclass(
+        "Root",
+        [
+            (
+                "value",
+                Annotated[Any, AfterValidator(count)],
+                field(default_factory=lambda: default),
+            )
+        ],
+    )
+    assert nematocyte.compose(root).value == {
+        "when": [datetime.date(2026, 1, 1), Decimal("0.5")]
+    }
+    assert len(calls) == 1
+
+
+class Pair(NamedTuple):
+    first: int
+    second: int
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"a": (1, {2.5, None}), "b": "x"},
+        [datetime.date(2026, 1, 1), Decimal("0.5")],
+    ],
+)
+def test_value_that_plain_form_keeps_is_plain(value: object) -> None:
+    # `to_plain` changes only the kinds of its containers.
+    assert is_plain(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        Color.RED,
+        [Path("x")],
+        {"opt": Adam()},
+        OrderedDict(a=1),
+        Pair(1, 2),
+        [frozenset({Color.RED})],
+    ],
+)
+def test_value_that_plain_form_converts_is_not_plain(value: object) -> None:
+    # Mirrors the branches of `to_plain` that convert a value.
+    assert not is_plain(value)
 
 
 def test_plain_default_is_not_checked_even_where_the_union_differs() -> None:

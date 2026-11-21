@@ -12,10 +12,11 @@ from ._schema import (
     class_fields,
     is_config_class,
     is_dict_or_frozendict,
+    is_exact_dict_or_frozendict,
     is_typeddict_class,
 )
 
-__all__ = ["to_dict", "to_plain"]
+__all__ = ["is_plain", "to_dict", "to_plain"]
 
 
 def _plain_set(value: set[Any] | frozenset[Any]) -> list[Any]:
@@ -52,6 +53,26 @@ def to_plain(value: Any) -> Any:
             if field.init
         }
     return result
+
+
+_CONTAINERS = (list, tuple, set, frozenset)
+
+
+def is_plain(value: Any) -> bool:
+    """Whether `to_plain` changes at most the kinds of the containers in `value`.
+
+    It mirrors the branches of `to_plain`: an enum member, a path, a
+    dataclass instance and a subclass of a container, such as a `NamedTuple`,
+    are converted; any other value is kept as it is, inside a list, tuple,
+    set, frozenset, dict or frozendict. A set may come out in another order.
+    """
+    if is_exact_dict_or_frozendict(value):
+        return all(is_plain(key) and is_plain(item) for key, item in value.items())
+    if type(value) in _CONTAINERS:
+        return all(is_plain(item) for item in value)
+    converted = isinstance(value, (enum.Enum, PurePath, *_CONTAINERS))
+    instance = dataclasses.is_dataclass(value) and not isinstance(value, type)
+    return not (converted or instance or is_dict_or_frozendict(value))
 
 
 def _check_flat_typeddicts(cls: type) -> None:

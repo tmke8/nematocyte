@@ -193,15 +193,18 @@ validation behaviour we would own.
   depends on how pydantic matches their members, which the annotation does
   not show.
 
-  A default made only of plain values (`str`, `int`, `float`, `bool`,
-  `None`) in lists, tuples, sets, frozensets, dicts and frozendicts, and
-  not of their subclasses, is not checked. Its plain form differs only in
-  the kinds of the containers and the order of a set, so validating it a
-  second time and comparing the results would be wasted on almost every
-  default. The price is a contrived union, where the kind of container
-  changes which member pydantic picks: `tuple[Path, ...] | list[str]` with
-  the default `("x",)` builds `(Path("x"),)` from the default but `["x"]`
-  from its plain form, and the field arrives as `["x"]` without an error.
+  A default that the conversion to plain form changes only in the kinds of
+  its containers and the order of a set is not checked. Only an enum
+  member, a path, a dataclass instance and a subclass of a container, such
+  as a `NamedTuple`, are converted; any other value, such as a `str`, an
+  `int`, `None` or a `date`, goes into both forms unchanged, inside lists,
+  tuples, sets, frozensets, dicts and frozendicts. Validating the field
+  twice on its own, once for each form, and comparing the results would be
+  wasted on almost every default. The price is a contrived union, where
+  the kind of container changes which member pydantic picks:
+  `tuple[Path, ...] | list[str]` with the default `("x",)` builds
+  `(Path("x"),)` from the default but `["x"]` from its plain form, and the
+  field arrives as `["x"]` without an error.
 - A bool that pydantic turns into a number is an error (see above).
 - An `InitVar` is not kept on an instance, so under a default instance its
   value falls back to the default in the class.
