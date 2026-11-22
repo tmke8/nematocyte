@@ -47,12 +47,14 @@ in the table was observed, not taken from documentation.
 | JSON schema | None | Generated, including for stdlib dataclasses |
 | Footprint | Pure Python, 0.6 MB including attrs. Import 48 ms; first use of 4 classes 1 ms | Compiled core, 6.5 MB. Import about 90 ms; building 4 adapters 27 ms |
 
-Validation uses pydantic's **lax mode**. Strict mode on Python input
-(`validate_python(value, strict=True)`) is not usable: it rejects `str` for
-`Path`, `list` for `tuple` and `set`, a value for its enum member, and `dict`
-for a dataclass. YAML can produce none of the types it insists on. A strict
-variant that does work was considered and rejected; see
-[Rejected ideas](#rejected-ideas).
+Validation uses pydantic's **strict mode on JSON input**: the tree is
+dumped as JSON and validated with `validate_json(text, strict=True)`; see
+[Strict validation through JSON](#strict-validation-through-json). Strict
+mode on Python input (`validate_python(value, strict=True)`) is not usable:
+it rejects `str` for `Path`, `list` for `tuple` and `set`, a value for its
+enum member, and `dict` for a dataclass. YAML can produce none of the types
+it insists on. Lax mode, which nematocyte used before, accepts too much:
+`true` for an `int`, `"123"` for an `int`, `1.0` for an `int`.
 
 ### Why pydantic
 
@@ -79,9 +81,10 @@ consequences:
    annotating the user's classes. So the user's annotation does it: a group
    is a tagged union with `nematocyte.pick` as its discriminator
    ([unions.md](unions.md)), and nematocyte hands each node of a group to
-   pydantic as a `Selected`, a `dict` that carries the option that
-   composition chose. `pick` returns that option, and pydantic builds the
-   member with that `Tag`.
+   pydantic as a mapping with the option that composition chose under the
+   key `_option_`, next to the fields. `pick` returns that option, and
+   pydantic builds the member with that `Tag`; the member ignores the key
+   ([Unknown keys](#unknown-keys)).
 2. **Per-type behaviour cannot be changed globally**, e.g. accepting enum
    members by name as Hydra does, or converting a string to `torch.device`.
    A type that pydantic cannot read is an error in the schema; a value made
@@ -92,8 +95,8 @@ With that, the whole tree goes to pydantic in one call:
 
 ```text
 build(cls, node):
-    data = node as plain dicts, each node of a group as Selected(option, fields)
-    instance = TypeAdapter(cls).validate_python(data, extra="forbid")
+    data = node in JSON form, each node of a group with its option in `_option_`
+    instance = TypeAdapter(cls).validate_json(json.dumps(data), strict=True)
         # checks every value and runs every constructor and __post_init__
     on errors: map each location back to its node and field, skipping the
                tag of a group, and report it with where the value was set
@@ -122,10 +125,15 @@ Costs of this approach, to be aware of:
   nested inside `list[...]` or `dict[...]`. Hydra has the same limitation.
 - Enum by name needs a validator in the annotation, such as pydantic's
   `BeforeValidator`. Using `Literal` or `StrEnum` avoids the problem.
-- pydantic's lax mode accepts `seed: true` as `1`, and nematocyte keeps
-  that: a bool is a number, as it is in Python. Where the type allows a
-  bool (`int | bool`, `Any`), it stays a bool. See
-  [Rejecting a bool for a number](#rejecting-a-bool-for-a-number).
+- A bool is rejected for a number, as OmegaConf does, and so are `1.0` for
+  an `int` and `"false"` for a `bool`. Where the type allows a bool
+  (`int | bool`, `Any`), it stays a bool. See
+  [Strict validation through JSON](#strict-validation-through-json).
+- Every value has to have a JSON form. A value that a config file cannot
+  hold, such as a `torch.device`, belongs in a field with `init=False` or in
+  a property.
+- A typo in a key inside a value, such as an item of `list[Point]`, is only
+  reported if the class opts in; see [Unknown keys](#unknown-keys).
 - pydantic runs the constructors as it validates, so they cannot be
   skipped ([validation.md](validation.md#skipping-the-constructors)).
 - A number is rejected for a `str` field, in config files and on the command
@@ -149,12 +157,14 @@ validation behaviour we would own.
 
 ### Details of building
 
-- The whole tree is validated in one call to `validate_python` with
-  `extra="forbid"`, on the adapter of the root class. pydantic runs every
-  constructor, and with it every `__post_init__`, as part of it.
+- The whole tree is dumped as JSON and validated in one call to
+  `validate_json(text, strict=True)`, on the adapter of the root class,
+  without `extra`. pydantic runs every constructor, and with it every
+  `__post_init__`, as part of it. What strict mode accepts is in
+  [Strict validation through JSON](#strict-validation-through-json).
 - Default values are validated by pydantic as well. Every value goes through
-  one path: the resolved tree in plain form, then pydantic, which calls the
-  constructor. A value that nothing set is the default, converted to plain
+  one path: the resolved tree in JSON form, then pydantic, which calls the
+  constructor. A value that nothing set is the default, converted to JSON
   form (`Path` to `str` and so on) and validated like any other. This is
   what lets a job build its config from the resolved tree alone
   ([multirun.md](multirun.md)), and `from_run_config` rebuild the config
@@ -163,13 +173,13 @@ validation behaviour we would own.
   single run behave exactly like a job. A sloppy default such as
   `size: int = None` is therefore an error, which pydantic itself would let
   through; OmegaConf rejects it too.
-- A default that loses its type in plain form is an error. Where the type
-  of the field does not say what to build from the plain form, pydantic
+- A default that loses its type in JSON form is an error. Where the type
+  of the field does not say what to build from the JSON form, pydantic
   keeps it as it is: under `Any` or `object`, also inside `list[Any]` or
-  `dict[str, Any]`, and in a union with a member that takes the plain form,
-  such as `Path | str` or `Color | str`. A default `Path("/tmp")`,
-  `Color.RED` or `Adam()` would silently become `'/tmp'`, `'red'` or
-  `{'lr': 0.1}`. Building every value from its plain form is what makes a
+  `dict[str, Any]`, and in a union with a member that takes the JSON form,
+  such as `Color | str`. A default `Path("/tmp")`, `Color.RED`, `Adam()`
+  or `date(2026, 1, 1)` would silently become `'/tmp'`, `'red'`,
+  `{'lr': 0.1}` or `'2026-01-01'`. Building every value from its JSON form is what makes a
   single run, a job of a multirun and `from_run_config` agree; this error
   keeps that from changing a default without a word. The error names the
   field, the class, the default and what it becomes. A default that
@@ -182,11 +192,13 @@ validation behaviour we would own.
   | --- | --- | --- |
   | `Any` | `Color.RED`, `Path("/tmp")`, `Adam()` | Error |
   | `list[Any]` | `[Path("/tmp")]` | Error |
-  | `Path \| str` | `Path("/tmp")` | Error |
+  | `Any` | `date(2026, 1, 1)` | Error |
+  | `Color \| str` | `Color.RED` | Error |
   | `Level \| int` | `Level.LOW` (an `IntEnum`) | Error |
+  | `Path \| str` | `Path("/tmp")` | Unchanged: strict mode builds the `Path` |
   | `Any` | `(1, 2)`, `{1, 2}` | `[1, 2]` |
   | `Sequence[int]` | `(1, 2)` | `[1, 2]` |
-  | `Color`, `Path`, `list[Adam]` | `Color.RED`, `Path("/tmp")`, `[Adam()]` | Unchanged |
+  | `Color`, `Path`, `list[Adam]`, `date` | `Color.RED`, `Path("/tmp")`, `[Adam()]`, `date(2026, 1, 1)` | Unchanged |
   | `float` | `1` | `1.0`, as pydantic converts the default itself |
 
   A tuple, list, set and frozenset count as the same, as do a dict and a
@@ -198,18 +210,29 @@ validation behaviour we would own.
   depends on how pydantic matches their members, which the annotation does
   not show.
 
-  A default that the conversion to plain form changes only in the kinds of
+  A default that the conversion to JSON form changes only in the kinds of
   its containers and the order of a set is not checked. Only an enum
-  member, a path, a dataclass instance and a subclass of a container, such
-  as a `NamedTuple`, are converted; any other value, such as a `str`, an
-  `int`, `None` or a `date`, goes into both forms unchanged, inside lists,
-  tuples, sets, frozensets, dicts and frozendicts. Validating the field
+  member, a path, a date, a datetime, a time, a dataclass instance and a
+  subclass of a container, such as a `NamedTuple`, are converted; any other
+  value, such as a `str`, an `int` or `None`, goes into both forms
+  unchanged, inside lists, tuples, sets, frozensets, dicts and frozendicts. Validating the field
   twice on its own, once for each form, and comparing the results would be
   wasted on almost every default. The price is a contrived union, where
   the kind of container changes which member pydantic picks:
-  `tuple[Path, ...] | list[str]` with the default `("x",)` builds
-  `(Path("x"),)` from the default but `["x"]` from its plain form, and the
-  field arrives as `["x"]` without an error.
+  `list[Path] | set[str]` with the default `{"x"}` builds `{"x"}` from the
+  default but `[Path("x")]` from its JSON form, and the field arrives as
+  `[Path("x")]` without an error.
+- A date, a datetime and a time are written in JSON as their ISO strings,
+  with `isoformat()`, whether they come from a default or from YAML, where
+  an unquoted `2026-11-16` is a `date`. A `date` field gets its date back;
+  under `Any`, a date from YAML arrives as the string `'2026-11-16'`, as it
+  does from JSON5, and a `str` field accepts it.
+- A value that has no JSON form is an error that names the field, the
+  class, the value and where it was set, with the part of the value at
+  fault: an object such as a `Decimal` or a `torch.device` as a default,
+  `bytes` from YAML's `!!binary`, or a key that JSON cannot have, such as
+  the tuple from a YAML complex key. A value made from the config belongs
+  in a field with `init=False`, set in `__post_init__`, or in a property.
 - An `InitVar` is not kept on an instance, so under a default instance its
   value falls back to the default in the class.
 - `init=False` fields are not config keys. They cannot be set, and `to_dict`
@@ -225,11 +248,12 @@ validation behaviour we would own.
   pydantic leaves the field out, and `__post_init__` can set it.
 - The pydantic config of a class (`__pydantic_config__`, or
   `pydantic.with_config`) applies to its fields, also in the check for a
-  default that loses its type. With
-  `arbitrary_types_allowed=True`, a field of any type is accepted, and
-  pydantic checks its value with `isinstance`; a config file still cannot
-  set it. The check skips a field whose type pydantic can only read with
-  that setting.
+  default that loses its type, except for `strict`, which the call sets.
+  With `arbitrary_types_allowed=True`, a field of any type is accepted by
+  the schema, but its value has no JSON form, so a field of such a type
+  that is a config key is an error when the config is built. The check for
+  a default that loses its type skips a field whose type pydantic can only
+  read with that setting.
 - pydantic does not call a hand-written `__init__` of a config dataclass:
   it creates the instance, sets the fields and calls `__post_init__`. Work
   that has to run when the config is built belongs in `__post_init__`.
@@ -240,6 +264,68 @@ validation behaviour we would own.
   other errors.
 - An invalid value names the class and the type of the field in its error,
   next to the doc: `Field: Opt.lr (float). Learning rate.`
+
+### Strict validation through JSON
+
+pydantic's strict mode behaves differently on JSON input:
+`validate_json(json.dumps(value), strict=True)`. JSON has no paths, tuples or
+enums, so in this mode pydantic allows exactly the conversions that strict
+mode on Python input refuses, and still rejects everything else. nematocyte
+validates the tree this way.
+
+| Value | Lax | Strict, JSON input |
+| --- | --- | --- |
+| `True` for `int` or `float` | accepted as `1` | rejected |
+| `"123"` for `int` | accepted | rejected |
+| `1.0` for `int` | accepted | rejected |
+| `"false"` or `0` for `bool` | accepted | rejected |
+| `1` for `float` | accepted | accepted |
+| `"1e-3"` for `float` | accepted | rejected |
+| `str` for `Path`, `list` for `tuple`/`set`, value for enum | accepted | accepted |
+| Unions, `Literal`, `dict[int, int]`, `dict[str, Any]` | accepted | accepted |
+
+These are cleaner rules than lax mode, closer to OmegaConf's, and they
+reject `seed: true` without a special case. A config that is run and a
+config that is read back from the `config.json` of a run go through the
+same JSON, so they cannot differ.
+
+This was rejected at first, because every value takes a round trip through
+`json.dumps` just to reach the validator, and a YAML parser gives values
+that JSON does not have. It is used for its rules, which pydantic offers in
+no other way; [pydantic#11154](https://github.com/pydantic/pydantic/issues/11154)
+might make the round trip unnecessary one day. Dates are written as ISO strings, and any
+other value without a JSON form is an error
+([Details of building](#details-of-building)). Since config files are read
+as YAML 1.2 ([composition.md](composition.md)), `lr: 1e-3` is a float, and
+the rejection of the string `"1e-3"` does not matter in a config file.
+
+### Unknown keys
+
+- Composition rejects a key that is not a field of a config class, in a
+  config file, an override, a key of `_defaults_` and the dict given to
+  `from_run_config`, with the file or override and a suggestion
+  ([composition.md](composition.md)). This covers every node of the tree.
+- pydantic gets no `extra` in the call, so each class decides for itself,
+  through its pydantic config, as it would without nematocyte. pydantic's
+  default for a dataclass and a TypedDict is to ignore an unknown key.
+- So a key inside a value, which composition does not look into, such as a
+  typo in an item of `list[Point]`, is dropped without an error, and the
+  field takes its default. A class can opt in with
+  `@with_config(ConfigDict(extra="forbid"))`; then the error names the
+  field, the item and where the value was set.
+- An option of a group of dataclasses cannot set `extra` to `"forbid"` or
+  `"allow"`: it receives its option under `_option_`, which it has to
+  ignore. That is an error in the schema, which names the group and the
+  class. A TypedDict option declares `_option_` as a key, and is not
+  affected.
+
+Before the switch to JSON, the call passed `extra="forbid"`, which forbade
+unknown keys inside values as well. Every class ignoring the key
+`_option_` was the price of passing the option in the data; see
+[Picking the option without a key in the data](#picking-the-option-without-a-key-in-the-data).
+Checking the keys inside values in nematocyte, by walking each value along
+its type, would bring the protection back for every class, and can be added
+later.
 
 ### Reserved names
 
@@ -348,38 +434,6 @@ error.
 
 ## Rejected ideas
 
-### Strict validation through JSON
-
-pydantic's strict mode behaves differently on JSON input:
-`validate_json(json.dumps(value), strict=True)`. JSON has no paths, tuples or
-enums, so in this mode pydantic allows exactly the conversions that strict
-mode on Python input refuses, and still rejects everything else.
-
-| Value | Lax | Strict, JSON input |
-| --- | --- | --- |
-| `True` for `int` or `float` | accepted as `1` | rejected |
-| `"123"` for `int` | accepted | rejected |
-| `1.0` for `int` | accepted | rejected |
-| `"false"` or `0` for `bool` | accepted | rejected |
-| `1` for `float` | accepted | accepted |
-| `"1e-3"` for `float` | accepted | rejected |
-| `str` for `Path`, `list` for `tuple`/`set`, value for enum | accepted | accepted |
-| Unions, `Literal`, `dict[int, int]`, `dict[str, Any]` | accepted | accepted |
-
-These are cleaner rules than lax mode, and they remove the `seed: true` wart
-without a special case.
-
-**Rejected because** every value would take a round trip through `json.dumps`
-just to reach the validator. That also requires every value to be
-JSON-serialisable, which a YAML parser does not guarantee: an unquoted
-`2026-11-16` becomes a `date` object.
-
-Rejecting `lr: 1e-3` (which PyYAML reads as a string) was not part of the
-reason. Having to write `1.e-3` is acceptable, so that lax mode accepts
-`1e-3` is a side effect and not a requirement. Since config files are read
-as YAML 1.2 ([composition.md](composition.md)), the question no longer
-arises: `1e-3` is a float.
-
 ### Validation from strings
 
 `TypeAdapter.validate_strings(value, strict=True)` validates input made of
@@ -416,7 +470,7 @@ describes a whole config without nematocyte, and nematocyte keeps no
 validation machinery of its own beyond mapping the errors back and the
 check for a default that loses its type, which pydantic does not make. That
 check still validates a field on its own, but only for a default that is
-not plain.
+not in JSON form.
 
 ### Rejecting a bool for a number
 
@@ -430,3 +484,41 @@ become a number.
 against the language is not worth what it costs. With one pydantic call for
 the whole tree, the second validation was spent on every `bool` field that
 a config set, on the chance that the field was a number.
+
+[Strict validation through JSON](#strict-validation-through-json) rejects
+a bool for a number since, as part of the one call, at no cost.
+
+### Picking the option without a key in the data
+
+With JSON input, the option of a group has to be in the JSON, where the
+member does not expect it. Ways to keep it out, so that the call could
+still pass `extra="forbid"`:
+
+- **`Discriminator("_option_")` with a `BeforeValidator` on each member
+  that removes the key.** A string discriminator needs a `Literal` field of
+  that name in every member, so pydantic refuses the schema for a
+  dataclass. With `nematocyte.pick` instead, the validator works, but
+  pydantic hands it a Python object and validates what it returns as Python
+  input: below the group, strict mode rejects `[1, 2]` for a
+  `tuple[int, int]`. A `WrapValidator` has the same problem.
+- **The `context` of `validate_json`.** A discriminator is called with the
+  value alone, and never sees the context. A validator sees it, but turns
+  the value into Python input, as above.
+- **A queue of the options in a `ContextVar`**, which `pick` takes from in
+  the order that pydantic visits the groups. It works, but that order is
+  pydantic's, not the order of the fields: the fields of `__init__` come
+  first, the `kw_only` fields after them. One option out of place gives the
+  wrong option to every group after it, and a saved `config.json` could no
+  longer be validated without nematocyte.
+
+**Rejected because** each either loses what the switch to JSON is for, or
+rests on how pydantic works inside. `_option_` in the data, as `to_dict`
+writes it anyway, is what pydantic sees; the option classes ignore it.
+
+### Ignoring unknown keys in the call
+
+`validate_json(..., extra="ignore")` drops `_option_` with every other
+unknown key, for every class.
+
+**Rejected because** the call's setting overrides the class's own, so no
+class could opt in to forbidding unknown keys inside a value.

@@ -167,7 +167,8 @@ The value the grammar produces is what pydantic receives. `123` is an `int`
 and `1.50` is a `float`; to get a string, quote it. This is the same rule as
 in a config file, so there is one thing to remember.
 
-Tested against pydantic's lax mode:
+Tested against pydantic's strict mode on JSON input
+([deserializer.md](deserializer.md#strict-validation-through-json)):
 
 | Override | Field | Result |
 | --- | --- | --- |

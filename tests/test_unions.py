@@ -1,10 +1,12 @@
 """Defaults of groups and subconfigs (`design/unions.md`)."""
 
 from dataclasses import dataclass, field
+import json
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Discriminator, Tag
+from pydantic import Discriminator, Tag, TypeAdapter
+import pytest
 
 import nematocyte
 
@@ -142,3 +144,26 @@ def test_nested_defaults_come_from_the_default_instance() -> None:
 
     config = nematocyte.compose(Root, overrides=["outer.inner.y=20"])
     assert config.outer == Outer(inner=Inner(x=10, y=20), z=30)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ({"_option_": "cnn", "stride": 1}, "cnn"),
+        ({"stride": 1}, None),
+        ({"_option_": 3}, None),
+        (Cnn(), None),
+    ],
+)
+def test_pick_reads_the_option_key(value: object, expected: str | None) -> None:
+    assert nematocyte.pick(value) == expected
+
+
+def test_to_dict_is_valid_json_for_pydantic_alone() -> None:
+    # The groups name their option as nematocyte passes it to pydantic, so
+    # the dict of a config builds it again without nematocyte.
+    config = nematocyte.compose(
+        Config, overrides=["model=fcn", "encoder=cnn", "encoder.stride=1"]
+    )
+    text = json.dumps(nematocyte.to_dict(config))
+    assert TypeAdapter(Config).validate_json(text, strict=True) == config

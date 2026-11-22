@@ -99,6 +99,7 @@ always be dumped as YAML or JSON:
 | `tuple`, `set` | `list` |
 | `frozendict` | `dict` |
 | Enum member | Its value |
+| `date`, `datetime`, `time` | Its ISO string, from `isoformat()` |
 
 The rule is that the dict holds what a config file would hold. For an enum
 that is the value, because pydantic reads enums by value
@@ -169,18 +170,16 @@ fields; those then take the default in the class.
   every `__post_init__` runs. The values that the JSON file holds as text,
   such as a path, a date, or a key of `dict[int, int]`, are read back by
   pydantic. Nothing is resolved: a `${...}` in a value is kept as it is.
-- A value that JSON holds as text comes back as text where the type of the
-  field does not say what to build from it: under `Any` or `object`, also
-  inside `list[Any]` or as a key of `dict[Any, ...]`, and in a union with a
-  member that takes a string, such as `date | str`. A date under `Any`,
-  whether it is the default or an unquoted `2026-11-16` in a config file,
-  is a `date` in the run but `'2026-11-16'` from `from_run_config`, and an
-  int key of `dict[Any, int]` comes back as a string. The run itself is not
-  told about it. A default that loses its type in the plain form of a
-  config file is an error
-  ([deserializer.md](deserializer.md#details-of-building)), but that check
-  does not cover what only JSON loses. Give the field the type it holds,
-  such as `date`, and the value survives.
+- The run builds its config from the same JSON as `from_run_config`, so
+  the two agree. A value that JSON holds as text stays text where the type
+  of the field does not say what to build from it: under `Any` or
+  `object`, also inside `list[Any]` or as a key of `dict[Any, ...]`, and in
+  a union with a member that takes a string, such as `date | str`. An
+  unquoted `2026-11-16` in a config file under `Any` is `'2026-11-16'`,
+  and an int key of `dict[Any, int]` is a string, in the run as well. A
+  default that loses its type in JSON form is an error
+  ([deserializer.md](deserializer.md#details-of-building)). Give the field
+  the type it holds, such as `date`, and the value survives.
 - Errors in the structure (an unknown key, a group without an option, a
   subconfig that is not a mapping) are collected and reported together, and
   before any value is checked; the errors in the values are then collected

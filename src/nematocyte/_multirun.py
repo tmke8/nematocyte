@@ -154,7 +154,7 @@ class Multirun:
                 + [o.text for o in overrides if o.key[0] != RESERVED_KEY]
             )
             raise ConfigError(f"In job #{number} ({shown}):\n{exc}") from None
-        config = root.to_plain_tree()
+        config = root.to_json_tree()
         config.pop(RESERVED_KEY, None)
         return Job(
             number,

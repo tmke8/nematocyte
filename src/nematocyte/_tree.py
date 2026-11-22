@@ -7,7 +7,7 @@ import itertools
 from typing import Any, cast
 
 from ._errors import ConfigError, SchemaError
-from ._plain import to_plain
+from ._json_form import to_json_form
 from ._schema import (
     OPTION_KEY,
     RESERVED_KEY,
@@ -25,7 +25,7 @@ __all__ = [
     "format_path",
     "make_root",
     "next_step",
-    "node_from_plain",
+    "node_from_json_tree",
     "unknown_key_message",
 ]
 
@@ -175,11 +175,15 @@ class Node:
         return info.class_default()
 
     def value(self, info: FieldInfo) -> Any:
-        """The value of a field in plain form, or ``MISSING``."""
+        """The value of a field, or ``MISSING``.
+
+        A value that was set is as its source gave it; a default is in JSON
+        form.
+        """
         if info.name in self.values:
             return self.values[info.name]
         default = self.default_value(info)
-        return default if default is MISSING else to_plain(default)
+        return default if default is MISSING else to_json_form(default)
 
     def set_value(self, name: str, value: Any, source: str) -> None:
         self.values[name] = value
@@ -187,10 +191,11 @@ class Node:
         self.steps[name] = next_step()
         self.touched = True
 
-    def to_plain_tree(self) -> dict[str, Any]:
-        """The node as plain dicts, with ``_option_`` for the groups.
+    def to_json_tree(self) -> dict[str, Any]:
+        """The node in JSON form, with ``_option_`` for the groups.
 
-        A value that is missing is left out.
+        A value that is missing is left out. A value that JSON has no form
+        for is kept as it is.
         """
         result: dict[str, Any] = {}
         if self.option is not None:
@@ -199,24 +204,24 @@ class Node:
             if info.kind is Kind.VALUE:
                 value = self.value(info)
                 if value is not MISSING:
-                    result[info.name] = value
+                    result[info.name] = to_json_form(value)
             elif info.name in self.children:
-                result[info.name] = self.children[info.name].to_plain_tree()
+                result[info.name] = self.children[info.name].to_json_tree()
         return result
 
     def any_touched(self) -> bool:
         return self.touched or any(c.any_touched() for c in self.children.values())
 
 
-def _from_plain(
+def _from_json_tree(
     cls: type,
-    plain: Mapping[Any, Any],
+    tree: Mapping[Any, Any],
     path: Path,
     option: str | None,
     rebuild: _Rebuild,
 ) -> Node:
     node = Node(cls, path, option=option, expand=False)
-    for key, value in plain.items():
+    for key, value in tree.items():
         if key == OPTION_KEY and option is not None:
             # The option of a group node, which was read by the parent.
             continue
@@ -241,7 +246,7 @@ def _from_plain(
         value = cast("Mapping[Any, Any]", value)
         if info.kind is Kind.CONFIG:
             assert info.config_cls is not None
-            node.children[info.name] = _from_plain(
+            node.children[info.name] = _from_json_tree(
                 info.config_cls, value, child_path, None, rebuild
             )
             continue
@@ -259,11 +264,11 @@ def _from_plain(
                 f"{node.describe()}. Options: {options}."
             )
         else:
-            node.children[info.name] = _from_plain(
+            node.children[info.name] = _from_json_tree(
                 info.options[name], value, child_path, name, rebuild
             )
     for info in node.fields.values():
-        if info.kind is Kind.VALUE or info.name in plain:
+        if info.kind is Kind.VALUE or info.name in tree:
             continue
         # A subconfig or a group that the mapping leaves out takes the
         # default of the field, as it would without any config file.
@@ -283,8 +288,8 @@ class _Rebuild:
     errors: list[str]
 
 
-def node_from_plain(cls: type, plain: Mapping[Any, Any], *, source: str) -> Node:
-    """Rebuild the tree from plain dicts, such as `Node.to_plain_tree` gives.
+def node_from_json_tree(cls: type, tree: Mapping[Any, Any], *, source: str) -> Node:
+    """Rebuild the tree from plain dicts, such as `Node.to_json_tree` gives.
 
     The mapping of a group names its option under ``_option_``. A key that the
     mapping leaves out takes the default in the class. `source` says where the
@@ -294,7 +299,7 @@ def node_from_plain(cls: type, plain: Mapping[Any, Any], *, source: str) -> Node
     a mapping are errors, which are collected and raised together.
     """
     rebuild = _Rebuild(source, [])
-    node = _from_plain(cls, plain, (), None, rebuild)
+    node = _from_json_tree(cls, tree, (), None, rebuild)
     if rebuild.errors:
         raise ConfigError("Error in the configuration:\n" + "\n".join(rebuild.errors))
     return node

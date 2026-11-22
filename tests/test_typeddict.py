@@ -343,9 +343,12 @@ def test_an_invalid_value_names_the_key_the_file_and_the_class() -> None:
     assert "Root.seed (int)" in message
 
 
-def test_a_bool_is_a_number_in_a_typeddict() -> None:
-    config = compose_root(Root, overrides=["seed=true", "opt.lr=1", "model=fcn"])
-    assert config["seed"] == 1
+def test_a_bool_is_not_a_number_in_a_typeddict() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        compose_root(Root, overrides=["seed=true", "opt.lr=1", "model=fcn"])
+    message = str(excinfo.value)
+    assert "seed: Input should be a valid integer" in message
+    assert "Root.seed" in message
 
 
 def test_dataclass_inside_typeddict_and_the_reverse() -> None:

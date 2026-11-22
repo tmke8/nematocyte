@@ -1,9 +1,9 @@
 """Reading the schema off the dataclasses (`design/unions.md`, `helptext.md`)."""
 
 from dataclasses import InitVar, dataclass, field, make_dataclass
-from typing import Annotated, ClassVar
+from typing import Annotated, ClassVar, Literal
 
-from pydantic import Discriminator, Tag
+from pydantic import ConfigDict, Discriminator, Tag, with_config
 import pytest
 
 import nematocyte
@@ -174,6 +174,46 @@ def test_duplicate_option_name_is_an_error() -> None:
 
     with pytest.raises(SchemaError, match="'a'"):
         class_fields(C)
+
+
+@pytest.mark.parametrize("extra", ["forbid", "allow"])
+def test_option_cannot_set_extra(extra: Literal["forbid", "allow"]) -> None:
+    # The option reaches pydantic under `_option_`, which the class ignores.
+    @with_config(ConfigDict(extra=extra))
+    @dataclass
+    class Strict:
+        x: int = 0
+
+    @dataclass
+    class C:
+        data: Annotated[
+            Annotated[Strict, Tag("strict")] | Annotated[A, Tag("a")],
+            Discriminator(nematocyte.pick),
+        ]
+
+    with pytest.raises(SchemaError) as excinfo:
+        class_fields(C)
+    message = str(excinfo.value)
+    assert "C.data" in message
+    assert "Strict" in message
+    assert f"extra={extra!r}" in message
+    assert "'_option_'" in message
+
+
+def test_option_can_ignore_extra_keys() -> None:
+    @with_config(ConfigDict(extra="ignore"))
+    @dataclass
+    class Lenient:
+        x: int = 0
+
+    @dataclass
+    class C:
+        data: Annotated[
+            Annotated[Lenient, Tag("lenient")] | Annotated[A, Tag("a")],
+            Discriminator(nematocyte.pick),
+        ] = field(default_factory=Lenient)
+
+    assert nematocyte.compose(C, overrides=["data.x=2"]).data == Lenient(x=2)
 
 
 def test_option_class_cannot_have_a_field_called_option() -> None:

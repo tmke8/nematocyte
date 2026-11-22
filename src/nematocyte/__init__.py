@@ -10,7 +10,7 @@ from ._api import main as main
 from ._errors import ConfigError as ConfigError
 from ._errors import DroppedValueWarning as DroppedValueWarning
 from ._errors import SchemaError as SchemaError
-from ._plain import to_dict as to_dict
+from ._json_form import to_dict as to_dict
 from ._run import configure_logging as configure_logging
 from ._run import job_num as job_num
 from ._run import log_level as log_level

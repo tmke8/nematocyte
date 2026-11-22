@@ -131,7 +131,7 @@ def _run(
     resolve(root, now)
     build(root, skip=RESERVED_KEY)
     settings = _built_settings(root.children[RESERVED_KEY])
-    config = root.to_plain_tree()
+    config = root.to_json_tree()
     config.pop(RESERVED_KEY, None)
     arguments = [a.text for a in added] + [o.text for o in overrides]
     job = Job(0, arguments, config, settings.log)

@@ -17,7 +17,7 @@ from ._overrides import split_arguments
 from ._run import ENTRY_ATTRIBUTE, Entry
 from ._schema import RESERVED_KEY, config_class, validate_schema
 from ._settings import Settings
-from ._tree import node_from_plain
+from ._tree import node_from_json_tree
 from ._types import JSONValue
 
 __all__ = ["EntryPoint", "compose", "from_run_config", "main"]
@@ -138,5 +138,5 @@ def from_run_config[C](config_cls: TypeForm[C], data: Mapping[str, JSONValue]) -
     """
     cls = config_class(config_cls)
     validate_schema(cls)
-    root = node_from_plain(cls, data, source="the dict given to from_run_config()")
+    root = node_from_json_tree(cls, data, source="the dict given to from_run_config()")
     return cast("C", build(root))
