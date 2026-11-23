@@ -23,6 +23,7 @@ from ._overrides import (
     RangeSweep,
     Sweep,
     format_value,
+    is_sweep,
     iter_sweep,
     parse_value,
 )
@@ -45,10 +46,6 @@ __all__ = ["Multirun", "check_params", "parse_params", "run_multirun"]
 
 def log(message: str) -> None:
     print(f"[nematocyte] {message}", file=sys.stderr, flush=True)
-
-
-def _is_sweep(value: Any) -> bool:
-    return isinstance(value, (ChoiceSweep, RangeSweep, IntervalSweep))
 
 
 def _key_path(key: Any, where: str) -> KeyPath:
@@ -314,7 +311,7 @@ def _sweep_basic(run: Multirun) -> None:
                 "(nematocyte.sweeper=optuna), or a discrete sweep such as "
                 "range() or choice()."
             )
-        if _is_sweep(value):
+        if is_sweep(value):
             values = list(iter_sweep(value))
             if not values:
                 raise ConfigError(f"{'.'.join(path)}: the sweep has no values.")
@@ -424,11 +421,11 @@ def _sweep_optuna(run: Multirun, sweeper: OptunaSweeper) -> None:
         ) from exc
 
     params = _merged_params(run, "nematocyte.sweeper")
-    fixed = [(path, value) for path, value in params.items() if not _is_sweep(value)]
+    fixed = [(path, value) for path, value in params.items() if not is_sweep(value)]
     space = {
         ".".join(path): _distribution(".".join(path), value)
         for path, value in params.items()
-        if _is_sweep(value)
+        if is_sweep(value)
     }
     paths = {".".join(path): path for path in params}
     _check_exact(run, [paths[key] for key in space], fixed)

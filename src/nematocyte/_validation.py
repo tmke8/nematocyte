@@ -14,9 +14,10 @@ from ._files import SUFFIXES
 from ._interpolation import resolve
 from ._multirun import check_params, parse_params
 from ._overrides import Override
-from ._schema import RESERVED_KEY, FieldInfo, Kind, class_fields, config_class
+from ._schema import RESERVED_KEY, Kind, class_fields, config_class
 from ._settings import Settings
 from ._tree import Path as KeyPath
+from ._tree import root_fields
 
 __all__ = ["ValidationResult", "Validator", "validate_configs"]
 
@@ -40,15 +41,7 @@ def _classify(composer: Composer, relative: Path) -> tuple[KeyPath, str] | None:
 
     `None` for a primary config.
     """
-    root_fields = dict(class_fields(composer.config_cls))
-    root_fields[RESERVED_KEY] = FieldInfo(
-        name=RESERVED_KEY,
-        kind=Kind.CONFIG,
-        annotation=composer.settings_cls,
-        owner=None,
-        config_cls=composer.settings_cls,
-    )
-    candidates = [root_fields]
+    candidates = [root_fields(composer.config_cls, composer.settings_cls)]
     options: set[str] = set()
     path: list[str] = []
     directories = relative.parts[:-1]

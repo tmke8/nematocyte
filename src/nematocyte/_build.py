@@ -1,6 +1,6 @@
 """Turning the composed tree into config instances, with one call to pydantic."""
 
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping
 import dataclasses
 from dataclasses import MISSING
 import json
@@ -26,17 +26,20 @@ from ._types import type_text
 __all__ = ["build", "checked_json"]
 
 
-def _input(node: Node, skip: str | None) -> dict[str, Any]:
-    """The node in JSON form, the input for pydantic.
+def _value_fields(node: Node, skip: str | None) -> Iterator[tuple[Node, FieldInfo]]:
+    """Every field that holds a value in the tree under `node`, with its node.
 
-    The node of a group names its option under `_option_`, from which
-    `nematocyte.pick` reads it. A value or a subconfig that is missing is
-    left out, and pydantic reports it.
+    `skip` names a field of `node` to leave out.
     """
-    data = node.to_json_tree()
-    if skip is not None:
-        data.pop(skip, None)
-    return data
+    for info in node.fields.values():
+        if info.name == skip:
+            continue
+        if info.kind is Kind.VALUE:
+            yield node, info
+        else:
+            child = node.children.get(info.name)
+            if child is not None:
+                yield from _value_fields(child, None)
 
 
 _JSON_SCALARS = (str, int, float, bool, type(None))
@@ -70,16 +73,10 @@ def _without_json_form(value: Any, seen: frozenset[int] = frozenset()) -> _Part 
     return None
 
 
-def _json_problems(node: Node, skip: str | None, errors: list[str]) -> None:
+def _json_problems(root: Node, skip: str | None) -> list[str]:
     """The errors for every value in the tree that JSON has no form for."""
-    for info in node.fields.values():
-        if info.name == skip:
-            continue
-        if info.kind is not Kind.VALUE:
-            child = node.children.get(info.name)
-            if child is not None:
-                _json_problems(child, None, errors)
-            continue
+    errors: list[str] = []
+    for node, info in _value_fields(root, skip):
         value = node.value(info)
         if value is MISSING:
             continue
@@ -102,6 +99,7 @@ def _json_problems(node: Node, skip: str | None, errors: list[str]) -> None:
             f"{hint}\n    Value: {value!r} ({_origin(node, info)})"
             f"{_field_line(node, info)}"
         )
+    return errors
 
 
 type _Loc = tuple[int | str, ...]
@@ -223,24 +221,19 @@ def _translate(node: Node, exc: ValidationError) -> tuple[list[str], set[_FieldK
     return texts, set(by_field)
 
 
-def _check_defaults(
-    node: Node, errors: list[str], skip: str | None, failed: set[_FieldKey]
-) -> None:
+def _default_problems(
+    root: Node, skip: str | None, failed: set[_FieldKey]
+) -> list[str]:
     """The check that pydantic does not make, for every default it accepted."""
-    for info in node.fields.values():
-        if info.name == skip:
-            continue
-        if info.kind is not Kind.VALUE:
-            child = node.children.get(info.name)
-            if child is not None:
-                _check_defaults(child, errors, None, failed)
-            continue
+    errors: list[str] = []
+    for node, info in _value_fields(root, skip):
         if info.name in node.values or (id(node), info.name) in failed:
             continue
         problem = _default_problem(node, info)
         if problem is not None:
             path = format_path((*node.path, info.name))
             errors.append(f"{path}: {problem}{_field_line(node, info)}")
+    return errors
 
 
 def _default_problem(node: Node, info: FieldInfo) -> str | None:
@@ -402,18 +395,23 @@ def checked_json(node: Node, *, skip: str | None = None) -> str:
 
 
 def _build(node: Node, skip: str | None) -> tuple[object, str]:
-    assert node.cls is not None
     adapter = class_adapter(node.cls)
+    # The node of a group names its option under `_option_`, from which
+    # `nematocyte.pick` reads it. A value or a subconfig that is missing is
+    # left out, and pydantic reports it.
+    data = node.to_json_tree()
+    if skip is not None:
+        data.pop(skip, None)
+    try:
+        text = json.dumps(data)
+    except (TypeError, ValueError) as exc:
+        problems = _json_problems(node, skip) or [f"The config has no JSON form: {exc}"]
+        raise ConfigError(
+            "Error in the configuration:\n" + "\n".join(problems)
+        ) from None
     errors: list[str] = []
     failed: set[_FieldKey] = set()
     instance: object = None
-    try:
-        text = json.dumps(_input(node, skip))
-    except (TypeError, ValueError) as exc:
-        _json_problems(node, skip, errors)
-        if not errors:
-            errors = [f"The config has no JSON form: {exc}"]
-        raise ConfigError("Error in the configuration:\n" + "\n".join(errors)) from None
     try:
         instance = adapter.validate_json(text, strict=True)
     except ValidationError as exc:
@@ -422,7 +420,7 @@ def _build(node: Node, skip: str | None) -> tuple[object, str]:
         # A constructor raised something other than a `ValueError` or an
         # `AssertionError`; pydantic passes it on, without its location.
         errors = [f"{type(exc).__name__}: {exc}"]
-    _check_defaults(node, errors, skip, failed)
+    errors += _default_problems(node, skip, failed)
     if errors:
         raise ConfigError("Error in the configuration:\n" + "\n".join(errors))
     return instance, text

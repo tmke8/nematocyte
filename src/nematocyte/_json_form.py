@@ -15,6 +15,7 @@ from ._schema import (
     is_dict_or_frozendict,
     is_exact_dict_or_frozendict,
     is_typeddict_class,
+    reachable_classes,
 )
 
 __all__ = ["is_json_form", "to_dict", "to_json_form"]
@@ -75,8 +76,9 @@ def is_json_form(value: Any) -> bool:
 
     It mirrors the branches of `to_json_form`: an enum member, a path, a date,
     a datetime, a time, a dataclass instance and a subclass of a container,
-    such as a `NamedTuple`, are converted; any other value is kept as it is, inside a list, tuple,
-    set, frozenset, dict or frozendict. A set may come out in another order.
+    such as a `NamedTuple`, are converted; any other value is kept as it is,
+    inside a list, tuple, set, frozenset, dict or frozendict. A set may come
+    out in another order.
     """
     if is_exact_dict_or_frozendict(value):
         return all(
@@ -94,23 +96,16 @@ def _check_flat_typeddicts(cls: type) -> None:
 
     Checked on the schema, before anything is converted.
     """
-    seen: set[type] = set()
-    todo = [cls]
-    while todo:
-        current = todo.pop()
-        if current in seen:
+    for current in reachable_classes(cls):
+        if not is_typeddict_class(current):
             continue
-        seen.add(current)
         for info in class_fields(current).values():
-            if is_typeddict_class(current) and info.kind is not Kind.VALUE:
+            if info.kind is not Kind.VALUE:
                 raise TypeError(
                     f"to_dict() needs every TypedDict in the config to hold only "
                     f"values, but {current.__name__}.{info.name} is a "
                     f"{'group' if info.kind is Kind.GROUP else 'subconfig'}."
                 )
-            if info.config_cls is not None:
-                todo.append(info.config_cls)
-            todo.extend(info.options.values())
 
 
 def to_dict(config: object) -> dict[str, Any]:
