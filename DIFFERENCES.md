@@ -167,14 +167,6 @@ A key that is not a field of a subconfig or an option of a group is always
 an error, with the file or override that set it. See
 [deserializer.md](design/deserializer.md#unknown-keys).
 
-### A group cannot be set to a dict
-
-`opt={lr:0.1}` merges the dict into a subconfig, as in Hydra and as
-`opt: {lr: 0.1}` does in a file. For a group, `model={num_hidden:2}` is an
-error: Hydra merges the dict into the selected option, but the dict names
-no option. Select one with `model=NAME` and set the fields one by one:
-`model.num_hidden=2`. See [cli.md](design/cli.md).
-
 ## Schema and config groups
 
 ### Groups are declared in the type of the field

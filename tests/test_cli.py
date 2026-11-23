@@ -78,13 +78,9 @@ def test_dict_for_a_subconfig_is_merged_as_in_a_file() -> None:
     assert config.opt == Opt(lr=0.1, weight_decay=1.0)
 
 
-def test_group_cannot_be_given_a_dict() -> None:
-    with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(Config, overrides=["model={num_hidden:2}"])
-    message = str(excinfo.value)
-    assert "model={num_hidden:2}" in message
-    assert "one by one" in message
-    assert "Options: fcn, cnn" in message
+def test_dict_for_a_group_goes_into_the_selected_option() -> None:
+    config = nematocyte.compose(Config, overrides=["model={num_hidden:2}"])
+    assert config.model == Fcn(num_hidden=2)
 
 
 # -- group or value, from the type of the field ---------------------------------

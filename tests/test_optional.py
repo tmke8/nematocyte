@@ -358,24 +358,96 @@ def test_dotted_key_and_dict_work_in_either_order() -> None:
     assert compose(overrides=("ema.every=4", "ema={decay:0.5}")).ema == expected
 
 
-def test_value_wins_over_the_dict() -> None:
-    assert compose(overrides=("ema.decay=0.2", "ema={decay:0.5}")).ema == EmaCfg(
-        decay=0.2
-    )
+@pytest.mark.parametrize(
+    ("overrides", "decay"),
+    [
+        (("ema.decay=0.2", "ema={decay:0.5}"), 0.5),
+        (("ema={decay:0.5}", "ema.decay=0.2"), 0.2),
+        (("ema={decay:0.2}", "ema={decay:0.5}"), 0.5),
+    ],
+)
+def test_dict_stands_for_its_dotted_keys_the_later_one_wins(
+    overrides: tuple[str, ...], decay: float
+) -> None:
+    assert compose(overrides=overrides).ema == EmaCfg(decay=decay)
+
+
+def test_two_dicts_for_the_same_subconfig_both_apply() -> None:
+    config = compose(overrides=("plain={lr:0.5}", "plain={momentum:0.9}"))
+    assert config.plain == Plain(lr=0.5, momentum=0.9)
 
 
 @pytest.mark.parametrize(
-    ("overrides", "expected"),
+    ("overrides", "kwargs"),
     [
-        (("ema=null", "ema={}"), EmaCfg()),
-        (("ema={}", "ema=null"), None),
-        (("ema={every:2}", "ema=null"), None),
+        (("plain.kwargs={a:1}", "plain={kwargs:{b:2}}"), {"b": 2}),
+        (("plain={kwargs:{b:2}}", "plain.kwargs={a:1}"), {"a": 1}),
     ],
 )
-def test_null_and_dict_are_the_same_key_the_last_one_wins(
-    overrides: tuple[str, ...], expected: EmaCfg | None
+def test_dict_stops_at_a_field_that_holds_a_value(
+    overrides: tuple[str, ...], kwargs: dict[str, int]
 ) -> None:
-    assert compose(overrides=overrides).ema == expected
+    # A `dict[...]` field in the dict is replaced as a whole, by the later one.
+    assert compose(overrides=overrides).plain.kwargs == kwargs
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [("ema=fast", "ema={every:3}"), ("ema={every:3}", "ema=fast")],
+)
+def test_preset_and_dict_both_apply_in_either_order(
+    tmp_path: Path, overrides: tuple[str, ...]
+) -> None:
+    config_dir = configs(tmp_path, {"ema/fast.yaml": "decay: 0.5\nevery: 7\n"})
+    assert compose(config_dir, overrides).ema == EmaCfg(decay=0.5, every=3)
+
+
+def test_dict_switches_on_before_a_dotted_key_given_earlier() -> None:
+    # Switching on is a selection, which comes before every value.
+    config = compose(overrides=("ema.every=4", "ema={decay:0.5}"))
+    assert config.ema == EmaCfg(decay=0.5, every=4)
+
+
+def test_unset_and_dict_for_a_typeddict_key_the_later_one_wins() -> None:
+    class Td(TypedDict, total=False):
+        name: str
+
+    @dataclass
+    class C:
+        td: Td = field(default_factory=lambda: Td(name="x"))
+
+    assert compose_with(C, ("~td.name", "td={name:y}")).td == {"name": "y"}
+    assert compose_with(C, ("td={name:y}", "~td.name")).td == {}
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [("ema=null", "ema={}"), ("ema={every:2}", "ema=null")],
+)
+def test_null_and_a_dict_for_the_same_subconfig_is_an_error(
+    overrides: tuple[str, ...],
+) -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        compose(overrides=overrides)
+    message = str(excinfo.value)
+    assert "'ema=null'" in message
+    assert "'ema' is switched off by 'ema=null' and switched on by a dict" in message
+
+
+def test_null_and_a_nested_dict_for_the_same_subconfig_is_an_error() -> None:
+    @dataclass
+    class Outer:
+        ema: EmaCfg | None = None
+
+    @dataclass
+    class C:
+        outer: Outer = field(default_factory=Outer)
+
+    with pytest.raises(ConfigError) as excinfo:
+        compose_with(C, ("outer.ema=null", "outer={ema:{decay:0.5}}"))
+    message = str(excinfo.value)
+    assert "'outer={ema:{decay:0.5}}'" in message
+    assert "'outer.ema' is switched off by 'outer.ema=null'" in message
 
 
 def test_null_and_preset_are_the_same_key(tmp_path: Path) -> None:
@@ -430,12 +502,37 @@ def test_string_for_a_nested_subconfig_in_the_dict_points_to_a_selection() -> No
     assert "_defaults_" not in message
 
 
-def test_dict_for_a_group_is_an_error() -> None:
+def test_dict_for_a_group_goes_into_the_selected_option() -> None:
+    assert compose(overrides=("group={x:1}",)).group == A(x=1)
+
+
+@pytest.mark.parametrize(
+    "overrides", [("group=b", "group={y:3}"), ("group={y:3}", "group=b")]
+)
+def test_selection_and_dict_for_a_group_both_apply_in_either_order(
+    overrides: tuple[str, ...],
+) -> None:
+    assert compose(overrides=overrides).group == B(y=3)
+
+
+def test_dict_with_a_key_of_another_option_is_an_error() -> None:
     with pytest.raises(ConfigError) as excinfo:
-        compose(overrides=("group={x:1}",))
+        compose(overrides=("group={y:3}",))
+    message = str(excinfo.value)
+    assert "'group={y:3}'" in message
+    assert "'y' is not a field of A (the option 'a' of 'group')" in message
+
+
+def test_dict_for_a_group_without_a_selected_option_is_an_error() -> None:
+    @dataclass
+    class C:
+        group: Group
+
+    with pytest.raises(ConfigError) as excinfo:
+        compose_with(C, ("group={x:1}",))
     message = str(excinfo.value)
     assert "'group={x:1}'" in message
-    assert "group=NAME" in message
+    assert "No option is selected for the group 'group'" in message
     assert "Options: a, b" in message
 
 
@@ -534,6 +631,35 @@ def test_sweep_under_a_subconfig_that_is_off_is_an_error(
     err = capsys.readouterr().err
     assert "ema.decay=0.5" in err
     assert "ema={decay:0.5}" in err
+
+
+@pytest.mark.parametrize(
+    ("args", "lrs"),
+    [
+        (["plain.lr=0.1,0.2", "plain={lr:0.5}"], [0.5, 0.5]),
+        (["plain={lr:0.5}", "plain.lr=0.1,0.2"], [0.1, 0.2]),
+        (["plain={lr:0.1},{lr:0.2}", "plain.lr=0.5"], [0.5, 0.5]),
+        (["plain.lr=0.5", "plain={lr:0.1},{lr:0.2}"], [0.1, 0.2]),
+    ],
+)
+def test_swept_value_keeps_the_place_of_its_sweep(
+    capsys: pytest.CaptureFixture[str], args: list[str], lrs: list[float]
+) -> None:
+    # As in Hydra.
+    code, seen = run_main(empty_config_dir(), ["-m", *args])
+    capsys.readouterr()
+    assert code == 0
+    assert [c.plain.lr for c in seen] == lrs
+
+
+def test_key_swept_twice_is_an_error(capsys: pytest.CaptureFixture[str]) -> None:
+    args = ["-m", "plain={lr:0.1},{lr:0.2}", "plain={momentum:0.1},{momentum:0.2}"]
+    code, seen = run_main(empty_config_dir(), args)
+    assert code == 1
+    assert not seen
+    err = capsys.readouterr().err
+    assert "'plain' is swept twice" in err
+    assert "plain={lr:0.1},{lr:0.2}" in err
 
 
 def test_optuna_key_under_a_subconfig_that_is_off_is_an_error(

@@ -146,12 +146,17 @@ has `decay: float = 0.99` and `every: int = 1`:
   is an error that names the key and the class, and shows `ema={decay:0.5}`.
   Setting one value should not bring back all the others. The same holds
   for a dotted entry under `_defaults_`, such as `ema.inner: fast`.
-- **The order on the command line has no meaning**, as for every override
-  ([cli.md](cli.md#group-or-value-from-the-fields-type)). `ema=null` and
-  `ema={...}` are applied with the selections, shortest path first, so
-  `ema=null ema.decay=0.5` is an error in either order, and
-  `ema={} ema.decay=0.5` works in either order. They are the same key as
-  `ema=fast`: the last one wins.
+- **The order on the command line**
+  ([cli.md](cli.md#group-or-value-from-the-fields-type)). `ema=null` is
+  applied with the selections, so `ema=null ema.decay=0.5` is an error in
+  either order, and `ema=null ema=fast` are the same key: the last one
+  wins. A dict stands for its dotted keys, and is applied with the values,
+  in the order of the arguments: `ema={decay:0.5} ema.decay=0.2` sets
+  `0.2`. Switching on is part of the selections, so that
+  `ema.every=4 ema={decay:0.5}` works in either order. With a preset, both
+  apply: `ema=fast ema={decay:0.5}` sets `decay` on top of `fast`. With
+  `ema=null`, a dict for `ema` is an error, in either order: one switches
+  it off and the other on.
 - **Nothing else changes for the node.** An interpolation that refers to a
   key under a subconfig that is off is an error, as for a key that has no
   value ([interpolation.md](interpolation.md)). `nematocyte.to_dict` writes

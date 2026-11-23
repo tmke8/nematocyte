@@ -114,6 +114,19 @@ class Override:
     def is_sweep(self) -> bool:
         return is_sweep(self.value)
 
+    @property
+    def is_mapping(self) -> bool:
+        """Whether the value is a dict, or a sweep with a dict among its values.
+
+        For a subconfig or a group, a dict stands for its dotted keys, and is
+        not replaced by another argument for the same key.
+        """
+        if isinstance(self.value, dict):
+            return True
+        return isinstance(self.value, ChoiceSweep) and any(
+            isinstance(value, dict) for value in self.value.values
+        )
+
 
 @dataclass(frozen=True)
 class AddedConfig:
@@ -605,10 +618,18 @@ def last_wins(overrides: Sequence[Override]) -> list[Override]:
     """Drop every override whose key is given again later.
 
     The overrides that are left keep their order, and a repeated key takes
-    the place of its last occurrence.
+    the place of its last occurrence. A dict is never dropped, and does not
+    drop another override: for a subconfig or a group it stands for its
+    dotted keys, which are applied in order with the values.
     """
-    last = {override.key: index for index, override in enumerate(overrides)}
-    return [o for index, o in enumerate(overrides) if last[o.key] == index]
+    last = {
+        override.key: index
+        for index, override in enumerate(overrides)
+        if not override.is_mapping
+    }
+    return [
+        o for index, o in enumerate(overrides) if o.is_mapping or last[o.key] == index
+    ]
 
 
 def iter_sweep(sweep: Sweep) -> Iterator[Any]:
