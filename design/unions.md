@@ -172,6 +172,35 @@ has `decay: float = 0.99` and `every: int = 1`:
   `ema.decay=0.5` bring back every other value of `EmaCfg` from its class
   defaults, which is too surprising for a change to one value.
 
+### Optional groups
+
+A group cannot be optional: `None` is not allowed as a member of its
+union, and `model: null` in a file and `model=null` on the command line are
+errors. `hydra-example` has no optional group.
+
+What Hydra does with null for a group, tested with hydra-core:
+
+| Where | Hydra |
+| --- | --- |
+| Defaults list, `- model: null` | Loads no file for the group |
+| Body of a file, `model: null`, field typed as its base class (`model: ModelCfg = MISSING`) | "field 'model' is not Optional" |
+| Body of a file, field typed `Any` | `None` |
+| Command line, `model=null` | Crashes: "Config group override must be a string or a list" |
+
+The points to settle if optional groups are added:
+
+- **Switching the group off.** `model=null` and `model: null` would match
+  how `ema=null` switches an optional subconfig off, and how
+  `wandb.name=null` gives `None`. Null is free for this: Hydra's command
+  line crashes on it, a typed field rejects it in a file, and the one use
+  with another meaning, `- model: null` in a defaults list, is an error in
+  nematocyte ([composition.md](composition.md)). Since null for a group is
+  an error now, giving it this meaning later changes nothing that works.
+- **Setting a field while the group is off.** With `model` off,
+  `model.num_hidden=2` names no class. Under the rule for optional
+  subconfigs, where a dotted key does not switch it on, it would be an
+  error, pointing to `model=NAME`.
+
 ## Defaults
 
 ### A group field can have a default
