@@ -67,15 +67,16 @@ The kind follows from where the file is ([composition.md](composition.md)).
 
 A file in the directory of an option of a group
 (`configs/dm/celeba/male_blond.yaml`) is a named config for the group, with
-the name `celeba/male_blond`, and is checked as one; its chain of `_self_`
-has to end at that option
+the name `celeba/male_blond`, and is checked as one; it extends that option
+when it has no `_self_`, and its chain of `_self_` has to end at that option
 ([composition.md](composition.md#the-configs-of-a-group-can-be-grouped-by-option)).
 
 Files that belong nowhere are reported: a file in a directory named after a
 field that is not a named config for it, a subdirectory of a group's
 directory that matches neither a field nor an option, and a directory
-inside the directory of an option. Where an option and a field of an option
-have the same name, the directory is the field's, and is checked as such.
+inside the directory of an option. An option and a field of an option
+cannot have the same name ([unions.md](unions.md)), so a directory is never
+both.
 
 ### A named config is validated in the whole tree
 

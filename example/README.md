@@ -282,7 +282,7 @@ superclass: Smiling
 subclass: Male
 ```
 
-The `_self_` entry under `_defaults_` says what this file is based on; here, the option `celeba` of the group. You can think of it as inheritance. A file in the directory of a config group always needs it, because it has to say which option of the group it is based on.
+The `_self_` entry under `_defaults_` says what this file is based on; here, the option `celeba` of the group. You can think of it as inheritance. A file in the directory of a config group needs it, because it has to say which option of the group it is based on (with one exception, below).
 
 Subsequently, you can use the config file like this:
 ```bash
@@ -306,7 +306,7 @@ When a group has many such files, you can sort them into subdirectories named af
 ```bash
 python main.py dm=celeba/male_blond
 ```
-A file in `configs/dm/celeba/` has to extend `celeba`, directly or through another file; nematocyte reports an error otherwise.
+A file in `configs/dm/celeba/` extends `celeba` without a `_self_` entry, since the directory already says so. It can still have `_self_`, to extend another file, but the chain has to lead back to `celeba`; nematocyte reports an error otherwise.
 
 ### Presets for subconfigs
 The `opt` subconfig is not a config group: there is only one class, `OptimisationCfg`. You can still save often-used values for it, in `configs/opt/`. The file `configs/opt/weight_decay_adamw.yaml` looks like this:

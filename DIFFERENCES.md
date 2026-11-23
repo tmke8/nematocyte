@@ -340,7 +340,8 @@ See [composition.md](design/composition.md).
   field, use a `TypedDict` instead.
 - In a group's directory, a subdirectory named after an option, such as
   `configs/dm/celeba/`, holds further configs for the group, selected as
-  `dm=celeba/male_blond`. Each of them has to extend that option. In Hydra
+  `dm=celeba/male_blond`. Each of them extends that option, without
+  `_self_`; a `_self_` that leads to another option is an error. In Hydra
   a name with a slash loads a file from any subdirectory, and the file can
   extend anything; in nematocyte a subdirectory that is neither an option
   nor a field is an error, and a name with a slash is an error for a plain

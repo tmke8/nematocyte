@@ -451,10 +451,36 @@ def test_config_in_the_directory_of_an_option_has_to_extend_it(
     assert "'dm'" in message
 
 
-def test_config_in_the_directory_of_an_option_needs_a_self(config_dir: Path) -> None:
-    write_files(config_dir, {"dm/celeba/bare.yaml": "superclass: Male\n"})
-    with pytest.raises(ConfigError, match=r"(?s)dm/celeba/bare\.yaml.*_self_"):
-        nematocyte.compose(Config, config_dir, overrides=["dm=celeba/bare"])
+def test_config_in_the_directory_of_an_option_extends_it_without_self(
+    config_dir: Path,
+) -> None:
+    write_files(
+        config_dir,
+        {
+            "dm/celeba/bare.yaml": "superclass: Male\n",
+            "dm/celeba/on_bare.yaml": (
+                "_defaults_:\n  _self_: celeba/bare\ndefault_res: 8\n"
+            ),
+            "bare_run.yaml": "_defaults_:\n  dm: celeba/bare\n",
+        },
+    )
+    config = nematocyte.compose(Config, config_dir, overrides=["dm=celeba/bare"])
+    assert config.dm == Celeba(superclass="Male")
+    config = nematocyte.compose(Config, config_dir, config_name="bare_run")
+    assert config.dm == Celeba(superclass="Male")
+    config = nematocyte.compose(Config, config_dir, overrides=["dm=celeba/on_bare"])
+    assert config.dm == Celeba(superclass="Male", default_res=8)
+
+
+def test_config_in_the_directory_of_a_group_needs_a_self(config_dir: Path) -> None:
+    write_files(config_dir, {"dm/bare.yaml": "superclass: Male\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, overrides=["dm=bare"])
+    message = str(excinfo.value)
+    assert "dm/bare.yaml" in message
+    assert "_self_" in message
+    # It says where a file can go without it.
+    assert "dm/<option>/" in message
 
 
 @pytest.mark.parametrize(
@@ -558,57 +584,6 @@ def test_preset_has_no_directories_of_options(config_dir: Path) -> None:
     assert "'fast/x'" in message
 
 
-@dataclass
-class _Inner:
-    depth: int = 1
-
-
-@dataclass
-class _WithB:
-    b: _Inner = field(default_factory=_Inner)
-    width: int = 1
-
-
-@dataclass
-class _Other:
-    x: int = 0
-
-
-@dataclass
-class _Clash:
-    # `b` is an option of `model`, and a field of the option `a`.
-    model: Annotated[
-        Annotated[_WithB, Tag("a")] | Annotated[_Other, Tag("b")],
-        Discriminator(nematocyte.pick),
-    ] = field(default_factory=_WithB)
-
-
-def test_field_keeps_its_directory_when_an_option_has_its_name(
-    tmp_path: Path,
-) -> None:
-    directory = write_files(
-        tmp_path / "c",
-        {
-            "model/b/deep.yaml": "depth: 9\n",
-            "model/a/wide.yaml": "_defaults_:\n  _self_: a\nwidth: 3\n",
-        },
-    )
-    config = nematocyte.compose(_Clash, directory, overrides=["model.b=deep"])
-    assert config.model == _WithB(b=_Inner(depth=9))
-    with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(_Clash, directory, overrides=["model=b/deep"])
-    message = str(excinfo.value)
-    assert "'b/deep'" in message
-    assert "model/b" in message
-    assert "option 'a'" in message
-    # The directory of the field is not listed among the configs of `model`.
-    listing = next(line for line in message.splitlines() if "From files" in line)
-    assert listing == "From files: a/wide"
-    # Another option's directory is not affected.
-    config = nematocyte.compose(_Clash, directory, overrides=["model=a/wide"])
-    assert config.model == _WithB(width=3)
-
-
 @pytest.mark.parametrize(
     ("name", "selection"),
     [
@@ -622,14 +597,6 @@ def test_config_name_of_a_named_config_suggests_the_selection(
     write_files(config_dir, {"dm/celeba/blond.yaml": _BLOND})
     with pytest.raises(ConfigError, match=f"Select one with {selection}\\."):
         nematocyte.compose(Config, config_dir, config_name=name)
-
-
-def test_config_name_in_the_directory_of_a_field_named_like_an_option(
-    tmp_path: Path,
-) -> None:
-    directory = write_files(tmp_path / "c", {"model/b/deep.yaml": "depth: 9\n"})
-    with pytest.raises(ConfigError, match=r"Select one with model\.b=deep\."):
-        nematocyte.compose(_Clash, directory, config_name="model/b/deep")
 
 
 def test_files_that_no_name_selects_are_not_listed(config_dir: Path) -> None:

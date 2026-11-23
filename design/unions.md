@@ -393,6 +393,10 @@ definition.
   `Discriminator`, since there is nothing to choose; one is allowed.
 - A member with more than one `Tag` is an error.
 - A class can be in a group only once, and an option name only once.
+- No option can have a field whose name is an option of the same group,
+  since the directory with that name would be both the option's and the
+  field's
+  ([composition.md](composition.md#the-configs-of-a-group-can-be-grouped-by-option)).
 - An option name, the string in the `Tag`, starts with a letter or an
   underscore, followed by letters, digits, `_` or `-`, so that it can be
   typed unquoted.

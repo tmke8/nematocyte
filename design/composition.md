@@ -109,7 +109,7 @@ first, and the `_defaults_` and values of this file apply on top.
 
 | File | What `_self_` can name | Required |
 | --- | --- | --- |
-| A named config for a group | An option of the group, or another named config in the same directory | Yes; the chain has to end at an option ([unions.md](unions.md#defaults)) |
+| A named config for a group | An option of the group, or another named config in the same directory | Yes, except in the directory of an option; the chain has to end at an option ([unions.md](unions.md#defaults)) |
 | A preset for a plain subconfig | Another preset in the same directory | No |
 | A primary config | Another primary config, by the name that `--config-name` takes | No |
 
@@ -332,7 +332,8 @@ option of `model`, `encoder/` holds named configs for the field `encoder`.
 A subdirectory of `configs/model/` has to match a dataclass field of at least
 one option of `model`, or be the directory of an option (below). Anything
 else is an error, because its files could be neither named configs nor
-primary configs.
+primary configs. The two cannot be confused: no option of a group can have a
+field named after an option of the group (below).
 
 ### The configs of a group can be grouped by option
 
@@ -342,9 +343,6 @@ group's directory itself. Their name has the subdirectory in front:
 
 ```yaml
 # configs/dm/celeba/male_blond.yaml
-_defaults_:
-  _self_: celeba
-
 superclass: Blond_Hair
 subclass: Male
 ```
@@ -356,6 +354,10 @@ is selected with `dm=celeba/male_blond`, on the command line or in
   looked up from `configs/dm/`, as for any named config of the group:
   `_self_: celeba` is the option, and `_self_: celeba/male_blond` another
   file in `configs/dm/celeba/`.
+- Without `_self_`, the file extends the option that the directory is named
+  after, as if it had `_self_: celeba`. The directory already says which
+  option it is, so the file does not have to repeat it. Writing
+  `_self_: celeba` is allowed.
 - The chain of `_self_` of such a file has to end at the option that the
   directory is named after. A file in `configs/dm/celeba/` whose chain ends
   at `cmnist` is an error that names the file and both options.
@@ -365,14 +367,18 @@ is selected with `dm=celeba/male_blond`, on the command line or in
 - A name with a slash is only the directory of an option of a group. For a
   plain subconfig, which has no options, it is an error, as is a name whose
   first part is not an option, such as `dm=other/x`.
-- If the name of an option is also a field of some option of the group, the
-  directory with that name keeps its meaning as the field's directory
-  ([above](#named-configs-for-a-nested-field-live-in-a-nested-directory)):
-  for a subconfig or a group, it holds the field's named configs, and for a
-  value it is an error. The option then has no directory, and a name such
-  as `dm=celeba/x` is an error that says the directory belongs to the
-  field. So nothing that is valid without this feature changes its
-  meaning.
+- No option of a group can have a field whose name is an option of the
+  group: if `model` has an option `cnn`, no option of `model` can have a
+  field `cnn`, of any kind. `configs/model/cnn/` would be both the
+  option's directory and the field's
+  ([above](#named-configs-for-a-nested-field-live-in-a-nested-directory)).
+  For a subconfig or a group, both would have their configs there. For a
+  value, the directory would be an error that
+  [catches](#a-directory-named-after-a-field-holds-no-primary-configs) a
+  user who expects `model.cnn=x` to load `configs/model/cnn/x.yaml`, and
+  the option's directory would hide that mistake. It is an error in the
+  schema, which names the group, the option and the field, whether or not
+  the directory exists.
 - `--help` lists the configs in the directories of options under
   `From files:`, with the others, as `celeba/male_blond`.
 

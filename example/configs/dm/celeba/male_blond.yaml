@@ -1,9 +1,7 @@
 ---
 _doc_: CelebA, with blond hair as the target and male as the subgroup.
-_defaults_:
-  # Specify here the name of the option of the `dm` config group you want to extend.
-  # `celeba` is declared in the `Config` class in `src/run.py`.
-  _self_: celeba
+# No `_defaults_` with `_self_: celeba` is needed: a file in `configs/dm/celeba/`
+# extends the option `celeba` of the `dm` config group.
 
 superclass: Blond_Hair
 subclass: Male
