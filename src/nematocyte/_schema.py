@@ -144,6 +144,8 @@ class FieldInfo:
     initvar: bool = False
     required: bool = True
     """False for a `NotRequired` key of a `TypedDict`, which may be left out."""
+    optional: bool = False
+    """For a subconfig: whether its type is `X | None`, so it can be switched off."""
 
     def class_default(self) -> Any:
         """The default from the class definition, or ``MISSING``."""
@@ -354,12 +356,19 @@ def _group_members(annotation: Any) -> tuple[list[tuple[Any, list[Any]]], list[A
     return [(inner, outer)], outer
 
 
-def _analyse(
-    annotation: Any, where: str
-) -> tuple[Kind, dict[str, type], type | None, bool]:
+@dataclass(frozen=True)
+class _Analysis:
+    kind: Kind
+    options: dict[str, type] = dataclasses.field(default_factory=dict)
+    config_cls: type | None = None
+    tagged: bool = False
+    optional: bool = False
+
+
+def _analyse(annotation: Any, where: str) -> _Analysis:
     members, outer = _group_members(annotation)
     if not any(is_config_class(member) for member, _ in members):
-        return Kind.VALUE, {}, None, False
+        return _Analysis(Kind.VALUE)
 
     tags = [[m for m in metadata if isinstance(m, Tag)] for _, metadata in members]
     for (member, _), member_tags in zip(members, tags, strict=True):
@@ -370,11 +379,19 @@ def _analyse(
                 f'key instead: {OPTION_KEY}: Literal["..."].'
             )
     discriminated = any(isinstance(m, Discriminator) for m in outer)
-    if len(members) == 1 and not tags[0] and not discriminated:
-        config_cls = members[0][0]
-        assert isinstance(config_cls, type)
-        if not is_typeddict_class(config_cls) or typeddict_option(config_cls) is None:
-            return Kind.CONFIG, {}, config_cls, False
+    # `X | None` is an optional subconfig; `None` in a group is an error below.
+    present = [
+        (member, member_tags)
+        for (member, _), member_tags in zip(members, tags, strict=True)
+        if member is not type(None)
+    ]
+    optional = len(present) < len(members)
+    if len(present) == 1 and not present[0][1] and not discriminated:
+        config_cls = present[0][0]
+        if is_config_class(config_cls) and (
+            not is_typeddict_class(config_cls) or typeddict_option(config_cls) is None
+        ):
+            return _Analysis(Kind.CONFIG, config_cls=config_cls, optional=optional)
 
     typeddicts = [m for m, _ in members if is_typeddict_class(m)]
     dataclasses_ = [
@@ -391,8 +408,8 @@ def _analyse(
     for (member, _), member_tags in zip(members, tags, strict=True):
         if member is type(None):
             raise SchemaError(
-                f"{where}: None is not allowed as a member of a group, and a "
-                "subconfig cannot be optional."
+                f"{where}: None is not allowed as a member of a group. Only a "
+                "subconfig of one class can be optional, as in X | None."
             )
         if not is_config_class(member):
             raise SchemaError(
@@ -416,7 +433,7 @@ def _analyse(
     if len(options) > 1:
         # pydantic needs no discriminator to pick the only option.
         _check_discriminator(outer, typeddicts=bool(typeddicts), where=where)
-    return Kind.GROUP, options, None, discriminated
+    return _Analysis(Kind.GROUP, options=options, tagged=discriminated)
 
 
 _FIELDS_CACHE: dict[type, dict[str, FieldInfo]] = {}
@@ -475,17 +492,18 @@ def _dataclass_fields(
             continue
         where = f"{cls.__name__}.{name}"
         _check_name(name, where)
-        kind, options, config_cls, tagged = _analyse(hint, where)
+        analysis = _analyse(hint, where)
         result[name] = FieldInfo(
             name=name,
-            kind=kind,
+            kind=analysis.kind,
             annotation=hint,
             owner=cls,
-            options=options,
-            config_cls=config_cls,
-            tagged=tagged,
+            options=analysis.options,
+            config_cls=analysis.config_cls,
+            tagged=analysis.tagged,
             field=field,
             initvar=initvar,
+            optional=analysis.optional,
         )
 
 
@@ -500,22 +518,24 @@ def _typeddict_fields(
         hint = _strip_qualifiers(raw_hint)
         where = f"{cls.__name__}.{name}"
         _check_name(name, where)
-        kind, options, config_cls, tagged = _analyse(hint, where)
+        analysis = _analyse(hint, where)
         required = name in required_keys
-        if not required and kind is not Kind.VALUE:
+        if not required and analysis.kind is not Kind.VALUE:
             raise SchemaError(
                 f"{where}: a subconfig or a group cannot be NotRequired; only a "
-                "value can be left out."
+                "value can be left out. A subconfig that can be switched off is "
+                "typed X | None."
             )
         result[name] = FieldInfo(
             name=name,
-            kind=kind,
+            kind=analysis.kind,
             annotation=hint,
             owner=cls,
-            options=options,
-            config_cls=config_cls,
-            tagged=tagged,
+            options=analysis.options,
+            config_cls=analysis.config_cls,
+            tagged=analysis.tagged,
             required=required,
+            optional=analysis.optional,
         )
 
 

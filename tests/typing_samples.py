@@ -70,6 +70,25 @@ def use_groups(config: Config) -> None:
     assert_type(config.opt.lr, float)
 
 
+# -- optional subconfigs --------------------------------------------------------
+
+
+@dataclass
+class WithOptional:
+    # Off by default, and on by default.
+    ema: Opt | None = None
+    warmup: Opt | None = field(default_factory=Opt)
+
+
+def use_optional(config: WithOptional) -> None:
+    assert_type(config.ema, Opt | None)
+    if config.ema is not None:
+        assert_type(config.ema.lr, float)
+
+
+assert_type(nematocyte.compose(WithOptional, overrides=["ema={}"]).warmup, Opt | None)
+
+
 # -- the entry point -----------------------------------------------------------
 
 

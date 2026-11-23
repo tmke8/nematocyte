@@ -1,7 +1,7 @@
 """Finding config files and combining them, with the overrides, into one tree."""
 
 from collections.abc import Collection, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import MISSING, dataclass
 import difflib
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -42,6 +42,7 @@ from ._tree import (
     make_root,
     next_step,
     require_child,
+    switched_off_message,
     unknown_key_message,
 )
 from ._tree import Path as KeyPath
@@ -199,31 +200,61 @@ class Composer:
         """Apply command-line overrides: selections first, then values.
 
         Apart from a key that is given more than once, where the last one
-        wins, the order of the overrides has no meaning. Selections are
-        applied shortest path first, so that `model=cnn` is in place before
-        `model.norm=batchnorm` is looked at.
+        wins, the order of the overrides has no meaning. Selections, and
+        `null` for an optional subconfig, are applied shortest path first, so
+        that `model=cnn` is in place before `model.norm=batchnorm` is looked
+        at. A dict for an optional subconfig switches it on along with them.
+        The values come after, in the order given, and with them the values
+        of the dicts for a subconfig or a group, which stand for their
+        dotted keys: a later value for the same key wins.
         """
         overrides = last_wins(overrides)
-        values: list[Override] = []
+        later: set[int] = set()
+        switched_off: dict[KeyPath, str] = {}
         for override in sorted(overrides, key=lambda o: len(o.key)):
             source = repr(override.text)
-            parent, info = self._locate(root, override.key, source)
+            parent, info = self._locate(
+                root, override.key, source, _plain_value(override)
+            )
             if info.kind is Kind.VALUE:
-                values.append(override)
+                later.add(id(override))
+                continue
+            if isinstance(override.value, dict):
+                # Switching on is a selection; the values follow in order.
+                _switch_on(parent, info, override.value, switched_off, source)
+                later.add(id(override))
                 continue
             if override.unset:
                 what = "a group" if info.kind is Kind.GROUP else "a subconfig"
+                hint = (
+                    f" To switch it off: {override.key_text}=null"
+                    if info.optional
+                    else ""
+                )
                 raise _error(
                     source,
                     f"{override.key_text!r} is {what} of {parent.describe()}, "
                     "so it cannot be left out. '~' leaves out a NotRequired "
-                    "key of a TypedDict.",
+                    f"key of a TypedDict.{hint}",
                 )
+            if override.value is None:
+                if not info.optional:
+                    raise _error(source, self._null_message(parent, info))
+                parent.switch_off(info)
+                switched_off[override.key] = source
+                continue
             name = self._selection_name(override, info)
             self._select(parent, info, name, source, f"the override {source}")
-        for override in values:
+        for override in overrides:
+            if id(override) not in later:
+                continue
             source = repr(override.text)
-            parent, info = self._locate(root, override.key, source)
+            parent, info = self._locate(
+                root, override.key, source, _plain_value(override)
+            )
+            if info.kind is not Kind.VALUE:
+                self._apply_mapping(parent, info, override, switched_off)
+                continue
             if override.unset:
                 _check_unset(override, parent, info)
                 parent.unset_value(info.name, f"the override {source}")
@@ -236,6 +267,51 @@ class Composer:
                     "as a string.",
                 )
             parent.set_value(info.name, override.value, f"the override {source}")
+
+    def _apply_mapping(
+        self,
+        parent: Node,
+        info: FieldInfo,
+        override: Override,
+        switched_off: dict[KeyPath, str],
+    ) -> None:
+        """Apply a dict for a subconfig or a group, as in a file.
+
+        The dict is merged into the subconfig, or into the selected option of
+        the group, and switches an optional subconfig on. `switched_off` maps
+        the optional subconfigs that `null` switched off to the override.
+        """
+        source = repr(override.text)
+        label = f"the override {source}"
+        if info.optional:
+            _check_not_switched_off(parent, info, switched_off, source)
+            child = parent.switch_on(info)
+        else:
+            try:
+                child = require_child(parent, info)
+            except ConfigError as exc:
+                raise _error(source, str(exc)) from None
+        child.touched = True
+        self._apply_values(
+            child, override.value, label, command_line=True, switched_off=switched_off
+        )
+
+    def _null_message(self, node: Node, info: FieldInfo) -> str:
+        """The error for null on a subconfig that is not optional, or a group."""
+        path = (*node.path, info.name)
+        key = format_path(path)
+        if info.kind is Kind.GROUP:
+            return (
+                f"{key!r} is a group of {node.describe()}, and cannot be null: "
+                f"only a subconfig of one class can be optional, as in "
+                f"X | None.{self._available(path, info)}"
+            )
+        assert info.config_cls is not None
+        name = info.config_cls.__name__
+        return (
+            f"{key!r} is a subconfig of {node.describe()}, and cannot be null: "
+            f"its type is {name}, not {name} | None."
+        )
 
     # -- where the files are ----------------------------------------------
 
@@ -449,10 +525,26 @@ class Composer:
             self._select(parent, info, name, source, file.label)
         self._apply_values(node, file.values, file.label)
 
-    def _apply_values(self, node: Node, values: dict[Any, Any], label: str) -> None:
+    def _apply_values(
+        self,
+        node: Node,
+        values: dict[Any, Any],
+        label: str,
+        *,
+        command_line: bool = False,
+        switched_off: dict[KeyPath, str] | None = None,
+    ) -> None:
+        """Apply the values of a file, or of a dict on the command line.
+
+        A mapping goes into a subconfig or a group, and switches an optional
+        subconfig on; null switches it off, and is an error for any other
+        subconfig or group. `switched_off` maps the optional subconfigs that
+        `null` on the command line switched off to the override; a dict
+        cannot switch those on again.
+        """
         for key, value in values.items():
             info = node.fields.get(key) if isinstance(key, str) else None
-            if info is None and key == DOC_KEY:
+            if info is None and key == DOC_KEY and not command_line:
                 raise _error(
                     label,
                     f"'{DOC_KEY}' is under {node.describe()}, but it describes "
@@ -465,10 +557,25 @@ class Composer:
                 continue
             path = format_path((*node.path, info.name))
             if value is None:
+                # Also a key with nothing under it, which YAML reads as null.
+                if not info.optional:
+                    hint = (
+                        ""
+                        if command_line
+                        else f"\nA key with nothing under it is null too. Leave "
+                        f"out the key, or write {info.name}: {{}}."
+                    )
+                    raise _error(label, self._null_message(node, info) + hint)
+                node.switch_off(info)
                 continue
             if not isinstance(value, dict):
                 hint = ""
-                if isinstance(value, str):
+                if isinstance(value, str) and command_line:
+                    hint = (
+                        f"\nTo select the config called {value!r} for {path!r}: "
+                        f"{path}={format_value(value)}"
+                    )
+                elif isinstance(value, str):
                     hint = (
                         f"\nTo select the config called {value!r} for {path!r}, "
                         f"write it under '_defaults_'."
@@ -479,19 +586,34 @@ class Composer:
                     f"{path!r} is {what}, so its value has to be a mapping of "
                     f"its fields, not {value!r}.{hint}",
                 )
-            try:
-                child = require_child(node, info)
-            except ConfigError as exc:
-                raise _error(label, str(exc)) from None
+            if info.optional:
+                if switched_off is not None:
+                    _check_not_switched_off(node, info, switched_off, label)
+                child = node.switch_on(info)
+            else:
+                try:
+                    child = require_child(node, info)
+                except ConfigError as exc:
+                    raise _error(label, str(exc)) from None
             child.touched = True
-            self._apply_values(child, value, label)
+            self._apply_values(
+                child,
+                value,
+                label,
+                command_line=command_line,
+                switched_off=switched_off,
+            )
 
     # -- selections --------------------------------------------------------
 
     def _locate(
-        self, start: Node, path: KeyPath, source: str
+        self, start: Node, path: KeyPath, source: str, value: Any = MISSING
     ) -> tuple[Node, FieldInfo]:
-        """Follow `path` from `start`; return the last node and the field in it."""
+        """Follow `path` from `start`; return the last node and the field in it.
+
+        `value` is what is to be set at `path`, if anything, for the error
+        when the path goes through an optional subconfig that is off.
+        """
         node = start
         for index, segment in enumerate(path):
             info = node.fields.get(segment)
@@ -508,6 +630,9 @@ class Composer:
                     f"{rest!r}. A value such as a dict is set as a whole: "
                     f"{here}={{...}}.",
                 )
+            if node.is_off(info):
+                rest = path[index + 1 :]
+                raise _error(source, switched_off_message(node, info, rest, value))
             try:
                 node = require_child(node, info)
             except ConfigError as exc:
@@ -523,12 +648,6 @@ class Composer:
                 source,
                 "The value is a sweep over several values. Add --multirun to "
                 "run one job per value.",
-            )
-        if isinstance(override.value, dict):
-            raise _error(
-                source,
-                f"{key!r} is {what} and cannot be given a dict value. Set its "
-                f"fields one by one, as in {key}.field=value.",
             )
         if not isinstance(override.value, str):
             raise _error(
@@ -626,7 +745,8 @@ class Composer:
                 f"{self._available(path, info)}"
                 f"{_hydra_defaults_hint(file, _option_fields(info))}",
             )
-        node = parent.children[info.name]
+        # A preset switches an optional subconfig on.
+        node = parent.switch_on(info) if info.optional else parent.children[info.name]
         if option is not None and node.option != option:
             raise _error(
                 file.label,
@@ -772,6 +892,60 @@ def _explicit(node: Node, selections: tuple[Selection, ...]) -> Iterator[_Droppe
                 )
             inner = (*selections, child.selection)
         yield from _explicit(child, inner)
+
+
+def _switch_on(
+    parent: Node,
+    info: FieldInfo,
+    value: dict[Any, Any],
+    switched_off: dict[KeyPath, str],
+    source: str,
+) -> None:
+    """Switch on the optional subconfigs that a dict on the command line opens.
+
+    That is the field `info` itself, if it is optional, and every optional
+    subconfig under it that the dict has a mapping for. Anything else in the
+    dict is left for when its values are applied.
+    """
+    if info.optional:
+        _check_not_switched_off(parent, info, switched_off, source)
+        child = parent.switch_on(info)
+    else:
+        found = parent.children.get(info.name)
+        if found is None:
+            return
+        child = found
+    for key, inner in value.items():
+        field = child.fields.get(key) if isinstance(key, str) else None
+        if (
+            field is not None
+            and field.kind is not Kind.VALUE
+            and isinstance(inner, dict)
+        ):
+            _switch_on(child, field, inner, switched_off, source)
+
+
+def _check_not_switched_off(
+    node: Node, info: FieldInfo, switched_off: dict[KeyPath, str], source: str
+) -> None:
+    """A dict cannot switch on an optional subconfig that `null` switched off."""
+    path = (*node.path, info.name)
+    off = switched_off.get(path)
+    if off is not None:
+        key = format_path(path)
+        raise _error(
+            source,
+            f"{key!r} is switched off by {off} and switched on by a dict. "
+            f"The order of the arguments does not decide between the two; "
+            f"give only one of them.",
+        )
+
+
+def _plain_value(override: Override) -> Any:
+    """The value of `override`, or ``MISSING`` for `~key` or a sweep."""
+    if override.unset or override.is_sweep:
+        return MISSING
+    return override.value
 
 
 def _check_unset(override: Override, parent: Node, info: FieldInfo) -> None:

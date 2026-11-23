@@ -155,15 +155,6 @@ def test_none_in_a_group_is_an_error() -> None:
         class_fields(C)
 
 
-def test_optional_dataclass_field_is_an_error() -> None:
-    @dataclass
-    class C:
-        ema: A | None = None
-
-    with pytest.raises(SchemaError, match=r"C\.ema"):
-        class_fields(C)
-
-
 def test_duplicate_option_name_is_an_error() -> None:
     @dataclass
     class C:

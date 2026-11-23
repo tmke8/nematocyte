@@ -968,10 +968,14 @@ def test_json5_without_the_extra(
     assert "nematocyte[json5]" in message
 
 
-def test_subconfig_key_with_nothing_under_it_is_ignored(config_dir: Path) -> None:
+def test_group_key_with_nothing_under_it_is_an_error(config_dir: Path) -> None:
+    # YAML reads the key as null, and the group is not optional, as in Hydra.
     write_files(config_dir, {"empty.yaml": "model:\n  # nothing yet\nseed: 3\n"})
-    config = nematocyte.compose(Config, config_dir, config_name="empty")
-    assert config == Config(seed=3)
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, config_name="empty")
+    message = str(excinfo.value)
+    assert "empty.yaml" in message
+    assert "'model' is a group of Config" in message
 
 
 # -- added configs: +NAME ----------------------------------------------------

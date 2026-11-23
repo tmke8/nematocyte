@@ -38,7 +38,7 @@ from ._settings import (
     SubmititSlurmLauncher,
     TpeSampler,
 )
-from ._tree import Node
+from ._tree import Node, switched_off_message
 from ._tree import Path as KeyPath
 
 __all__ = ["Multirun", "check_params", "parse_params", "run_multirun"]
@@ -119,16 +119,28 @@ class Multirun:
     config_name: str | None
     added: list[AddedConfig]
     """The primary configs from `+NAME` arguments, in the order given."""
-    fixed: list[Override]
-    """The overrides from the command line that are not sweeps."""
-    sweeps: dict[KeyPath, Sweep]
-    """The sweeps from the command line."""
+    arguments: list[Override]
+    """The overrides from the command line, in the order given.
+
+    A key is swept at most once, so that a swept value can take the place
+    of its sweep.
+    """
     settings: Settings
     now: datetime
     start: StartDir
     program: str
     """The name of the script, without `.py`."""
     results: list[JobResult] = field(default_factory=list)
+
+    @property
+    def fixed(self) -> list[Override]:
+        """The overrides from the command line that are not sweeps."""
+        return [override for override in self.arguments if not override.is_sweep]
+
+    @property
+    def sweeps(self) -> dict[KeyPath, Sweep]:
+        """The sweeps from the command line."""
+        return {o.key: o.value for o in self.arguments if o.is_sweep}
 
     def make_job(self, number: int, assignments: Sequence[tuple[KeyPath, Any]]) -> Job:
         """Compose, resolve and check the config of one job.
@@ -157,12 +169,25 @@ class Multirun:
     def overrides_with(
         self, assignments: Sequence[tuple[KeyPath, Any]]
     ) -> list[Override]:
-        """The fixed overrides, with `assignments` on top of them."""
-        overrides = {override.key: override for override in self.fixed}
-        for path, value in assignments:
-            text = f"{'.'.join(path)}={format_value(value)}"
-            overrides[path] = Override(path, value, text)
-        return list(overrides.values())
+        """The overrides of one job: the command line, with `assignments`.
+
+        A value for a sweep on the command line takes the place of the sweep,
+        so that the order of the arguments is kept: a later dict that sets
+        the same key wins, as in Hydra. The other values, from the `params`
+        of the sweeper, come first, so that the command line wins over them.
+        A sweep without a value is left out.
+        """
+        values = dict(assignments)
+        swept = {override.key for override in self.arguments if override.is_sweep}
+        overrides = [
+            _assigned(path, value) for path, value in assignments if path not in swept
+        ]
+        for override in self.arguments:
+            if not override.is_sweep:
+                overrides.append(override)
+            elif override.key in values:
+                overrides.append(_assigned(override.key, values[override.key]))
+        return overrides
 
     def launch(self, jobs: list[Job]) -> list[JobResult]:
         """Run a batch of jobs with the launcher that is selected."""
@@ -173,6 +198,10 @@ class Multirun:
             results = _launch_basic(self, jobs)
         self.results.extend(results)
         return results
+
+
+def _assigned(path: KeyPath, value: Any) -> Override:
+    return Override(path, value, f"{'.'.join(path)}={format_value(value)}")
 
 
 def job_label(job: Job) -> str:
@@ -298,7 +327,8 @@ def _merged_params(run: Multirun, where: str) -> dict[KeyPath, Any]:
     """The `params` of the sweeper, with the command line on top."""
     params = parse_params(run.settings.sweeper.params, where)
     check_params(params, run.entry.config_cls, where)
-    overridden = {override.key for override in run.fixed}
+    # A dict stands for its dotted keys, and does not replace a sweep.
+    overridden = {o.key for o in run.fixed if not o.is_mapping}
     merged = {path: value for path, value in params.items() if path not in overridden}
     merged.update(run.sweeps)
     return merged
@@ -399,6 +429,11 @@ def _check_exact(
             info = node.fields.get(segment)
             last = index == len(path) - 1
             child = node.children.get(segment)
+            if info is not None and not last and node.is_off(info):
+                raise ConfigError(
+                    f"The swept key {'.'.join(path)!r} does not exist in the "
+                    f"config: {switched_off_message(node, info, path[index + 1 :])}"
+                )
             if info is None or (
                 not last and (info.kind is Kind.VALUE or child is None)
             ):

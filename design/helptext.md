@@ -160,6 +160,11 @@ the docs as comments.
   out, is shown as `key=` with `(not set)` in `--help`, and as a comment
   `# key: not set` in `--cfg`. In `--cfg`, a subconfig with nothing but such
   keys is `{}`.
+- An optional subconfig ([unions.md](unions.md#optional-subconfigs)) shows
+  its type, `[EmaCfg | null]`, after the key. When it is on, it is shown as
+  any subconfig, `ema:` with its fields below. When it is off, `--help`
+  shows `ema=null`, with its presets but no fields, and `--cfg` shows
+  `ema: null`.
 - Python 3.15 generates dataclass docstrings lazily, through an object that
   is not a string. The check for generated docstrings handles both.
 

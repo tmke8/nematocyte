@@ -110,7 +110,12 @@ class _Help:
             else:
                 assert info.config_cls is not None
                 doc = info.doc or class_doc(info.config_cls)
-                self.row(f"{key}:", doc, _listing("Presets:", files))
+                left = f"{key}:"
+                if info.optional:
+                    # An optional subconfig shows its type, and `null` if off.
+                    doc = f"[{type_text(info.annotation)}] {doc}".rstrip()
+                    left = left if child is not None else f"{key}=null"
+                self.row(left, doc, _listing("Presets:", files))
             if child is not None:
                 self.node(child, key + ".")
             self.gap()
@@ -184,6 +189,20 @@ def _comment(text: str, indent: str, width: int) -> list[str]:
     return [f"{indent}# {line}" for line in textwrap.wrap(text, room)]
 
 
+def _cfg_node_doc(info: FieldInfo, child: Node | None) -> str:
+    """The comment above a subconfig or a group in `--cfg`; empty if none."""
+    if info.kind is Kind.GROUP:
+        selected = child.option if child is not None else "none"
+        note = f"Options: {', '.join(info.options)}. Selected: {selected}."
+        return f"{info.doc} {note}".strip()
+    assert info.config_cls is not None
+    doc = info.doc or class_doc(info.config_cls)
+    if info.optional:
+        # An optional subconfig shows its type, as a value does.
+        doc = f"{doc} ({type_text(info.annotation)})".strip()
+    return doc
+
+
 def _cfg_node(
     node: Node, indent: str, width: int, lines: list[str], *, skip: str | None
 ) -> None:
@@ -206,16 +225,10 @@ def _cfg_node(
                 lines += [indent + line for line in _dump_yaml(info.name, value)]
             continue
         child = node.children.get(info.name)
-        if info.kind is Kind.GROUP:
-            selected = child.option if child is not None else "none"
-            doc = info.doc
-            note = f"Options: {', '.join(info.options)}. Selected: {selected}."
-            lines += _comment(f"{doc} {note}".strip(), indent, width)
-        else:
-            assert info.config_cls is not None
-            doc = info.doc or class_doc(info.config_cls)
-            if doc:
-                lines += _comment(doc, indent, width)
+        lines += _comment(_cfg_node_doc(info, child), indent, width)
+        if child is None and info.optional:
+            lines.append(f"{indent}{info.name}: null")
+            continue
         if child is None:
             lines.append(f"{indent}{info.name}: {_REQUIRED}  # no option is selected")
             continue

@@ -87,23 +87,124 @@ The built-in options keep Hydra's names ([multirun.md](multirun.md)):
 submitit and Optuna are optional extras of the nematocyte package. They are
 imported only when their option is selected.
 
-### No optional dataclass fields, for now
+## Optional subconfigs
 
-`None` is not allowed as a member of a group, and a plain dataclass field
-cannot be `X | None`. `hydra-example` has neither.
+A plain subconfig can be switched off: its field is typed `X | None`, where
+`X` is a dataclass or a TypedDict.
 
-For when this is added, the points that need an answer:
+```python
+@dataclass
+class Config:
+    ema: EmaCfg | None = None
+    """Off unless a config switches it on."""
+    augment: AugmentCfg | None = field(default_factory=AugmentCfg)
+    """On unless a config switches it off."""
+```
 
-- Switching the field off. `scheduler=null` matches how `wandb.name=null`
-  gives `None`. In Hydra, `- opt: null` in a defaults list means something
-  else ("load no file, keep the dataclass defaults"), but nematocyte does not
-  need that entry, so `null` is free.
-- Setting a field while it is off. With `scheduler` at `None`,
-  `scheduler.t_max=10` names no class.
-- A single optional dataclass, `ema: EmaCfg | None = None`. There is nothing
-  to select by name, and a dict value (`ema={}`) is not allowed. Under the
-  rule that every member needs a name it would be
-  `Annotated[EmaCfg, Tag("on")] | None`, switched on with `ema=on`.
+### How Hydra does it
+
+Tested with hydra-core, with `ema: Optional[EmaCfg] = None` and
+`ema_on: Optional[EmaCfg] = field(default_factory=EmaCfg)`, where `EmaCfg`
+has `decay: float = 0.99` and `every: int = 1`:
+
+| Where | Written | Result |
+| --- | --- | --- |
+| File | `ema_on: null` | `None` |
+| Command line | `ema_on=null` | `None` |
+| Command line | `~ema_on` | `EmaCfg(decay=0.99, every=1)`: the key is deleted, and `OmegaConf.to_object` puts the default of the dataclass back |
+| File | `ema: {}` | `EmaCfg()` |
+| File | `ema: {decay: 0.5}` | `EmaCfg(decay=0.5, every=1)` |
+| Command line | `ema={}`, `ema={decay:0.5}` | The same as in a file |
+| Command line | `ema.decay=0.5`, with `ema` at `None` | "Cannot set 'ema.decay' because 'ema' is None" |
+| File | `plain: null`, or `plain:` with nothing under it, for `plain: EmaCfg` | "field 'plain' is not Optional" |
+| File | The same for a group field typed as its base class, `model: ModelCfg = MISSING` | "field 'model' is not Optional"; with `Any` as the type, `None` |
+
+### Decided
+
+- **The type.** The field is `X | None` (or `Optional[X]`), with one
+  dataclass or TypedDict `X` that carries no `Tag`. Its default is `None`
+  (off), an instance of `X` (on), or there is none. `None` is still not
+  allowed in a group, and a subconfig still cannot be a `NotRequired` key
+  of a TypedDict ([deserializer.md](deserializer.md#typeddict-configs)).
+- **`null` switches it off**: `ema: null` in a file, `ema=null` on the
+  command line. In a file, a key with nothing under it (`ema:` and then
+  only comments) is the same value to YAML, and switches it off too. For a
+  subconfig that is not optional, and for a group, null is an error, in a
+  file as on the command line, as in Hydra
+  ([composition.md](composition.md)). What lower layers set under
+  the field is dropped, without a `DroppedValueWarning`: that is what
+  `null` asks for.
+- **A mapping switches it on**: `ema: {decay: 0.5}` in a file,
+  `ema={decay:0.5}` on the command line ([cli.md](cli.md)), or a preset
+  (`ema=fast`, or `ema: fast` under `_defaults_`). If the field is off, the
+  node starts from the class defaults of `X`, as when an option of a group
+  is selected, not from the default instance of the field, and the mapping
+  or preset is applied on top. If it is on, the mapping is merged into it,
+  as for any subconfig. `ema={}` switches it on with the class defaults,
+  and leaves it as it is if it is on.
+- **A dotted key does not switch it on.** `ema.decay=0.5` while `ema` is off
+  is an error that names the key and the class, and shows `ema={decay:0.5}`.
+  Setting one value should not bring back all the others. The same holds
+  for a dotted entry under `_defaults_`, such as `ema.inner: fast`.
+- **The order on the command line**
+  ([cli.md](cli.md#group-or-value-from-the-fields-type)). `ema=null` is
+  applied with the selections, so `ema=null ema.decay=0.5` is an error in
+  either order, and `ema=null ema=fast` are the same key: the last one
+  wins. A dict stands for its dotted keys, and is applied with the values,
+  in the order of the arguments: `ema={decay:0.5} ema.decay=0.2` sets
+  `0.2`. Switching on is part of the selections, so that
+  `ema.every=4 ema={decay:0.5}` works in either order. With a preset, both
+  apply: `ema=fast ema={decay:0.5}` sets `decay` on top of `fast`. With
+  `ema=null`, a dict for `ema` is an error, in either order: one switches
+  it off and the other on.
+- **Nothing else changes for the node.** An interpolation that refers to a
+  key under a subconfig that is off is an error, as for a key that has no
+  value ([interpolation.md](interpolation.md)). `nematocyte.to_dict` writes
+  `null` for it. `--help` and `--cfg` show it as `null`
+  ([helptext.md](helptext.md)).
+
+### Rejected ideas
+
+- **`~ema` switches it off.** In Hydra, `~ema` deletes the key, and the
+  default of the dataclass comes back, which is "off" only when the default
+  is `None`. In nematocyte, `~` leaves out a key of a TypedDict
+  ([cli.md](cli.md#key-leaves-out-an-optional-key-of-a-typeddict)); on a
+  field of a dataclass it is an error, which points to `ema=null`.
+- **A name for "on"**, as in `Annotated[EmaCfg, Tag("on")] | None` with
+  `ema=on`, under the rule that every member of a union needs a name. A
+  mapping switches it on without a name, and `on` would look like a preset.
+- **A dotted key switches it on**, as a mapping does. It would make
+  `ema.decay=0.5` bring back every other value of `EmaCfg` from its class
+  defaults, which is too surprising for a change to one value.
+
+### Optional groups
+
+A group cannot be optional: `None` is not allowed as a member of its
+union, and `model: null` in a file and `model=null` on the command line are
+errors. `hydra-example` has no optional group.
+
+What Hydra does with null for a group, tested with hydra-core:
+
+| Where | Hydra |
+| --- | --- |
+| Defaults list, `- model: null` | Loads no file for the group |
+| Body of a file, `model: null`, field typed as its base class (`model: ModelCfg = MISSING`) | "field 'model' is not Optional" |
+| Body of a file, field typed `Any` | `None` |
+| Command line, `model=null` | Crashes: "Config group override must be a string or a list" |
+
+The points to settle if optional groups are added:
+
+- **Switching the group off.** `model=null` and `model: null` would match
+  how `ema=null` switches an optional subconfig off, and how
+  `wandb.name=null` gives `None`. Null is free for this: Hydra's command
+  line crashes on it, a typed field rejects it in a file, and the one use
+  with another meaning, `- model: null` in a defaults list, is an error in
+  nematocyte ([composition.md](composition.md)). Since null for a group is
+  an error now, giving it this meaning later changes nothing that works.
+- **Setting a field while the group is off.** With `model` off,
+  `model.num_hidden=2` names no class. Under the rule for optional
+  subconfigs, where a dotted key does not switch it on, it would be an
+  error, pointing to `model=NAME`.
 
 ## Defaults
 

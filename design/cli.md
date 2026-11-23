@@ -139,8 +139,10 @@ The rules:
   the argument, the key and the class: a `Required` key; a field of a
   dataclass, where the error points to `KEY=null` if the field takes
   `None`; a subconfig or a group, which cannot be `NotRequired`
-  ([unions.md](unions.md#no-optional-dataclass-fields-for-now)); and an
-  unknown key, as for `KEY=value`.
+  ([deserializer.md](deserializer.md#typeddict-configs)), where the error
+  points to `KEY=null` if the subconfig is optional
+  ([unions.md](unions.md#optional-subconfigs)); and an unknown key, as for
+  `KEY=value`.
 - `~KEY=value` is an error, which shows the two forms that may have been
   meant, `~KEY` and `KEY=value`. Hydra's conditional delete is not
   supported.
@@ -190,10 +192,47 @@ Hydra merges instead, which is not what `=` suggests.
 Dotted paths end at the dict-typed field. `opt.optimizer_kwargs.eps=1e-6` is
 not supported; to change one key, the whole dict is given again.
 
-### A dataclass field cannot be given a dict value
+### A dict for a subconfig or a group stands for its dotted keys
 
-`opt={lr:0.1}` is an error. Hydra accepts it and merges the dict into the
-subconfig. In nematocyte the fields are set one by one (`opt.lr=0.1`).
+`opt={lr:0.1}` does what `opt: {lr: 0.1}` does in a config file: the values
+are merged into the subconfig, and the values that it held before stay. It
+is the same as `opt.lr=0.1`, and its keys are the same keys as the dotted
+ones. A `dict[...]` field is replaced instead
+([above](#a-dict-typed-field-is-set-as-a-whole-and-replaced)), as it is in
+a file too. So `=` means "as in a file" for both. Hydra merges the dict
+into the subconfig as well.
+
+- The dict is applied with the values, in the order of the arguments, so
+  that the last one wins for each key: `opt.lr=0.2 opt={lr:0.1}` sets
+  `0.1`, and `opt={lr:0.1} opt.lr=0.2` sets `0.2`. Two dicts for the same
+  subconfig both apply: `opt={lr:0.1} opt={momentum:0.9}` sets both.
+- The dict stands for its dotted keys down to the first field that holds a
+  value. A dict there is the value: `opt={optimizer_kwargs:{eps:1e-6}}` is
+  `opt.optimizer_kwargs={eps:1e-6}`. Inside a group, which fields hold a
+  value depends on the option, so the dict is read after the selections.
+- A selection and a dict for the same key both apply, the selection first,
+  as with dotted keys: `opt=fast opt={lr:0.1}` applies the preset `fast`
+  and then sets `lr`, in either order.
+- For a group, the dict goes into the option that is selected, as in Hydra:
+  `model=cnn model={kernel_size:3}` gives `Cnn(kernel_size=3)` in either
+  order. If no option is selected, it is an error that lists the options.
+- A string for a nested group or subconfig is an error that points to
+  `KEY=NAME`, as a string among the values of a file points to
+  `_defaults_`.
+- For an optional subconfig that is off, a dict switches it on, and
+  `ema={}` does so with the class defaults
+  ([unions.md](unions.md#optional-subconfigs)). That happens with the
+  selections, also for an optional subconfig inside the dict, so that
+  `ema.every=4 ema={decay:0.5}` works in either order; the values of the
+  dict follow in order. Together with `ema=null`, in either order, the dict
+  is an error, since the order of the arguments does not decide between
+  them.
+- A key can be swept only once: `-m opt={lr:1},{lr:2} opt=fast,slow` is an
+  error.
+- With `--multirun`, a swept value keeps the place of its sweep among the
+  arguments. As in Hydra, `opt.lr=0.1,0.2 opt={lr:0.5}` gives two jobs that
+  both have `lr=0.5`, and `opt={lr:0.5} opt.lr=0.1,0.2` gives `0.1` and
+  `0.2`.
 
 ### A hand-written parser
 
@@ -275,10 +314,14 @@ so `seed=123` is a value.
 The order of the arguments has no meaning: `model.kernel_size=3 model=cnn`
 is the same as `model=cnn model.kernel_size=3`. Selections are applied
 first, shortest path first, and then the values. There are two exceptions.
-A key that is given more than once: the last one wins, and the earlier ones
-are dropped before anything is applied (`seed=1 seed=2` sets `2`; with
-`--multirun`, `seed=1,2 seed=3` is one job). And the added configs
-(`+NAME`) are applied in the order given, before all selections and values. What a selection does to
+A key that is given more than once: the last one wins (`seed=1 seed=2` sets
+`2`). An earlier selection or value for the key is dropped before anything
+is applied, so that with `--multirun`, `seed=1,2 seed=3` is one job. A dict
+for a subconfig or a group is not dropped: it stands for its dotted keys,
+and is applied with the values, in the order of the arguments
+([below](#a-dict-for-a-subconfig-or-a-group-stands-for-its-dotted-keys)).
+And the added configs (`+NAME`) are applied in the order given, before all
+selections and values. What a selection does to
 the values that the config files set is described in
 [composition.md](composition.md#layers).
 
