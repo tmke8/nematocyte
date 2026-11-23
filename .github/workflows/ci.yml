@@ -8,6 +8,8 @@ on:
   pull_request:
     branches:
       - main
+  # The release workflow runs all of CI before it publishes.
+  workflow_call:
 
 jobs:
   lint:

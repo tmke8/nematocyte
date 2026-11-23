@@ -1,0 +1,66 @@
+---
+name: Release
+
+# Pushing a tag such as `v0.1.0` publishes that version to PyPI. The tag has
+# to match the version in `pyproject.toml`.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Check that the tag matches the version in pyproject.toml
+        run: |
+          version="$(uv version --short)"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::The tag ${GITHUB_REF_NAME} does not match the version ${version} in pyproject.toml"
+            exit 1
+          fi
+      - name: Build the sdist and the wheel
+        run: |
+          uv build --no-sources
+      - name: Check that the wheel installs and imports
+        run: |
+          uv run --isolated --no-project --python 3.14 --with dist/*.whl python -c "import nematocyte"
+      - name: Check that the sdist installs and imports
+        run: |
+          uv run --isolated --no-project --python 3.14 --with dist/*.tar.gz python -c "import nematocyte"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # The trusted publisher on PyPI is bound to this environment.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/nematocyte
+    permissions:
+      # For trusted publishing: the job proves to PyPI who it is with an
+      # OIDC token instead of an API token.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Publish to PyPI
+        run: |
+          uv publish --trusted-publishing always
