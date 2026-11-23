@@ -256,6 +256,25 @@ other values. See [composition.md](design/composition.md#layers).
 
 ## Config files
 
+### `_replace_: true` replaces a TypedDict
+
+A mapping in a config file is merged into what was set before, in Hydra and
+in nematocyte. In Hydra, a file cannot take out a key that a lower layer
+set: `key: null` sets `None`, and `key: ???` leaves the value as it was. In
+nematocyte, the mapping for a TypedDict can replace the node instead:
+
+```yaml
+opt:
+  _replace_: true
+  lr: 0.001
+```
+
+`opt` is then `{"lr": 0.001}`, whatever the field default, the primary
+config or a preset set under it. On the command line, the same is
+`opt={_replace_:true,lr:0.001}`; `~opt.wd` takes out a single key. A
+dataclass cannot be replaced this way. See
+[composition.md](design/composition.md#_replace_-true-replaces-a-typeddict-instead-of-merging-into-it).
+
 ### `_defaults_` is a mapping
 
 The key is called `_defaults_`, not `defaults`, so that `defaults` can be the

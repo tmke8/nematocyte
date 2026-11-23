@@ -1,6 +1,7 @@
 """Finding config files and combining them, with the overrides, into one tree."""
 
 from collections.abc import Collection, Iterator, Sequence
+import dataclasses
 from dataclasses import MISSING, dataclass
 import difflib
 import os
@@ -25,6 +26,7 @@ from ._overrides import AddedConfig, Override, format_value, last_wins
 from ._schema import (
     DEFAULTS_KEY,
     DOC_KEY,
+    REPLACE_KEY,
     RESERVED_KEY,
     SELF_KEY,
     FieldInfo,
@@ -197,8 +199,15 @@ class Composer:
         with them. The values come after, in the order given, and with them
         the values of the dicts for a subconfig or a group, which stand for
         their dotted keys: a later value for the same key wins.
+
+        Before anything else, a dict with `_replace_` drops what the config
+        files set under its TypedDict, so that it keeps what the command line
+        sets, whatever the order of the arguments.
         """
         overrides = last_wins(overrides)
+        for override in overrides:
+            if isinstance(override.value, dict):
+                self._replace_override(root, override)
         later: set[int] = set()
         switched_off: dict[KeyPath, str] = {}
         for override in sorted(overrides, key=lambda o: len(o.key)):
@@ -319,6 +328,48 @@ class Composer:
             f"{key!r} is a subconfig of {node.describe()}, and cannot be null: "
             f"its type is {name}, not {name} | None."
         )
+
+    def _replace_override(self, root: Node, override: Override) -> None:
+        """Apply `_replace_` in the dict of `override`, if it is in the tree."""
+        assert isinstance(override.value, dict)
+        node = _find_node(root, override.key)
+        if node is not None:
+            label = f"the override {override.text!r}"
+            self._replace_nodes(node, override.value, label)
+
+    def _replace_nodes(self, node: Node, values: dict[Any, Any], label: str) -> None:
+        """Apply `_replace_` in `values`, and in the mappings inside it.
+
+        This comes before the rest of the layer: a node that is not in the
+        tree yet is skipped, since it has nothing to drop.
+        """
+        if REPLACE_KEY in values:
+            _check_replace(node, values[REPLACE_KEY], label)
+            node.replace()
+            self._forget_drops(node.path)
+        for key, value in values.items():
+            info = node.fields.get(key) if isinstance(key, str) else None
+            if info is None or info.kind is Kind.VALUE or not isinstance(value, dict):
+                continue
+            child = node.children.get(info.name)
+            if child is not None:
+                self._replace_nodes(child, value, label)
+
+    def _forget_drops(self, path: KeyPath) -> None:
+        """Forget the values under `path` that a selection dropped.
+
+        `_replace_` drops them anyway, so they are not warned about.
+        """
+        if self._drops is None:
+            return
+        kept: list[_Drop] = []
+        for drop in self._drops:
+            items = tuple(
+                item for item in drop.dropped if item.path[: len(path)] != path
+            )
+            if items:
+                kept.append(dataclasses.replace(drop, dropped=items))
+        self._drops = kept
 
     # -- where the files are ----------------------------------------------
 
@@ -496,6 +547,8 @@ class Composer:
                 file.label,
                 f"{_HYDRA_DEFAULTS_KEY!r} is not a field of {node.describe()}.{hint}",
             )
+        # `_replace_` drops what the layers below set, not what this file selects.
+        self._replace_nodes(node, file.values, file.label)
         entries = [
             (tuple(key.split(".")), key, name)
             for key, name in file.defaults.items()
@@ -547,6 +600,12 @@ class Composer:
         on again. `prefix` is the path of `node` below the node of the file.
         """
         for key, value in values.items():
+            if key == REPLACE_KEY:
+                # Applied before the rest of the layer, by `_replace_nodes`,
+                # where the node was in the tree; it is checked again here,
+                # for a node that only this mapping switches on.
+                _check_replace(node, value, label)
+                continue
             info = node.fields.get(key) if isinstance(key, str) else None
             if info is None and key == DOC_KEY and not command_line:
                 raise _error(
@@ -649,6 +708,15 @@ class Composer:
         node = start
         for index, segment in enumerate(path):
             info = node.fields.get(segment)
+            if info is None and segment == REPLACE_KEY:
+                parent = format_path(node.path)
+                example = f": {parent}={{{REPLACE_KEY}:true,...}}" if parent else ""
+                raise _error(
+                    source,
+                    f"{REPLACE_KEY!r} is not a field of {node.describe()}. It "
+                    f"goes into the mapping for a TypedDict, which then replaces "
+                    f"what was set before{example}",
+                )
             if info is None:
                 raise _error(source, unknown_key_message(node, segment))
             if index == len(path) - 1:
@@ -999,6 +1067,43 @@ def _check_unset(override: Override, parent: Node, info: FieldInfo) -> None:
             f"{key!r} is a required key of {parent.describe()}, so it cannot "
             "be left out. '~' leaves out a NotRequired key of a TypedDict.",
         )
+
+
+def _check_replace(node: Node, value: Any, label: str) -> None:
+    """`_replace_: true` replaces only a `TypedDict` below the root."""
+    if not node.path:
+        raise _error(
+            label,
+            f"{REPLACE_KEY!r} is at the top level of the config, where it would "
+            f"replace the whole of {node.describe()}. It goes into the mapping "
+            "for a TypedDict subconfig or group.",
+        )
+    where = f"{REPLACE_KEY!r} in the mapping for {format_path(node.path)!r}"
+    if not is_typeddict_class(node.cls):
+        raise _error(
+            label,
+            f"{where}: {node.describe()} is a dataclass, which cannot be "
+            f"replaced. {REPLACE_KEY!r} replaces a TypedDict; a field of a "
+            "dataclass is set back to its default by setting it again.",
+        )
+    if value is not True:
+        raise _error(
+            label,
+            f"{where} is {format_value(value)}. It takes true, which replaces "
+            f"what was set before under {node.describe()}; to merge the "
+            "mapping into it, leave out the key.",
+        )
+
+
+def _find_node(root: Node, path: KeyPath) -> Node | None:
+    """The node at `path`, or `None` if it is not in the tree, or is a value."""
+    node = root
+    for segment in path:
+        child = node.children.get(segment)
+        if child is None:
+            return None
+        node = child
+    return node
 
 
 def _takes_none(info: FieldInfo) -> bool:

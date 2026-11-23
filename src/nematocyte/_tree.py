@@ -240,6 +240,24 @@ class Node:
         """Leave the key out, whatever set it before, the default included."""
         self.set_value(name, MISSING, source)
 
+    def replace(self) -> None:
+        """Drop everything set or selected under the node, as `_replace_` does.
+
+        The default of the field goes too: the node is as if nothing had set
+        anything in it, and its subconfigs and groups are as if it had no
+        default. The option of a group's node stays.
+        """
+        self.default = MISSING
+        self.values.clear()
+        self.sources.clear()
+        self.steps.clear()
+        self.children.clear()
+        self.off.clear()
+        self.touched = True
+        for info in self.fields.values():
+            if info.kind is not Kind.VALUE:
+                self.expand_field(info)
+
     def to_json_tree(self) -> dict[str, Any]:
         """The node in JSON form, with ``_option_`` for the groups.
 
