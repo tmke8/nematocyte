@@ -124,7 +124,7 @@ Give the field the type it holds (`color: Color`), or, for a choice between
 config classes, make it a group ([unions.md](design/unions.md)). See
 [deserializer.md](design/deserializer.md).
 
-### Dict fields are open, and take no dotted keys
+### Dict fields are open, and replaced on the command line
 
 For a field typed `dict[...]`, such as
 `optimizer_kwargs: dict[str, Any] | None`:
@@ -132,12 +132,13 @@ For a field typed `dict[...]`, such as
 | Written | Hydra | nematocyte |
 | --- | --- | --- |
 | `opt.optimizer_kwargs={eps:1e-6}` | Error, asks for `+` | Sets the dict |
-| ... when the field already holds `{amsgrad: true}` | Merges the two | Merges the two, as Hydra does |
-| `opt.optimizer_kwargs={_replace_:true,eps:1e-6}` | Error, asks for `+`; with `+`, merges and keeps the key `_replace_` | Replaces it: only `eps` is left |
-| `opt.optimizer_kwargs.eps=1e-6`, when the field holds a dict with `eps` | Sets `eps` | Error, which points to `opt.optimizer_kwargs={eps:1e-6}` |
+| ... when the field already holds `{amsgrad: true}` | Merges the two | Replaces it: only `eps` is left |
+| `opt.optimizer_kwargs.eps=1e-6`, when the field holds a dict with `eps` | Sets `eps` | Error; give the whole dict |
 
 As in Hydra, a mapping in a config file is merged deeply into a mapping,
-whatever the type of the field.
+whatever the type of the field. To replace it in a file instead, add
+`_replace_: true` to the mapping
+([below](#_replace_-true-replaces-instead-of-merging)).
 
 If possible, use `TypedDict` instead. Then you can set
 `opt.optimizer_kwargs.eps=1e-6` on the commandline.
@@ -229,8 +230,11 @@ switch it on: `model.kernel=2` while the group is off is an error that
 points to `model=NAME`.
 
 An optional subconfig of one class, `ema: EmaCfg | None`, is switched off
-among the values instead, `ema: null`, and switched on with a mapping, as
-in Hydra. See [unions.md](design/unions.md#optional-groups).
+among the values instead, `ema: null`, and switched on with a mapping in a
+file, as in Hydra, or with a named config. On the command line, a dataclass
+is not given a dict
+([below](#a-dict-replaces-and-a-dataclass-takes-none)). See
+[unions.md](design/unions.md#optional-groups).
 
 ### A hand-written `__init__` is not called
 
@@ -275,8 +279,10 @@ opt:
 ```
 
 `opt` is then `{"lr": 0.001}`, whatever the field default, the primary
-config or a preset set under it. On the command line, the same is
-`opt={_replace_:true,lr:0.001}`; `~opt.wd` takes out a single key. A
+config or a preset set under it. On the command line, a dict replaces
+anyway, so the same is `opt={lr:0.001}`
+([below](#a-dict-replaces-and-a-dataclass-takes-none)); `~opt.wd` takes out
+a single key. A
 dataclass cannot be replaced this way. A dict that is to hold a key
 `_replace_` of its own cannot be written. See
 [composition.md](design/composition.md#_replace_-true-replaces-instead-of-merging).
@@ -399,6 +405,27 @@ is left is `+NAME`, without `=`, which applies a primary config on top of
 the tree ([below](#a-preset-for-the-whole-config-is-presetsdebug)).
 `+key=value` is an error that shows both forms that may have been meant.
 See [cli.md](design/cli.md).
+
+### A dict replaces, and a dataclass takes none
+
+In Hydra, a dict on the command line is merged into what the key holds, as
+a mapping in a file is. In nematocyte, a dict on the command line replaces
+it, and is only for a TypedDict and for a value:
+
+| Written | Hydra | nematocyte |
+| --- | --- | --- |
+| `wandb={name:foo}`, for a TypedDict `wandb` | Merges `name` into it | Replaces it: only `name` is set |
+| `optimizer={beta1:0.5}`, for a group of TypedDicts | Merges into the selected option | Replaces what is set in the selected option, which stays selected |
+| `opt={lr:0.1}`, for a dataclass `opt` | Merges into it | Error, which shows `opt.lr=0.1` |
+| `model={num_hidden:2}`, for a group of dataclasses | Merges into the selected option | Error, which shows `model.num_hidden=2` |
+| `ema={decay:0.5}`, for `ema: EmaCfg \| None = None`, a dataclass | Switches it on | Error; switch it on with a named config, `ema=NAME` |
+
+To change one key of a TypedDict and keep the others, use a dotted key,
+`wandb.name=foo`, as for a dataclass. A dict is the same key as `wandb=NAME`
+and `wandb=null`, so the last one wins, and dotted keys under it are applied
+after it, in either order. To switch on an optional dataclass with values
+of your own, write a config file for it, such as `configs/ema/mine.yaml`,
+and select it. See [cli.md](design/cli.md#a-dict-for-a-typeddict-replaces-it).
 
 ### `~` only leaves out a TypedDict key
 

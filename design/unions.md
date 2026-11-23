@@ -136,29 +136,34 @@ has `decay: float = 0.99` and `every: int = 1`:
   it off ([below](#optional-groups)). What lower layers set under
   the field is dropped, without a `DroppedValueWarning`: that is what
   `null` asks for.
-- **A mapping switches it on**: `ema: {decay: 0.5}` in a file,
-  `ema={decay:0.5}` on the command line ([cli.md](cli.md)), or a preset
-  (`ema=fast`, or `ema: fast` under `_defaults_`). If the field is off, the
-  node starts from the class defaults of `X`, as when an option of a group
-  is selected, not from the default instance of the field, and the mapping
-  or preset is applied on top. If it is on, the mapping is merged into it,
-  as for any subconfig. `ema={}` switches it on with the class defaults,
-  and leaves it as it is if it is on.
+- **A mapping or a preset switches it on**: `ema: {decay: 0.5}` in a
+  file, or a preset (`ema=fast`, or `ema: fast` under `_defaults_`). If the
+  field is off, the node starts from the class defaults of `X`, as when an
+  option of a group is selected, not from the default instance of the
+  field, and the mapping or preset is applied on top. If it is on, the
+  mapping is merged into it, as for any subconfig. `ema: {}` switches it on
+  with the class defaults, and leaves it as it is if it is on.
+- **On the command line, a dataclass is switched on by a preset**,
+  `ema=fast`: a dataclass is not given a dict there
+  ([cli.md](cli.md#a-dataclass-is-not-given-a-dict)). To switch it on with
+  values of one's own, a config file in `configs/ema/` sets at least one of
+  them, and is selected; the error for `ema={decay:0.5}` says so. A
+  TypedDict is switched on by a dict, which replaces it
+  ([cli.md](cli.md#a-dict-for-a-typeddict-replaces-it)): `ema={decay:0.5}`
+  sets only `decay`, also if it was on, and `ema={}` switches it on with
+  nothing set.
 - **A dotted key does not switch it on.** `ema.decay=0.5` while `ema` is off
-  is an error that names the key and the class, and shows `ema={decay:0.5}`.
+  is an error that names the key and the class. For a dataclass, it shows
+  `ema=NAME`; for a TypedDict, `ema={decay:0.5}`.
   Setting one value should not bring back all the others. The same holds
   for a dotted entry under `_defaults_`, such as `ema.inner: fast`.
 - **The order on the command line**
   ([cli.md](cli.md#group-or-value-from-the-fields-type)). `ema=null` is
   applied with the selections, so `ema=null ema.decay=0.5` is an error in
-  either order, and `ema=null ema=fast` are the same key: the last one
-  wins. A dict stands for its dotted keys, and is applied with the values,
-  in the order of the arguments: `ema={decay:0.5} ema.decay=0.2` sets
-  `0.2`. Switching on is part of the selections, so that
-  `ema.every=4 ema={decay:0.5}` works in either order. With a preset, both
-  apply: `ema=fast ema={decay:0.5}` sets `decay` on top of `fast`. With
-  `ema=null`, a dict for `ema` is an error, in either order: one switches
-  it off and the other on.
+  either order, and `ema=null`, `ema=fast` and, for a TypedDict,
+  `ema={decay:0.5}` are the same key: the last one wins. The dotted keys
+  apply after them, so `ema.every=4 ema={decay:0.5}` sets both, in either
+  order.
 - **Nothing else changes for the node.** An interpolation that refers to a
   key under a subconfig that is off is an error, as for a key that has no
   value ([interpolation.md](interpolation.md)). `nematocyte.to_dict` writes
@@ -265,8 +270,8 @@ the same as without `None`.
   null. Hydra takes null there. The error shows the entry under
   `_defaults_`, with the path from the node of the file. So commenting out
   every line under `model:` does not switch the group off, and a selection
-  and switching off are in one place. A dict on the command line stands for its dotted
-  keys, so `outer={model:null}` is `outer.model=null`, and switches it off.
+  and switching off are in one place. In a dict for a TypedDict on the
+  command line, null switches it off: `outer={model:null}`.
 - **Null for anything else.** For a group that is not optional, null stays
   an error that shows the spelling with `| None`. An optional subconfig is
   still switched off among the values, `ema: null`, and `ema: null` under
@@ -277,7 +282,8 @@ the same as without `None`.
   selection ([Defaults](#defaults)). `model=null model=cnn` are the same
   key, and the last one wins.
 - **A mapping does not switch it on.** With `model` off, a mapping names
-  no class: `model.kernel=2`, `model={kernel:2}` on the command line,
+  no class: `model.kernel=2`, `model={kernel:2}` on the command line (for
+  a group of TypedDicts; for one of dataclasses it is an error anyway),
   `model: {kernel: 2}` in a file, and a dotted entry under `_defaults_`
   such as `model.norm: small` are errors. The error names the key and the
   options, and shows `model=fcn`. While the group is on, a mapping goes into

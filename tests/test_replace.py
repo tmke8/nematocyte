@@ -1,4 +1,7 @@
-"""`_replace_: true`, which replaces a TypedDict instead of merging into it."""
+"""Replacing a TypedDict instead of merging into it.
+
+In a config file with `_replace_: true`, and on the command line with a dict.
+"""
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -179,19 +182,6 @@ def test_replace_under_an_option_that_the_file_selects() -> None:
     assert compose(files, overrides=["+presets/big"]).net == Big(opt={"lr": 1})
 
 
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        ["net=big", "net={opt:{_replace_:true,lr:1}}"],
-        ["net={opt:{_replace_:true,lr:1}}", "net=big"],
-    ],
-)
-def test_replace_under_an_option_selected_on_the_command_line(
-    overrides: list[str],
-) -> None:
-    assert compose(overrides=overrides).net == Big(opt={"lr": 1})
-
-
 def test_after_replace_a_group_inside_has_no_option() -> None:
     files = {"presets/bare.yaml": "training:\n  _replace_: true\n"}
     with pytest.raises(ConfigError, match="training.optimizer: no option is selected"):
@@ -258,74 +248,106 @@ def test_replace_forgets_what_a_selection_below_dropped() -> None:
     assert config.optimizer == {"_option_": "adam", "beta1": 0.7}
 
 
-# -- on the command line ----------------------------------------------------------
+# -- a dict on the command line replaces --------------------------------------------
 
 
-def test_replace_in_a_dict_on_the_command_line() -> None:
+def test_a_dict_replaces_a_typeddict() -> None:
     files = {"run.yaml": "opt:\n  wd: 0.5\n"}
-    config = compose(
-        files, config_name="run", overrides=["opt={_replace_:true,lr:0.001}"]
-    )
+    config = compose(files, config_name="run", overrides=["opt={lr:0.001}"])
     assert config.opt == {"lr": 0.001}
 
 
 @pytest.mark.parametrize(
     "overrides",
-    [
-        ["opt.wd=0.2", "opt={_replace_:true,lr:0.001}"],
-        ["opt={_replace_:true,lr:0.001}", "opt.wd=0.2"],
-    ],
+    [["opt.wd=0.2", "opt={lr:0.001}"], ["opt={lr:0.001}", "opt.wd=0.2"]],
 )
-def test_replace_keeps_values_from_the_command_line(overrides: list[str]) -> None:
+def test_a_dict_is_applied_before_the_dotted_keys(overrides: list[str]) -> None:
     assert compose(overrides=overrides).opt == {"lr": 0.001, "wd": 0.2}
 
 
 @pytest.mark.parametrize(
-    "overrides",
+    ("overrides", "expected"),
     [
-        ["opt=fast", "opt={_replace_:true}"],
-        ["opt={_replace_:true}", "opt=fast"],
+        (["opt=fast", "opt={lr:0.5}"], {"lr": 0.5}),
+        (["opt={lr:0.5}", "opt=fast"], {"lr": 1.0, "wd": 0.01}),
+        (["opt={lr:1}", "opt={lr:2,wd:3}"], {"lr": 2, "wd": 3}),
+        (["opt={lr:2,wd:3}", "opt={lr:1}"], {"lr": 1}),
     ],
 )
-def test_replace_keeps_a_selection_from_the_command_line(
-    overrides: list[str],
+def test_a_dict_and_a_selection_are_the_same_key(
+    overrides: list[str], expected: dict[str, float]
 ) -> None:
     files = {"opt/fast.yaml": "lr: 1.0\n"}
-    assert compose(files, overrides=overrides).opt == {"lr": 1.0}
+    assert compose(files, overrides=overrides).opt == expected
 
 
-def test_replace_on_the_command_line_keeps_a_selection_inside() -> None:
+def test_a_dict_replaces_the_selected_option_of_a_typeddict_group() -> None:
+    config = compose(overrides=["optimizer={beta1:0.5}"])
+    assert config.optimizer == {"_option_": "adam", "beta1": 0.5}
+    files = {"run.yaml": "_defaults_:\n  optimizer: sgd\noptimizer:\n  momentum: 0.5\n"}
+    config = compose(files, config_name="run", overrides=["optimizer={momentum:0.1}"])
+    assert config.optimizer == {"_option_": "sgd", "momentum": 0.1}
+
+
+def test_a_dict_does_not_drop_a_selection_with_a_warning() -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DroppedValueWarning)
+        config = compose(
+            DROP_FILES,
+            config_name="run",
+            overrides=["+presets/adam", "optimizer={beta1:0.7}"],
+        )
+    assert config.optimizer == {"_option_": "adam", "beta1": 0.7}
+
+
+def test_a_group_inside_a_dict_has_no_option() -> None:
+    with pytest.raises(ConfigError) as info:
+        compose(overrides=["training={optimizer:{beta1:0.5}}"])
+    message = str(info.value)
+    assert "'training={optimizer:{beta1:0.5}}'" in message
+    assert "No option is selected for the group 'training.optimizer'" in message
+    assert "Options: sgd, adam" in message
+    # Selected with a dotted key, which comes after the dict.
     files = {"run.yaml": "training:\n  steps: 3\n"}
     config = compose(
         files,
         config_name="run",
         overrides=[
-            "training={_replace_:true,optimizer:{beta1:0.5}}",
+            "training.optimizer.beta1=0.5",
+            "training={steps:1}",
             "training.optimizer=adam",
         ],
     )
+    # The dataclass inside starts from the defaults of its class.
     assert config.training == {
         "optimizer": {"_option_": "adam", "beta1": 0.5},
         "model": Model(),
+        "steps": 1,
     }
 
 
 @pytest.mark.parametrize(
     "overrides",
     [
-        ["sched.warmup=null", "sched={_replace_:true,steps:1}"],
-        ["sched={_replace_:true,steps:1}", "sched.warmup=null"],
+        ["sched.warmup=null", "sched={steps:1}"],
+        ["sched={steps:1}", "sched.warmup=null"],
     ],
 )
-def test_replace_keeps_a_switch_off_from_the_command_line(
-    overrides: list[str],
-) -> None:
+def test_null_under_a_dict_is_applied_after_it(overrides: list[str]) -> None:
     assert compose(overrides=overrides).sched == {"warmup": None, "steps": 1}
 
 
-def test_replace_switches_on_an_optional_subconfig_from_the_command_line() -> None:
-    config = compose(overrides=["ema={_replace_:true,lr:0.5}"])
-    assert config.ema == {"lr": 0.5}
+def test_a_dict_switches_on_an_optional_typeddict() -> None:
+    assert compose(overrides=["ema={lr:0.5}"]).ema == {"lr": 0.5}
+
+
+def test_a_dict_for_a_group_of_dataclasses_is_an_error() -> None:
+    with pytest.raises(ConfigError) as info:
+        compose(overrides=["net={opt:{lr:1}}"])
+    message = str(info.value)
+    assert "'net={opt:{lr:1}}'" in message
+    assert "'net' is a group of Config, whose options are dataclasses" in message
+    assert "net.opt.lr=1" in message
 
 
 def test_multirun_keeps_the_params_of_the_sweeper(
@@ -345,11 +367,28 @@ def test_multirun_keeps_the_params_of_the_sweeper(
     def main(config: Config) -> None:
         seen.append(config)
 
-    main(["-m", "nematocyte.sweeper=wds", "opt={_replace_:true,lr:0.5}"])
+    main(["-m", "nematocyte.sweeper=wds", "opt={lr:0.5}"])
     capsys.readouterr()
     assert [config.opt for config in seen] == [
         {"lr": 0.5, "wd": 0.1},
         {"lr": 0.5, "wd": 0.2},
+    ]
+
+
+def test_multirun_sweeps_over_dicts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[Config] = []
+
+    @nematocyte.main(Config, config_path=tmp_path)
+    def main(config: Config) -> None:
+        seen.append(config)
+
+    main(["-m", "opt={lr:1},{lr:2}", "opt.wd=0.5"])
+    capsys.readouterr()
+    assert [config.opt for config in seen] == [
+        {"lr": 1, "wd": 0.5},
+        {"lr": 2, "wd": 0.5},
     ]
 
 
@@ -392,7 +431,7 @@ def test_validate_configs_with_replace(tmp_path: Path) -> None:
         (
             {},
             ["model={_replace_:true}"],
-            ["'_replace_'", "'model'", "Model", "dataclass", "model={_replace_:true}"],
+            ["'_replace_'", "'model'", "leave out the key", "model={_replace_:true}"],
         ),
         (
             {"presets/top.yaml": "_replace_: true\n"},
@@ -412,12 +451,12 @@ def test_validate_configs_with_replace(tmp_path: Path) -> None:
         (
             {},
             ["opt._replace_=true"],
-            ["'_replace_'", "Opt", ": opt={_replace_:true,...}"],
+            ["'_replace_'", "Opt", "a dict replaces anyway: opt={...}"],
         ),
         (
             {},
-            ["ema={_replace_:1}"],
-            ["'_replace_'", "'ema'", "1", "Opt"],
+            ["ema={lr:1,inner:{_replace_:true}}"],
+            ["'_replace_'", "'ema.inner'", "leave out the key"],
         ),
     ],
 )

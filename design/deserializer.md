@@ -377,7 +377,9 @@ class Opt(TypedDict):
   ([cli.md](cli.md#key-leaves-out-an-optional-key-of-a-typeddict)). In a
   config file, `_replace_: true` in the mapping for the TypedDict drops
   every key that was set before
-  ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)).
+  ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)),
+  and on the command line a dict for the TypedDict does the same
+  ([cli.md](cli.md#a-dict-for-a-typeddict-replaces-it)).
   `total=False` and inheritance are read through `__required_keys__`.
 - `NotRequired` is only for values. A subconfig or a group cannot be
   `NotRequired`: leaving a whole subconfig out of the dict is not

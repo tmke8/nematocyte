@@ -173,8 +173,9 @@ always wins. For one file, from lowest to highest:
 5. The values in the file.
 
 The command line comes on top of the primary config, in the same way: first
-the added configs (`+NAME`), then the dicts with `_replace_: true`, then its
-selections, shortest path first, then its values. An added config is
+the added configs (`+NAME`), then its selections and its dicts for
+TypedDicts, which replace them ([cli.md](cli.md#a-dict-for-a-typeddict-replaces-it)),
+shortest path first, then its values. An added config is
 composed as if it extended the primary config with `_self_`
 ([cli.md](cli.md)): its own `_self_` chain, its `_defaults_` and its values
 apply on top of the tree so far, without going back to the defaults of the
@@ -289,9 +290,10 @@ so the jobs of a multirun that drop the same values give one warning.
 
 ### A mapping is merged into a mapping, also in a value
 
-A mapping for a subconfig is merged into what the layers below set: the
-keys that it gives are set, and the others stay. The same holds for a value
-that is a mapping, such as that of a field typed `dict[...]`, as in Hydra:
+In a config file, a mapping for a subconfig is merged into what the layers
+below set: the keys that it gives are set, and the others stay. The same
+holds for a value that is a mapping, such as that of a field typed
+`dict[...]`, as in Hydra:
 
 ```python
 @dataclass
@@ -304,14 +306,18 @@ class Opt:
     )
 ```
 
-| Written on top, in a file or on the command line | `opt.kwargs` |
+| Written in a config file on top | `opt.kwargs` |
 | --- | --- |
 | `opt: {kwargs: {sched: {gamma: 0.5}, extra: 1}}` | `{sched: {gamma: 0.5, step: 5}, milestones: [1, 2], extra: 1}` |
 | `opt: {kwargs: {milestones: [9]}}` | `{sched: {gamma: 0.1, step: 5}, milestones: [9]}` |
 | `opt: {kwargs: {sched: null}}` | `{sched: null, milestones: [1, 2]}` |
-| `opt.kwargs={sched:{step:1}}` | `{sched: {gamma: 0.1, step: 1}, milestones: [1, 2]}` |
 
 Hydra gives the same results (tested with Hydra 1.4).
+
+On the command line, a dict replaces instead
+([cli.md](cli.md#on-the-command-line-a-dict-replaces)):
+`opt.kwargs={sched:{step:1}}` gives `{sched: {step: 1}}`, where Hydra
+merges.
 
 - A mapping is merged into a mapping, deeply: a mapping inside it is merged
   into the mapping at the same key. Anything else replaces what was there:
@@ -325,9 +331,9 @@ Hydra gives the same results (tested with Hydra 1.4).
 - An interpolation (`${...}`) is resolved after composition, so it is a
   string while the layers are merged: a mapping written over it replaces
   it ([interpolation.md](interpolation.md)).
-- On the command line, a dotted path still ends at the field
-  ([cli.md](cli.md#a-dict-typed-field-is-given-as-a-mapping-and-merged)):
-  a key inside the dict is set with a mapping, `opt.kwargs={sched:{step:1}}`.
+- On the command line, a dotted path ends at the field
+  ([cli.md](cli.md#on-the-command-line-a-dict-replaces)), so a key inside
+  the dict cannot be set on its own there.
 - `_replace_: true` in a mapping replaces instead of merging
   ([below](#_replace_-true-replaces-instead-of-merging)).
 
@@ -389,14 +395,10 @@ The rules:
   What the file selects under `_defaults_` and sets among its values stays,
   wherever it is written in the file: `_replace_` is applied before them
   ([layers](#layers)).
-- On the command line, `opt={_replace_:true,lr:0.1}` drops what the config
-  files set under `opt`, and not what the command line sets, whatever the
-  order of the arguments: `opt=fast opt={_replace_:true}` keeps the preset
-  `fast`, and `opt.wd=0.1 opt={_replace_:true,lr:0.1}` keeps `wd`. In the
-  same way, `opt.kwargs={a:1} opt.kwargs={_replace_:true,b:2}` gives
-  `{a: 1, b: 2}`, and drops what the files set in `kwargs`. The `params` of
-  a sweeper count as the command line ([multirun.md](multirun.md)).
-  `opt._replace_=true` is an error that points to the dict.
+- `_replace_` exists only in config files. On the command line, a dict
+  for a TypedDict or a value replaces anyway
+  ([cli.md](cli.md#a-dict-for-a-typeddict-replaces-it)), so `_replace_` in
+  it is an error, and so is `opt._replace_=true`.
 - A TypedDict replaced in this way can be a subconfig, the selected option
   of a group of TypedDicts, or an optional subconfig, which it switches on.
   The option of a group stays selected, and only what was set in it is
@@ -447,8 +449,9 @@ almost always means that the user expects `seed=one` to select
 the error catches the mistake at the directory. A primary config that sets
 such a field goes at the top of the config directory or in a directory that
 matches no field, and can be applied with `+NAME`: a dict in it is merged
-into the dict that the field holds, as `=` does on the command line
-([above](#a-mapping-is-merged-into-a-mapping-also-in-a-value)).
+into the dict that the field holds
+([above](#a-mapping-is-merged-into-a-mapping-also-in-a-value)), where `=`
+on the command line replaces it.
 
 A file at the top of the config directory that is named after a subconfig
 or a group of the root dataclass, such as `configs/model.yaml`, is an error,

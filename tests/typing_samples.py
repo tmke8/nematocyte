@@ -86,7 +86,9 @@ def use_optional(config: WithOptional) -> None:
         assert_type(config.ema.lr, float)
 
 
-assert_type(nematocyte.compose(WithOptional, overrides=["ema={}"]).warmup, Opt | None)
+assert_type(
+    nematocyte.compose(WithOptional, overrides=["warmup=null"]).warmup, Opt | None
+)
 
 
 # -- optional groups -------------------------------------------------------------

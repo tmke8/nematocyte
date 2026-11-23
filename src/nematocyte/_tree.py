@@ -458,9 +458,10 @@ def switched_off_message(
     """The error for a key under an optional subconfig or group that is off.
 
     `rest` is the path below the subconfig that was to be set, and `value`
-    the value for it, if they are known; the error then shows the mapping
-    that switches the subconfig on with that value. A group is switched on
-    by selecting an option, and the error lists them.
+    the value for it, if they are known; for a TypedDict, the error then
+    shows the dict that switches it on with that value. A dataclass is
+    switched on by a named config, and a group by selecting an option, which
+    the error lists.
     """
     path = format_path((*node.path, info.name))
     what = (
@@ -478,6 +479,19 @@ def switched_off_message(
             f"Options: {', '.join(info.options)}."
         )
     assert info.config_cls is not None
+    name = info.config_cls.__name__
+    start = (
+        f"{path!r} is an optional subconfig of {node.describe()} "
+        f"({name} | None), and it is switched off (null), so {what}."
+    )
+    if not is_typeddict_class(info.config_cls):
+        return (
+            f"{start} A named config for it switches it on: {path}=NAME on the "
+            f"command line, or {path}: NAME under '_defaults_' in a config "
+            f"file; so does a mapping in a config file, {path}: {{...}}. On "
+            f"the command line, {name} is a dataclass, which is not given as "
+            f"a dict."
+        )
     example = f"{path}={{}}"
     if rest and value is not MISSING:
         nested = value
@@ -485,11 +499,8 @@ def switched_off_message(
             nested = {segment: nested}
         example = f"{path}={format_value(nested)}"
     return (
-        f"{path!r} is an optional subconfig of {node.describe()} "
-        f"({info.config_cls.__name__} | None), and it is switched off (null), "
-        f"so {what}. A mapping switches it on, from the defaults of "
-        f"{info.config_cls.__name__}: {example} on the command line, or "
-        f"{path}: {{...}} in a config file."
+        f"{start} A mapping switches it on: {example} on the command line, "
+        f"or {path}: {{...}} in a config file."
     )
 
 

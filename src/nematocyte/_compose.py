@@ -7,7 +7,7 @@ import difflib
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
-from typing import Any
+from typing import Any, cast
 import warnings
 
 from pydantic import ValidationError
@@ -23,7 +23,7 @@ from ._files import (
     load_file,
 )
 from ._merge import replace_paths
-from ._overrides import AddedConfig, Override, format_value, last_wins
+from ._overrides import SWITCH_ON, AddedConfig, Override, format_value, last_wins
 from ._schema import (
     DEFAULTS_KEY,
     DOC_KEY,
@@ -190,37 +190,27 @@ class Composer:
         return root
 
     def apply_overrides(self, root: Node, overrides: Sequence[Override]) -> None:
-        """Apply command-line overrides: selections first, then values.
+        """Apply command-line overrides: selections and dicts first, then values.
 
         Apart from a key that is given more than once, where the last one
-        wins, the order of the overrides has no meaning. Selections, and
-        `null` for an optional subconfig or group, are applied shortest path
-        first, so that `model=cnn` is in place before `model.norm=batchnorm`
-        is looked at. A dict for an optional subconfig switches it on along
-        with them. The values come after, in the order given, and with them
-        the values of the dicts for a subconfig or a group, which stand for
-        their dotted keys: a later value for the same key wins.
+        wins, the order of the overrides has no meaning. Selections, `null`
+        for an optional subconfig or group, and the dicts for a TypedDict are
+        applied shortest path first, so that `model=cnn` is in place before
+        `model.norm=batchnorm` is looked at. The values come after.
 
-        The command line is one layer: a `_replace_` in a dict drops what the
-        config files set, and keeps what the command line sets, whatever the
-        order of the arguments.
+        A dict replaces what was set before at its key, for a TypedDict as for
+        a value; it is not merged as a mapping in a file is.
         """
-        since = next_step()
         overrides = last_wins(overrides)
-        later: set[int] = set()
-        switched_off: dict[KeyPath, str] = {}
+        values: list[Override] = []
         for override in sorted(overrides, key=lambda o: len(o.key)):
             source = repr(override.text)
+            _check_no_replace(override)
             parent, info = self._locate(
                 root, override.key, source, _plain_value(override)
             )
             if info.kind is Kind.VALUE:
-                later.add(id(override))
-                continue
-            if isinstance(override.value, dict):
-                # Switching on is a selection; the values follow in order.
-                _switch_on(parent, info, override.value, switched_off, source)
-                later.add(id(override))
+                values.append(override)
                 continue
             if override.unset:
                 what = "a group" if info.kind is Kind.GROUP else "a subconfig"
@@ -239,23 +229,23 @@ class Composer:
                 if not info.optional:
                     raise _error(source, self._null_message(parent, info))
                 parent.switch_off(info)
-                switched_off[override.key] = source
+                continue
+            if override.value is SWITCH_ON:
+                parent.switch_on(info)
+                continue
+            if isinstance(override.value, dict):
+                self._apply_mapping(parent, info, override)
                 continue
             name = self._selection_name(override, info)
             self._select(parent, info, name, source, f"the override {source}")
-        for override in overrides:
-            if id(override) not in later:
-                continue
+        for override in values:
             source = repr(override.text)
             parent, info = self._locate(
                 root, override.key, source, _plain_value(override)
             )
-            if info.kind is not Kind.VALUE:
-                self._apply_mapping(parent, info, override, switched_off, since)
-                continue
             if override.unset:
                 _check_unset(override, parent, info)
-                parent.unset_value(info.name, f"the override {source}", since=since)
+                parent.unset_value(info.name, f"the override {source}")
                 continue
             if override.is_sweep:
                 raise _error(
@@ -265,42 +255,78 @@ class Composer:
                     "as a string.",
                 )
             label = f"the override {source}"
-            _check_value_replaces(parent, info, override.value, label)
-            parent.set_value(info.name, override.value, label, since=since)
+            parent.set_value(info.name, override.value, label, whole=True)
 
-    def _apply_mapping(
-        self,
-        parent: Node,
-        info: FieldInfo,
-        override: Override,
-        switched_off: dict[KeyPath, str],
-        since: int,
-    ) -> None:
-        """Apply a dict for a subconfig or a group, as in a file.
+    def _apply_mapping(self, parent: Node, info: FieldInfo, override: Override) -> None:
+        """Replace a TypedDict with a dict from the command line.
 
-        The dict is merged into the subconfig, or into the selected option of
-        the group, and switches an optional subconfig on. `switched_off` maps
-        the optional subconfigs that `null` switched off to the override.
+        The TypedDict is a subconfig, which is switched on if it is optional,
+        or the selected option of a group, which stays selected. What was set
+        or selected under it goes, its default included, and the dict is
+        applied as a mapping in a file would be. A dataclass is not given as
+        a dict.
         """
         source = repr(override.text)
         label = f"the override {source}"
+        if not _holds_typeddicts(info):
+            raise _error(
+                source, self._dataclass_dict_message(parent, info, override.value)
+            )
         if _switches_on(info):
-            _check_not_switched_off(parent, info, switched_off, source)
             child = parent.switch_on(info)
         else:
             try:
                 child = require_child(parent, info)
             except ConfigError as exc:
                 raise _error(source, str(exc)) from None
-        child.touched = True
-        self._apply_values(
-            child,
-            override.value,
-            label,
-            since=since,
-            command_line=True,
-            switched_off=switched_off,
+        step = next_step()
+        child.replace(step)
+        # What the dict replaces is not warned about: it says so.
+        self._forget_drops(child.path)
+        self._apply_values(child, override.value, label, since=step, command_line=True)
+
+    def _dataclass_dict_message(
+        self, parent: Node, info: FieldInfo, value: dict[Any, Any]
+    ) -> str:
+        """The error for a dict on the command line for a dataclass."""
+        path = (*parent.path, info.name)
+        key = format_path(path)
+        if info.kind is Kind.GROUP:
+            what = f"a group of {parent.describe()}, whose options are dataclasses"
+        else:
+            assert info.config_cls is not None
+            what = (
+                f"a subconfig of {parent.describe()}, and "
+                f"{info.config_cls.__name__} is a dataclass"
+            )
+        dotted = " ".join(
+            f"{format_path(keys)}={format_value(inner)}"
+            for keys, inner in _dotted(parent.children.get(info.name), value, path)
         )
+        lines = [
+            f"{key!r} is {what}. On the command line, a dict replaces what was "
+            f"set before, which is for a TypedDict or a dict value; a "
+            f"dataclass is not given as a dict."
+        ]
+        if parent.is_off(info) and info.kind is Kind.GROUP:
+            lines.append(
+                f"{key!r} is switched off (null). Selecting an option switches "
+                f"it on: {key}=NAME; its fields can then be set one by one."
+            )
+        elif parent.is_off(info):
+            directory = self.directory(path)
+            where = f" in {directory}" if directory is not None else ""
+            lines.append(
+                f"{key!r} is switched off (null). A named config for it "
+                f"switches it on: {key}=NAME. To switch it on with values of "
+                f"your own, write a config file{where} that sets them, and "
+                f"select it."
+            )
+        else:
+            if dotted:
+                lines.append(f"Set its fields one by one: {dotted}")
+            lines.append(f"A named config for it is selected with {key}=NAME.")
+        return "\n".join(lines) + self._available(path, info)
 
     def _defaults_null_message(self, node: Node, info: FieldInfo) -> str:
         """The error for null under `_defaults_`, for all but an optional group."""
@@ -582,7 +608,6 @@ class Composer:
         *,
         since: int,
         command_line: bool = False,
-        switched_off: dict[KeyPath, str] | None = None,
         prefix: KeyPath = (),
     ) -> None:
         """Apply the values of a file, or of a dict on the command line.
@@ -591,9 +616,8 @@ class Composer:
         subconfig on. Null switches an optional subconfig off, and an optional
         group on the command line; in a file, an optional group is switched
         off under `_defaults_`. Null is an error for any other subconfig or
-        group. `switched_off` maps the optional subconfigs that `null` on the
-        command line switched off to the override; a dict cannot switch those
-        on again. `prefix` is the path of `node` below the node of the file.
+        group. A dict on the command line holds no mapping for a dataclass.
+        `prefix` is the path of `node` below the node of the file.
 
         A value is merged into what was set before. `since` is when the layer
         started: a `_replace_` drops what was set before it.
@@ -637,9 +661,9 @@ class Composer:
                     f"{path!r} is {what}, so its value has to be a mapping of "
                     f"its fields, not {value!r}.{hint}",
                 )
+            if command_line and not _holds_typeddicts(info):
+                raise _error(label, self._dataclass_dict_message(node, info, value))
             if _switches_on(info):
-                if switched_off is not None:
-                    _check_not_switched_off(node, info, switched_off, label)
                 child = node.switch_on(info)
             else:
                 try:
@@ -653,7 +677,6 @@ class Composer:
                 label,
                 since=since,
                 command_line=command_line,
-                switched_off=switched_off,
                 prefix=(*prefix, info.name),
             )
 
@@ -706,12 +729,13 @@ class Composer:
             info = node.fields.get(segment)
             if info is None and segment == REPLACE_KEY:
                 parent = format_path(node.path)
-                example = f": {parent}={{{REPLACE_KEY}:true,...}}" if parent else ""
+                example = f": {parent}={{...}}" if parent else ""
                 raise _error(
                     source,
-                    f"{REPLACE_KEY!r} is not a field of {node.describe()}. It "
-                    f"goes into the mapping for a TypedDict, which then replaces "
-                    f"what was set before{example}",
+                    f"{REPLACE_KEY!r} is not a field of {node.describe()}. In a "
+                    f"config file, {REPLACE_KEY}: true goes into a mapping, which "
+                    f"then replaces what was set before instead of merging. On "
+                    f"the command line, a dict replaces anyway{example}",
                 )
             if info is None:
                 raise _error(source, unknown_key_message(node, segment))
@@ -729,8 +753,9 @@ class Composer:
                 raise _error(
                     source,
                     f"{here!r} is a value, not a subconfig, so it has no key "
-                    f"{format_path(rest)!r}. A dict value is given as a mapping, "
-                    f"which is merged into the dict it holds: {here}={example}",
+                    f"{format_path(rest)!r}. On the command line, a dict value is "
+                    f"given as a whole, and replaces the dict that it holds: "
+                    f"{here}={example}",
                 )
             if node.is_off(info):
                 rest = path[index + 1 :]
@@ -986,38 +1011,6 @@ def _explicit(node: Node, selections: tuple[Selection, ...]) -> Iterator[_Droppe
         yield from _explicit(child, inner)
 
 
-def _switch_on(
-    parent: Node,
-    info: FieldInfo,
-    value: dict[Any, Any],
-    switched_off: dict[KeyPath, str],
-    source: str,
-) -> None:
-    """Switch on the optional subconfigs that a dict on the command line opens.
-
-    That is the field `info` itself, if it is optional, and every optional
-    subconfig under it that the dict has a mapping for. Anything else in the
-    dict is left for when its values are applied. A dict does not switch on
-    an optional group, which needs an option.
-    """
-    if _switches_on(info):
-        _check_not_switched_off(parent, info, switched_off, source)
-        child = parent.switch_on(info)
-    else:
-        found = parent.children.get(info.name)
-        if found is None:
-            return
-        child = found
-    for key, inner in value.items():
-        field = child.fields.get(key) if isinstance(key, str) else None
-        if (
-            field is not None
-            and field.kind is not Kind.VALUE
-            and isinstance(inner, dict)
-        ):
-            _switch_on(child, field, inner, switched_off, source)
-
-
 def _switches_on(info: FieldInfo) -> bool:
     """Whether a mapping switches on the field: an optional subconfig.
 
@@ -1026,19 +1019,43 @@ def _switches_on(info: FieldInfo) -> bool:
     return info.optional and info.kind is Kind.CONFIG
 
 
-def _check_not_switched_off(
-    node: Node, info: FieldInfo, switched_off: dict[KeyPath, str], source: str
-) -> None:
-    """A dict cannot switch on an optional subconfig that `null` switched off."""
-    path = (*node.path, info.name)
-    off = switched_off.get(path)
-    if off is not None:
-        key = format_path(path)
+def _holds_typeddicts(info: FieldInfo) -> bool:
+    """Whether the subconfig or group `info` is a TypedDict, or a group of them."""
+    if info.kind is Kind.CONFIG:
+        assert info.config_cls is not None
+        return is_typeddict_class(info.config_cls)
+    return all(is_typeddict_class(cls) for cls in info.options.values())
+
+
+def _dotted(
+    node: Node | None, value: dict[Any, Any], path: KeyPath
+) -> Iterator[tuple[KeyPath, Any]]:
+    """The dotted keys that a dict for `node` at `path` stands for.
+
+    They go down to the first field that holds a value, or that is not known.
+    """
+    for key, inner in value.items():
+        here = (*path, str(key))
+        info = (
+            node.fields.get(key) if node is not None and isinstance(key, str) else None
+        )
+        if info is None or info.kind is Kind.VALUE or not isinstance(inner, dict):
+            yield here, inner
+            continue
+        child = node.children.get(info.name) if node is not None else None
+        yield from _dotted(child, cast("dict[Any, Any]", inner), here)
+
+
+def _check_no_replace(override: Override) -> None:
+    """A dict on the command line replaces anyway, so it has no `_replace_`."""
+    for path, _ in replace_paths(override.value):
+        where = format_path((*override.key, *map(str, path)))
         raise _error(
-            source,
-            f"{key!r} is switched off by {off} and switched on by a dict. "
-            f"The order of the arguments does not decide between the two; "
-            f"give only one of them.",
+            repr(override.text),
+            f"{REPLACE_KEY!r} is in the dict for {where!r}. On the command "
+            f"line, a dict replaces what was set before anyway, so leave out "
+            f"the key. In a config file, {REPLACE_KEY}: true makes a mapping "
+            f"replace instead of merging.",
         )
 
 

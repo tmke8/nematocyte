@@ -1,7 +1,6 @@
 """Applying overrides, and the flags of the entry point (`design/cli.md`)."""
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -27,24 +26,29 @@ def test_dict_typed_field_accepts_any_key() -> None:
     assert config.opt.optimizer_kwargs == {"eps": 1e-6}
 
 
-@pytest.mark.parametrize(
-    ("override", "expected"),
-    [
-        ("opt.optimizer_kwargs={eps:1e-6}", {"amsgrad": True, "eps": 1e-6}),
-        ("opt.optimizer_kwargs={_replace_:true,eps:1e-6}", {"eps": 1e-6}),
-    ],
-)
-def test_dict_typed_field_is_merged(
-    config_dir: Path, override: str, expected: dict[str, Any]
-) -> None:
+def test_dict_typed_field_is_replaced(config_dir: Path) -> None:
     write_files(
         config_dir, {"kwargs.yaml": "opt:\n  optimizer_kwargs:\n    amsgrad: true\n"}
     )
     config = nematocyte.compose(
-        Config, config_dir, config_name="kwargs", overrides=[override]
+        Config,
+        config_dir,
+        config_name="kwargs",
+        overrides=["opt.optimizer_kwargs={eps:1e-6}"],
     )
-    # As in Hydra, unless the dict has `_replace_`.
-    assert config.opt.optimizer_kwargs == expected
+    # Hydra merges; on the command line, a dict replaces.
+    assert config.opt.optimizer_kwargs == {"eps": 1e-6}
+
+
+def test_replace_in_a_dict_on_the_command_line_is_an_error() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(
+            Config, overrides=["opt.optimizer_kwargs={_replace_:true,eps:1e-6}"]
+        )
+    message = str(excinfo.value)
+    assert "'opt.optimizer_kwargs={_replace_:true,eps:1e-6}'" in message
+    assert "'_replace_' is in the dict for 'opt.optimizer_kwargs'" in message
+    assert "leave out the key" in message
 
 
 def test_dotted_path_ends_at_a_dict_typed_field() -> None:
@@ -78,16 +82,23 @@ def test_key_of_another_option_is_an_error() -> None:
     assert "kernel_size, stride, activation, norm" in message
 
 
-def test_dict_for_a_subconfig_is_merged_as_in_a_file() -> None:
-    config = nematocyte.compose(
-        Config, overrides=["opt={lr:0.1}", "opt.weight_decay=1"]
-    )
-    assert config.opt == Opt(lr=0.1, weight_decay=1.0)
+def test_dict_for_a_dataclass_subconfig_is_an_error() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, overrides=["opt={lr:0.1}"])
+    message = str(excinfo.value)
+    assert "'opt={lr:0.1}'" in message
+    assert "'opt' is a subconfig of Config" in message
+    assert "is a dataclass" in message
+    assert "opt.lr=0.1" in message
 
 
-def test_dict_for_a_group_goes_into_the_selected_option() -> None:
-    config = nematocyte.compose(Config, overrides=["model={num_hidden:2}"])
-    assert config.model == Fcn(num_hidden=2)
+def test_dict_for_a_group_of_dataclasses_is_an_error() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, overrides=["model={num_hidden:2}"])
+    message = str(excinfo.value)
+    assert "'model={num_hidden:2}'" in message
+    assert "'model' is a group of Config, whose options are dataclasses" in message
+    assert "model.num_hidden=2" in message
 
 
 # -- group or value, from the type of the field ---------------------------------

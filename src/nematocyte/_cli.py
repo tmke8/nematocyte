@@ -87,6 +87,7 @@ def _run(
         config_name = str(args.config_name)
     composer = Composer(entry.config_cls, entry.config_dir, Settings)
 
+    sweeps = [override for override in overrides if override.is_sweep]
     fixed = [override for override in overrides if not override.is_sweep]
 
     if args.help or args.cfg is not None:
@@ -113,7 +114,8 @@ def _run(
             composer=composer,
             config_name=config_name,
             added=added,
-            overrides=overrides,
+            fixed=fixed,
+            sweeps=sweeps,
             now=now,
             program=program,
         )
@@ -136,26 +138,16 @@ def _multirun(
     composer: Composer,
     config_name: str | None,
     added: list[AddedConfig],
-    overrides: list[Override],
+    fixed: list[Override],
+    sweeps: list[Override],
     now: datetime,
     program: str,
 ) -> int:
-    swept: dict[tuple[str, ...], Override] = {}
-    for override in overrides:
-        if not override.is_sweep:
-            continue
+    for override in sweeps:
         if override.key[0] == RESERVED_KEY:
             raise ConfigError(
                 f"Error in {override.text!r}:\nnematocyte's own settings cannot be swept."
             )
-        earlier = swept.get(override.key)
-        if earlier is not None:
-            raise ConfigError(
-                f"Error in {override.text!r}:\n{override.key_text!r} is swept "
-                f"twice, here and in {earlier.text!r}. A key can be swept once."
-            )
-        swept[override.key] = override
-    fixed = [override for override in overrides if not override.is_sweep]
     # nematocyte's own settings are the same for every job. They are read
     # from the primary config, the added configs, and the overrides under the
     # reserved key.
@@ -168,7 +160,8 @@ def _multirun(
         composer=composer,
         config_name=config_name,
         added=added,
-        arguments=list(overrides),
+        fixed=fixed,
+        sweeps={override.key: override.value for override in sweeps},
         settings=settings,
         now=now,
         start=_start_dir(settings, now),

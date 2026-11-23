@@ -1,4 +1,7 @@
-"""A mapping is merged into a mapping, also in a value such as a `dict[...]`."""
+"""A mapping in a file is merged into a mapping, also in a value such as a `dict[...]`.
+
+On the command line, a dict replaces instead.
+"""
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -85,15 +88,16 @@ def test_files_are_merged_in_the_order_of_the_layers() -> None:
 
 
 def test_a_field_typed_any_is_merged() -> None:
-    config = compose(overrides=["anything={a:{b:5}}"])
+    files = {"presets/x.yaml": "anything:\n  a:\n    b: 5\n"}
+    config = compose(files, overrides=["+presets/x"])
     assert config.anything == {"a": {"b": 5, "c": 2}}
 
 
 def test_a_mapping_over_something_else_replaces_it() -> None:
-    assert compose(overrides=["maybe={a:1}"]).maybe == {"a": 1}
-    assert compose(overrides=["text={a:1}"]).text == {"a": 1}
-    config = compose(overrides=["maybe={a:1}", "maybe={b:2}"])
-    assert config.maybe == {"a": 1, "b": 2}
+    files = {"presets/x.yaml": "maybe:\n  a: 1\ntext:\n  a: 1\n"}
+    config = compose(files, overrides=["+presets/x"])
+    assert config.maybe == {"a": 1}
+    assert config.text == {"a": 1}
 
 
 def test_a_mapping_over_an_interpolation_replaces_it() -> None:
@@ -115,18 +119,21 @@ def test_a_dict_inside_a_typeddict_is_merged() -> None:
 @pytest.mark.parametrize(
     ("overrides", "expected"),
     [
-        (["opt.kwargs={sched:{gamma:0.5}}"], {"gamma": 0.5, "step": 5}),
-        (
-            ["opt.kwargs={sched:{gamma:0.5}}", "opt.kwargs={sched:{step:1}}"],
-            {"gamma": 0.5, "step": 1},
-        ),
-        (["opt={kwargs:{sched:{step:1}}}"], {"gamma": 0.1, "step": 1}),
+        (["opt.kwargs={sched:{gamma:0.5}}"], {"sched": {"gamma": 0.5}}),
+        (["opt.kwargs={sched:{gamma:0.5}}", "opt.kwargs={b:1}"], {"b": 1}),
     ],
 )
-def test_a_dict_on_the_command_line_is_merged(
-    overrides: list[str], expected: dict[str, float]
+def test_a_dict_on_the_command_line_replaces_the_value(
+    overrides: list[str], expected: dict[str, Any]
 ) -> None:
-    assert compose(overrides=overrides).opt.kwargs["sched"] == expected
+    files = {"run.yaml": "opt:\n  kwargs:\n    extra: 1\n"}
+    config = compose(files, config_name="run", overrides=overrides)
+    assert config.opt.kwargs == expected
+
+
+def test_a_dict_on_the_command_line_replaces_a_value_of_any_type() -> None:
+    assert compose(overrides=["anything={a:{b:5}}"]).anything == {"a": {"b": 5}}
+    assert compose(overrides=["maybe={a:1}", "maybe={b:2}"]).maybe == {"b": 2}
 
 
 def test_a_dotted_path_into_a_dict_points_to_a_mapping() -> None:
@@ -137,7 +144,7 @@ def test_a_dotted_path_into_a_dict_points_to_a_mapping() -> None:
     assert "opt.kwargs={sched:{gamma:0.5}}" in message
 
 
-def test_the_params_of_a_sweeper_are_merged_with_the_command_line(
+def test_the_command_line_replaces_the_params_of_a_sweeper(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     write_files(
@@ -154,12 +161,9 @@ def test_the_params_of_a_sweeper_are_merged_with_the_command_line(
     def main(config: Config) -> None:
         seen.append(config)
 
-    main(["-m", "nematocyte.sweeper=kw", "opt.kwargs={_replace_:true,b:1}"])
+    main(["-m", "nematocyte.sweeper=kw", "opt.kwargs={b:1}"])
     capsys.readouterr()
-    assert [config.opt.kwargs for config in seen] == [
-        {"a": 1, "b": 1},
-        {"a": 2, "b": 1},
-    ]
+    assert [config.opt.kwargs for config in seen] == [{"b": 1}]
 
 
 # -- _replace_ in a value ------------------------------------------------------------
@@ -198,25 +202,11 @@ def test_replace_in_a_file_keeps_what_the_file_selects() -> None:
 
 @pytest.mark.parametrize(
     "overrides",
-    [
-        ["opt.kwargs={a:1}", "opt.kwargs={_replace_:true,b:2}"],
-        ["opt.kwargs={_replace_:true,b:2}", "opt.kwargs={a:1}"],
-        ["opt={kwargs:{a:1}}", "opt.kwargs={_replace_:true,b:2}"],
-    ],
+    [["extra.kwargs={b:2}", "extra={}"], ["extra={}", "extra.kwargs={b:2}"]],
 )
-def test_replace_on_the_command_line_keeps_the_command_line(
-    overrides: list[str],
-) -> None:
-    files = {"run.yaml": "opt:\n  kwargs:\n    old: 1\n"}
-    config = compose(files, config_name="run", overrides=overrides)
-    assert config.opt.kwargs == {"a": 1, "b": 2}
-
-
-def test_replace_of_a_typeddict_drops_what_was_merged_from_below() -> None:
-    # `extra.kwargs` is set on the command line, but merged with the default;
-    # replacing `extra` drops the part that the default gave.
-    config = compose(overrides=["extra.kwargs={b:2}", "extra={_replace_:true}"])
-    assert config.extra == {"kwargs": {"b": 2}}
+def test_a_dict_for_a_typeddict_drops_its_default(overrides: list[str]) -> None:
+    # The dict replaces `extra`, and the dotted key is applied after it.
+    assert compose(overrides=overrides).extra == {"kwargs": {"b": 2}}
 
 
 def test_replace_is_not_true_in_a_value() -> None:
@@ -252,7 +242,7 @@ def test_the_composed_value_is_saved_whole(
     def main(config: Config) -> None:
         seen.append((config, cast("dict[str, Any]", nematocyte.run_config())))
 
-    main(["opt.kwargs={_replace_:true,a:1}"])
+    main(["opt.kwargs={a:1}"])
     capsys.readouterr()
     [(config, saved)] = seen
     assert config.opt.kwargs == {"a": 1}
