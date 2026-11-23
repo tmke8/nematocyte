@@ -270,8 +270,9 @@ def _to_dict(cls: type, config: Any) -> dict[str, Any]:
             # The value of an `InitVar` is not kept on the instance.
             continue
         value = getattr(config, info.name)
-        if info.kind is Kind.VALUE or isinstance(value, dict):
-            # A value, or a TypedDict, which holds only values.
+        if info.kind is Kind.VALUE or isinstance(value, dict) or value is None:
+            # A value, a TypedDict, which holds only values, or an optional
+            # subconfig that is off.
             result[info.name] = to_json_form(value)
         elif info.kind is Kind.CONFIG:
             result[info.name] = _to_dict(type(value), value)

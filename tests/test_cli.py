@@ -71,12 +71,20 @@ def test_key_of_another_option_is_an_error() -> None:
     assert "kernel_size, stride, activation, norm" in message
 
 
-def test_dataclass_field_cannot_be_given_a_dict() -> None:
+def test_dict_for_a_subconfig_is_merged_as_in_a_file() -> None:
+    config = nematocyte.compose(
+        Config, overrides=["opt={lr:0.1}", "opt.weight_decay=1"]
+    )
+    assert config.opt == Opt(lr=0.1, weight_decay=1.0)
+
+
+def test_group_cannot_be_given_a_dict() -> None:
     with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(Config, overrides=["opt={lr:0.1}"])
+        nematocyte.compose(Config, overrides=["model={num_hidden:2}"])
     message = str(excinfo.value)
-    assert "opt={lr:0.1}" in message
+    assert "model={num_hidden:2}" in message
     assert "one by one" in message
+    assert "Options: fcn, cnn" in message
 
 
 # -- group or value, from the type of the field ---------------------------------

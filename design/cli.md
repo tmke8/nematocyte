@@ -139,8 +139,10 @@ The rules:
   the argument, the key and the class: a `Required` key; a field of a
   dataclass, where the error points to `KEY=null` if the field takes
   `None`; a subconfig or a group, which cannot be `NotRequired`
-  ([unions.md](unions.md#no-optional-dataclass-fields-for-now)); and an
-  unknown key, as for `KEY=value`.
+  ([deserializer.md](deserializer.md#typeddict-configs)), where the error
+  points to `KEY=null` if the subconfig is optional
+  ([unions.md](unions.md#optional-subconfigs)); and an unknown key, as for
+  `KEY=value`.
 - `~KEY=value` is an error, which shows the two forms that may have been
   meant, `~KEY` and `KEY=value`. Hydra's conditional delete is not
   supported.
@@ -190,10 +192,25 @@ Hydra merges instead, which is not what `=` suggests.
 Dotted paths end at the dict-typed field. `opt.optimizer_kwargs.eps=1e-6` is
 not supported; to change one key, the whole dict is given again.
 
-### A dataclass field cannot be given a dict value
+### A dict value for a subconfig means what it means in a file
 
-`opt={lr:0.1}` is an error. Hydra accepts it and merges the dict into the
-subconfig. In nematocyte the fields are set one by one (`opt.lr=0.1`).
+`opt={lr:0.1}` does what `opt: {lr: 0.1}` does in a config file: the values
+are merged into the subconfig, and the values that it held before stay. A
+`dict[...]` field is replaced instead ([above](#a-dict-typed-field-is-set-as-a-whole-and-replaced)),
+as it is in a file too. So `=` means "as in a file" for both. Hydra merges
+the dict into the subconfig as well.
+
+- The dict is applied with the selections, shortest path first, as a preset
+  would be: `opt={lr:0.1} opt.lr=0.2` sets `0.2` in either order.
+- `opt={...}` and `opt=NAME` are the same key: the last one wins.
+- A nested dict goes into a nested subconfig. A string for a nested group or
+  subconfig is an error that points to `KEY=NAME`, as a string among the
+  values of a file points to `_defaults_`.
+- For an optional subconfig that is off, a dict switches it on, and
+  `ema={}` does so with the class defaults
+  ([unions.md](unions.md#optional-subconfigs)).
+- A group cannot be given a dict value: the dict names no option. Its option
+  is selected with `model=NAME`, and its fields are set one by one.
 
 ### A hand-written parser
 

@@ -503,14 +503,18 @@ Python version. Reading config files does not need to be fast (see above).
   A file whose name breaks the rule, such as `configs/x:run.yaml`, cannot
   be selected. `--help` leaves it out, and the validator reports it.
 - A key of a subconfig or group with nothing under it (`model:` and then
-  only comments, which YAML reads as null) is ignored.
+  only comments, which YAML reads as null) is ignored. An optional
+  subconfig (`ema: EmaCfg | None`) is the exception: null switches it off,
+  whether it is written `ema: null` or `ema:` with nothing under it, and a
+  mapping switches it on ([unions.md](unions.md#optional-subconfigs)).
 - A selection written among the values (`model: cnn` outside `_defaults_`)
   is an error that points to `_defaults_`.
 - A key `defaults`, as in Hydra, is an error that suggests `_defaults_`,
   unless the node has a field of that name.
 - `_defaults_` as a list, as in Hydra, is an error that shows the mapping
   form. An entry with `null` (Hydra's `- opt: null`) is an error that says
-  it is not needed.
+  it is not needed, and that an optional subconfig is switched off among
+  the values (`ema: null`).
 - A key `_doc_` at the top level of a file describes the file, for
   `--help` ([helptext.md](helptext.md#docs-of-config-files)). It is not a
   value. It has to be a string; anything else is an error that names the

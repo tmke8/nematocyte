@@ -167,10 +167,13 @@ A key that is not a field of a subconfig or an option of a group is always
 an error, with the file or override that set it. See
 [deserializer.md](design/deserializer.md#unknown-keys).
 
-### A subconfig cannot be set to a dict
+### A group cannot be set to a dict
 
-`opt={lr:0.1}` is an error. Hydra merges the dict into the subconfig. Set the
-fields one by one: `opt.lr=0.1`. See [cli.md](design/cli.md).
+`opt={lr:0.1}` merges the dict into a subconfig, as in Hydra and as
+`opt: {lr: 0.1}` does in a file. For a group, `model={num_hidden:2}` is an
+error: Hydra merges the dict into the selected option, but the dict names
+no option. Select one with `model=NAME` and set the fields one by one:
+`model.num_hidden=2`. See [cli.md](design/cli.md).
 
 ## Schema and config groups
 
@@ -205,10 +208,17 @@ Python code, and `_target_` is an unknown key like any other. A program that
 wants to name a class in its config keeps the import path in a `str` field
 and imports it itself. See [unions.md](design/unions.md).
 
-### No optional subconfigs
+### Optional subconfigs are switched off with `null`, not `~`
 
-A dataclass field cannot be `X | None`, and a group cannot have `None` as an
-option. See [unions.md](design/unions.md).
+A subconfig typed `EmaCfg | None` is switched off with `ema: null` in a
+file or `ema=null` on the command line, and switched on with a mapping, as
+in Hydra. The difference is `~`:
+
+| Written | Hydra | nematocyte |
+| --- | --- | --- |
+| `~ema`, where the default is `EmaCfg()` | Deletes the key, and the default comes back: still on | Error, which points to `ema=null` |
+
+A group cannot have `None` as an option. See [unions.md](design/unions.md#optional-subconfigs).
 
 ### A hand-written `__init__` is not called
 

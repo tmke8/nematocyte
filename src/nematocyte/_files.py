@@ -82,7 +82,9 @@ def load_file(path: Path) -> ConfigFile:
     for key, name in defaults.items():
         if not isinstance(name, str):
             hint = (
-                " An entry with null is not needed in nematocyte; remove it."
+                " An entry with null is not needed in nematocyte; remove it. "
+                f"To switch off an optional subconfig, write {key}: null among "
+                "the values, outside '_defaults_'."
                 if name is None
                 else ""
             )

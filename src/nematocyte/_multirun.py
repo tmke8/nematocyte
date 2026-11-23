@@ -38,7 +38,7 @@ from ._settings import (
     SubmititSlurmLauncher,
     TpeSampler,
 )
-from ._tree import Node
+from ._tree import Node, switched_off_message
 from ._tree import Path as KeyPath
 
 __all__ = ["Multirun", "check_params", "parse_params", "run_multirun"]
@@ -399,6 +399,11 @@ def _check_exact(
             info = node.fields.get(segment)
             last = index == len(path) - 1
             child = node.children.get(segment)
+            if info is not None and not last and node.is_off(info):
+                raise ConfigError(
+                    f"The swept key {'.'.join(path)!r} does not exist in the "
+                    f"config: {switched_off_message(node, info, path[index + 1 :])}"
+                )
             if info is None or (
                 not last and (info.kind is Kind.VALUE or child is None)
             ):

@@ -116,6 +116,10 @@ def _selections(
     choices: list[tuple[Override, ...]] = []
     if child is not None and following in child.fields:
         choices.append(overrides)
+    if node.is_off(info):
+        # An optional subconfig that is off is switched on with its defaults.
+        key = path[:depth]
+        choices.append((*overrides, Override(key, {}, f"{'.'.join(key)}={{}}")))
     for option_name, option_cls in info.options.items():
         if child is not None and option_cls is child.cls:
             continue
