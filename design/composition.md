@@ -505,19 +505,27 @@ Python version. Reading config files does not need to be fast (see above).
 - A key of a subconfig or group with nothing under it (`model:` and then
   only comments) is null to YAML, the same as `model: null`. Null switches
   an optional subconfig (`ema: EmaCfg | None`) off
-  ([unions.md](unions.md#optional-subconfigs)). For any other subconfig,
-  and for a group, it is an error that names the file, the key and the
-  class, as in Hydra ("field 'model' is not Optional"), and that says to
-  leave out the key or write `model: {}`. So commenting out every line
-  under a key never changes the config silently.
+  ([unions.md](unions.md#optional-subconfigs)). For an optional group
+  (`model: Model | None`), it is an error that shows the entry
+  `model: null` under `_defaults_`, where the group is switched off
+  ([unions.md](unions.md#optional-groups)). For any other subconfig or
+  group, it is an error that names the file, the key and the class, as in
+  Hydra ("field 'model' is not Optional"), and that says to leave out the
+  key or write `model: {}`. So commenting out every line under a key never
+  changes the config silently, except for an optional subconfig.
 - A selection written among the values (`model: cnn` outside `_defaults_`)
   is an error that points to `_defaults_`.
 - A key `defaults`, as in Hydra, is an error that suggests `_defaults_`,
   unless the node has a field of that name.
 - `_defaults_` as a list, as in Hydra, is an error that shows the mapping
-  form. An entry with `null` (Hydra's `- opt: null`) is an error that says
-  it is not needed, and that an optional subconfig is switched off among
-  the values (`ema: null`).
+  form. An entry with `null` switches off an optional group
+  (`model: null`, [unions.md](unions.md#optional-groups)), which Hydra's
+  `- model: null` does not do. For an optional subconfig, it is an error
+  that points to `ema: null` among the values. For anything else, it is an
+  error that says it is not needed: Hydra needs `- opt: null` only to list
+  the group, so that `opt=NAME` works without `+` ([cli.md](cli.md)), and
+  nematocyte reads that from the type of the field. `_self_: null` is an
+  error.
 - A key `_doc_` at the top level of a file describes the file, for
   `--help` ([helptext.md](helptext.md#docs-of-config-files)). It is not a
   value. It has to be a string; anything else is an error that names the

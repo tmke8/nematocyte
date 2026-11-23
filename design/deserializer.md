@@ -377,8 +377,8 @@ class Opt(TypedDict):
   `total=False` and inheritance are read through `__required_keys__`.
 - `NotRequired` is only for values. A subconfig or a group cannot be
   `NotRequired`: leaving a whole subconfig out of the dict is not
-  supported. A subconfig that can be switched off is typed `X | None`
-  instead, and is `None` when it is off
+  supported. A subconfig or a group that can be switched off is typed
+  `X | None` instead, and is `None` when it is off
   ([unions.md](unions.md#optional-subconfigs)).
 - `Required`, `NotRequired` and `ReadOnly` are stripped before nematocyte
   reads the type of a key; pydantic reads them itself. `ReadOnly` has no

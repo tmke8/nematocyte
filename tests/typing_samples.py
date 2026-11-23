@@ -89,6 +89,38 @@ def use_optional(config: WithOptional) -> None:
 assert_type(nematocyte.compose(WithOptional, overrides=["ema={}"]).warmup, Opt | None)
 
 
+# -- optional groups -------------------------------------------------------------
+
+
+@dataclass(kw_only=True)
+class WithOptionalGroups:
+    # Through the alias, off by default, ...
+    model: Model | None = None
+    # ... and inline, on by default.
+    encoder: (
+        Annotated[
+            Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
+            Discriminator(nematocyte.pick),
+        ]
+        | None
+    ) = field(default_factory=Cnn)
+
+
+def use_optional_groups(config: WithOptionalGroups) -> None:
+    assert_type(config.model, Fcn | Cnn | None)
+    assert_type(config.encoder, Fcn | Cnn | None)
+    if isinstance(config.model, Fcn):
+        assert_type(config.model.num_hidden, int)
+    elif config.model is not None:
+        assert_type(config.model.kernel_size, int)
+
+
+assert_type(
+    nematocyte.compose(WithOptionalGroups, overrides=["model=cnn"]).model,
+    Fcn | Cnn | None,
+)
+
+
 # -- the entry point -----------------------------------------------------------
 
 
@@ -210,6 +242,8 @@ class TypedConfig(TypedDict):
     optimizer: Sgd | Adam
     model: Model
     plain: Plain
+    # An optional group of TypedDicts.
+    fallback: Annotated[Sgd | Adam, Discriminator("_option_")] | None
 
 
 assert_type(nematocyte.compose(TypedConfig), TypedConfig)
@@ -222,6 +256,7 @@ def typed_main(config: TypedConfig) -> None:
     assert_type(config["seed"], int)
     assert_type(config["optimizer"], Sgd | Adam)
     assert_type(config["model"], Fcn | Cnn)
+    assert_type(config["fallback"], Sgd | Adam | None)
     # The option narrows the union, in `match` and in `if`.
     match config["optimizer"]:
         case {"_option_": "sgd"}:

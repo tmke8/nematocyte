@@ -201,12 +201,12 @@ class Composer:
 
         Apart from a key that is given more than once, where the last one
         wins, the order of the overrides has no meaning. Selections, and
-        `null` for an optional subconfig, are applied shortest path first, so
-        that `model=cnn` is in place before `model.norm=batchnorm` is looked
-        at. A dict for an optional subconfig switches it on along with them.
-        The values come after, in the order given, and with them the values
-        of the dicts for a subconfig or a group, which stand for their
-        dotted keys: a later value for the same key wins.
+        `null` for an optional subconfig or group, are applied shortest path
+        first, so that `model=cnn` is in place before `model.norm=batchnorm`
+        is looked at. A dict for an optional subconfig switches it on along
+        with them. The values come after, in the order given, and with them
+        the values of the dicts for a subconfig or a group, which stand for
+        their dotted keys: a later value for the same key wins.
         """
         overrides = last_wins(overrides)
         later: set[int] = set()
@@ -283,7 +283,7 @@ class Composer:
         """
         source = repr(override.text)
         label = f"the override {source}"
-        if info.optional:
+        if _switches_on(info):
             _check_not_switched_off(parent, info, switched_off, source)
             child = parent.switch_on(info)
         else:
@@ -296,15 +296,32 @@ class Composer:
             child, override.value, label, command_line=True, switched_off=switched_off
         )
 
+    def _defaults_null_message(self, node: Node, info: FieldInfo) -> str:
+        """The error for null under `_defaults_`, for all but an optional group."""
+        key = format_path((*node.path, info.name))
+        if info.optional:
+            return (
+                f"{key!r} is an optional subconfig of {node.describe()}, and is "
+                f"switched off among the values, outside '_defaults_': "
+                f"{info.name}: null. Under '_defaults_', null switches off an "
+                f"optional group."
+            )
+        return (
+            f"{self._null_message(node, info)}\nAn entry with null, as in "
+            f"Hydra's '- {info.name}: null', is not needed in nematocyte; "
+            f"remove it."
+        )
+
     def _null_message(self, node: Node, info: FieldInfo) -> str:
-        """The error for null on a subconfig that is not optional, or a group."""
+        """The error for null on a subconfig or a group that is not optional."""
         path = (*node.path, info.name)
         key = format_path(path)
         if info.kind is Kind.GROUP:
             return (
                 f"{key!r} is a group of {node.describe()}, and cannot be null: "
-                f"only a subconfig of one class can be optional, as in "
-                f"X | None.{self._available(path, info)}"
+                f"its type does not allow None. An optional group has None "
+                f"outside the union of the group, as in Annotated[..., "
+                f"Discriminator(...)] | None.{self._available(path, info)}"
             )
         assert info.config_cls is not None
         name = info.config_cls.__name__
@@ -522,6 +539,11 @@ class Composer:
                     "or a group, so there is nothing to select for it. Set it "
                     "as a value, outside '_defaults_'.",
                 )
+            if name is None:
+                if info.kind is not Kind.GROUP or not info.optional:
+                    raise _error(source, self._defaults_null_message(parent, info))
+                parent.switch_off(info)
+                continue
             self._select(parent, info, name, source, file.label)
         self._apply_values(node, file.values, file.label)
 
@@ -533,14 +555,17 @@ class Composer:
         *,
         command_line: bool = False,
         switched_off: dict[KeyPath, str] | None = None,
+        prefix: KeyPath = (),
     ) -> None:
         """Apply the values of a file, or of a dict on the command line.
 
         A mapping goes into a subconfig or a group, and switches an optional
-        subconfig on; null switches it off, and is an error for any other
-        subconfig or group. `switched_off` maps the optional subconfigs that
-        `null` on the command line switched off to the override; a dict
-        cannot switch those on again.
+        subconfig on. Null switches an optional subconfig off, and an optional
+        group on the command line; in a file, an optional group is switched
+        off under `_defaults_`. Null is an error for any other subconfig or
+        group. `switched_off` maps the optional subconfigs that `null` on the
+        command line switched off to the override; a dict cannot switch those
+        on again. `prefix` is the path of `node` below the node of the file.
         """
         for key, value in values.items():
             info = node.fields.get(key) if isinstance(key, str) else None
@@ -557,16 +582,9 @@ class Composer:
                 continue
             path = format_path((*node.path, info.name))
             if value is None:
-                # Also a key with nothing under it, which YAML reads as null.
-                if not info.optional:
-                    hint = (
-                        ""
-                        if command_line
-                        else f"\nA key with nothing under it is null too. Leave "
-                        f"out the key, or write {info.name}: {{}}."
-                    )
-                    raise _error(label, self._null_message(node, info) + hint)
-                node.switch_off(info)
+                self._apply_null(
+                    node, info, label, command_line=command_line, prefix=prefix
+                )
                 continue
             if not isinstance(value, dict):
                 hint = ""
@@ -586,7 +604,7 @@ class Composer:
                     f"{path!r} is {what}, so its value has to be a mapping of "
                     f"its fields, not {value!r}.{hint}",
                 )
-            if info.optional:
+            if _switches_on(info):
                 if switched_off is not None:
                     _check_not_switched_off(node, info, switched_off, label)
                 child = node.switch_on(info)
@@ -602,7 +620,42 @@ class Composer:
                 label,
                 command_line=command_line,
                 switched_off=switched_off,
+                prefix=(*prefix, info.name),
             )
+
+    def _apply_null(
+        self,
+        node: Node,
+        info: FieldInfo,
+        label: str,
+        *,
+        command_line: bool,
+        prefix: KeyPath,
+    ) -> None:
+        """Apply null for a subconfig or a group, from a file or a dict.
+
+        A key with nothing under it is null too, to YAML.
+        """
+        if not info.optional:
+            hint = (
+                ""
+                if command_line
+                else f"\nA key with nothing under it is null too. Leave "
+                f"out the key, or write {info.name}: {{}}."
+            )
+            raise _error(label, self._null_message(node, info) + hint)
+        if info.kind is Kind.GROUP and not command_line:
+            path = format_path((*node.path, info.name))
+            key = format_path((*prefix, info.name))
+            raise _error(
+                label,
+                f"{path!r} is an optional group of {node.describe()}. In a "
+                f"config file, it is switched off under '_defaults_', where "
+                f"its options are selected:\n    _defaults_:\n      {key}: "
+                f"null\nA key with nothing under it is null too; to leave the "
+                f"group as it is, leave out the key.",
+            )
+        node.switch_off(info)
 
     # -- selections --------------------------------------------------------
 
@@ -612,7 +665,7 @@ class Composer:
         """Follow `path` from `start`; return the last node and the field in it.
 
         `value` is what is to be set at `path`, if anything, for the error
-        when the path goes through an optional subconfig that is off.
+        when the path goes through an optional subconfig or group that is off.
         """
         node = start
         for index, segment in enumerate(path):
@@ -708,6 +761,7 @@ class Composer:
             node = Node(info.options[name], path, option=name)
             node.touched = True
             parent.children[info.name] = node
+            parent.off.discard(info.name)
             return
 
         option, stem = self._split_name(path, info, name, source)
@@ -746,7 +800,9 @@ class Composer:
                 f"{_hydra_defaults_hint(file, _option_fields(info))}",
             )
         # A preset switches an optional subconfig on.
-        node = parent.switch_on(info) if info.optional else parent.children[info.name]
+        node = (
+            parent.switch_on(info) if _switches_on(info) else parent.children[info.name]
+        )
         if option is not None and node.option != option:
             raise _error(
                 file.label,
@@ -905,9 +961,10 @@ def _switch_on(
 
     That is the field `info` itself, if it is optional, and every optional
     subconfig under it that the dict has a mapping for. Anything else in the
-    dict is left for when its values are applied.
+    dict is left for when its values are applied. A dict does not switch on
+    an optional group, which needs an option.
     """
-    if info.optional:
+    if _switches_on(info):
         _check_not_switched_off(parent, info, switched_off, source)
         child = parent.switch_on(info)
     else:
@@ -923,6 +980,14 @@ def _switch_on(
             and isinstance(inner, dict)
         ):
             _switch_on(child, field, inner, switched_off, source)
+
+
+def _switches_on(info: FieldInfo) -> bool:
+    """Whether a mapping switches on the field: an optional subconfig.
+
+    An optional group is switched on only by selecting an option.
+    """
+    return info.optional and info.kind is Kind.CONFIG
 
 
 def _check_not_switched_off(

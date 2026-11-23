@@ -227,6 +227,9 @@ into the subconfig as well.
   dict follow in order. Together with `ema=null`, in either order, the dict
   is an error, since the order of the arguments does not decide between
   them.
+- For an optional group that is off, a dict is an error: it names no
+  option. The error points to `model=NAME`
+  ([unions.md](unions.md#optional-groups)).
 - A key can be swept only once: `-m opt={lr:1},{lr:2} opt=fast,slow` is an
   error.
 - With `--multirun`, a swept value keeps the place of its sweep among the

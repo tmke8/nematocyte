@@ -141,7 +141,7 @@ class _Resolver:
             if info.kind is not Kind.VALUE:
                 child = node.children.get(segment)
                 here = format_path(path[: index + 1])
-                if child is None and info.optional:
+                if node.is_off(info):
                     raise ConfigError(
                         f"{expression} refers to a key under {here!r}, which "
                         "is switched off (null)."

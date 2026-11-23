@@ -165,10 +165,11 @@ def _translate(node: Node, exc: ValidationError) -> tuple[list[str], set[_FieldK
             messages.append(_node_error(found, rest, error))
         elif info.kind is not Kind.VALUE:
             path = format_path((*found.path, info.name))
+            off = f", or switch it off with {path}=null" if info.optional else ""
             messages.append(
                 f"{path}: no option is selected for this group. Select one "
-                f"with {path}=NAME, or in the '_defaults_' of a config file. "
-                f"Options: {', '.join(info.options)}"
+                f"with {path}=NAME, or in the '_defaults_' of a config "
+                f"file{off}. Options: {', '.join(info.options)}"
             )
         else:
             key = (id(found), info.name)
