@@ -124,7 +124,7 @@ Give the field the type it holds (`color: Color`), or, for a choice between
 config classes, make it a group ([unions.md](design/unions.md)). See
 [deserializer.md](design/deserializer.md).
 
-### Dict fields are open, and replaced as a whole
+### Dict fields are open, and replaced on the command line
 
 For a field typed `dict[...]`, such as
 `optimizer_kwargs: dict[str, Any] | None`:
@@ -133,7 +133,12 @@ For a field typed `dict[...]`, such as
 | --- | --- | --- |
 | `opt.optimizer_kwargs={eps:1e-6}` | Error, asks for `+` | Sets the dict |
 | ... when the field already holds `{amsgrad: true}` | Merges the two | Replaces it: only `eps` is left |
-| `opt.optimizer_kwargs.eps=1e-6` | Error | Error; give the whole dict |
+| `opt.optimizer_kwargs.eps=1e-6`, when the field holds a dict with `eps` | Sets `eps` | Error; give the whole dict |
+
+As in Hydra, a mapping in a config file is merged deeply into a mapping,
+whatever the type of the field. To replace it in a file instead, add
+`_replace_: true` to the mapping
+([below](#_replace_-true-replaces-instead-of-merging)).
 
 If possible, use `TypedDict` instead. Then you can set
 `opt.optimizer_kwargs.eps=1e-6` on the commandline.
@@ -200,11 +205,11 @@ Python code, and `_target_` is an unknown key like any other. A program that
 wants to name a class in its config keeps the import path in a `str` field
 and imports it itself. See [unions.md](design/unions.md).
 
-### A group is switched off with `null`, under `_defaults_` in a file
+### Switched off with `null` under `_defaults_` in a file
 
-A group is optional when its type is `Model | None`, with `None` outside
-the union of the group. In a file, it is switched off under `_defaults_`,
-next to the selections:
+An optional subconfig, `ema: EmaCfg | None`, and an optional group,
+`model: Model | None` with `None` outside the union of the group, are
+switched off under `_defaults_` in a file, next to the selections:
 
 ```yaml
 _defaults_:
@@ -214,19 +219,35 @@ _defaults_:
 In Hydra, `- model: null` in the defaults list means something else: it
 selects nothing, and the field keeps the default of the dataclass, so a
 default of `Fcn()` stays on. Hydra switches the group off with
-`model: null` in the body of a file, for a field typed
-`Optional[ModelCfg]`. In nematocyte, that is an error that points to
-`_defaults_`, since among the values `model` holds the fields of the
-selected option, whose class does not allow null; so is a key with nothing
-under it. On the command line, `model=null` switches it off, where
-Hydra crashes ("Config group override must be a string or a list"). It is
-switched on by selecting an option, as in `model=cnn`. A mapping does not
-switch it on: `model.kernel=2` while the group is off is an error that
-points to `model=NAME`.
+`model: null` or `ema: null` in the body of a file, for a field typed
+`Optional[...]`, and gives an error there for any other field ("field
+'model' is not Optional").
 
-An optional subconfig of one class, `ema: EmaCfg | None`, is switched off
-among the values instead, `ema: null`, and switched on with a mapping, as
-in Hydra. See [unions.md](design/unions.md#optional-groups).
+In nematocyte, null in the body of a file is an error for anything that
+holds a mapping and does not take `None`: any subconfig or group, and a
+dict without `| None`. The error shows what may have been meant: the entry
+under `_defaults_`, leaving out the key, or, for a TypedDict or a dict,
+`{_replace_: true}`, which makes it empty.
+
+| In the body of a file | Hydra | nematocyte |
+| --- | --- | --- |
+| `ema: null`, for `ema: EmaCfg \| None` | `None` | Error, which shows the entry under `_defaults_` |
+| `ema:` with only comments under it | `None` | The same error |
+| `plain: null`, for `plain: Plain` | Error | Error |
+| `counts: null`, for `counts: dict[str, int]` | Error | Error, which shows `counts: {_replace_: true}` |
+| `maybe: null`, for `maybe: dict[str, int] \| None` | `None` | `None` |
+
+The Hydra column was tested by merging into the structured config with
+OmegaConf, as Hydra does.
+
+On the command line, `model=null` switches it off, where Hydra crashes
+("Config group override must be a string or a list"). A group is switched
+on by selecting an option, as in `model=cnn`, and a subconfig by a mapping
+in a file or a named config. A dotted key does not switch either on:
+`model.kernel=2` while the group is off is an error that points to
+`model=NAME`. On the command line, a dataclass is not given a dict
+([below](#a-dict-replaces-and-a-dataclass-takes-none)). See
+[unions.md](design/unions.md#optional-subconfigs).
 
 ### A hand-written `__init__` is not called
 
@@ -255,6 +276,29 @@ subconfig, such as `opt=weight_decay_adamw`, is applied on top and keeps the
 other values. See [composition.md](design/composition.md#layers).
 
 ## Config files
+
+### `_replace_: true` replaces instead of merging
+
+A mapping in a config file is merged into what was set before, in Hydra and
+in nematocyte. In Hydra, a file cannot take out a key that a lower layer
+set: `key: null` sets `None`, and `key: ???` leaves the value as it was. In
+nematocyte, a mapping for a TypedDict, or a mapping in a value such as a
+`dict[...]`, can replace what was there instead:
+
+```yaml
+opt:
+  _replace_: true
+  lr: 0.001
+```
+
+`opt` is then `{"lr": 0.001}`, whatever the field default, the primary
+config or a preset set under it. On the command line, a dict replaces
+anyway, so the same is `opt={lr:0.001}`
+([below](#a-dict-replaces-and-a-dataclass-takes-none)); `~opt.wd` takes out
+a single key. A
+dataclass cannot be replaced this way. A dict that is to hold a key
+`_replace_` of its own cannot be written. See
+[composition.md](design/composition.md#_replace_-true-replaces-instead-of-merging).
 
 ### `_defaults_` is a mapping
 
@@ -291,8 +335,9 @@ _defaults_:
 - A key can be a dotted path: `model.norm: my_batchnorm`.
 - `- opt: null`, which Hydra needs so that `opt=NAME` works without `+`, is
   not needed, and is an error. Under `_defaults_`, null only switches off
-  an optional group, `model: null`, which is not what it means in Hydra
-  ([above](#a-group-is-switched-off-with-null-under-_defaults_-in-a-file)).
+  an optional subconfig or group, `model: null`, which is not what it
+  means in Hydra
+  ([above](#switched-off-with-null-under-_defaults_-in-a-file)).
 - A key `defaults`, as in Hydra, is an error that suggests `_defaults_`,
   unless the node has a field of that name. A list is an error that shows
   the mapping form.
@@ -335,8 +380,8 @@ See [composition.md](design/composition.md).
   error. In Hydra every directory is a config group, so `counts=heavy` puts
   the file's content into the dict and merges it with the default. In
   nematocyte, a primary config such as `configs/counts_heavy.yaml`, which
-  writes `counts:` at the top, can be applied with `+counts_heavy`; it
-  replaces the dict as a whole. For presets that go straight into the
+  writes `counts:` at the top, can be applied with `+counts_heavy`; it is
+  merged into the dict, as in Hydra. For presets that go straight into the
   field, use a `TypedDict` instead.
 - In a group's directory, a subdirectory named after an option, such as
   `configs/dm/celeba/`, holds further configs for the group, selected as
@@ -374,6 +419,27 @@ is left is `+NAME`, without `=`, which applies a primary config on top of
 the tree ([below](#a-preset-for-the-whole-config-is-presetsdebug)).
 `+key=value` is an error that shows both forms that may have been meant.
 See [cli.md](design/cli.md).
+
+### A dict replaces, and a dataclass takes none
+
+In Hydra, a dict on the command line is merged into what the key holds, as
+a mapping in a file is. In nematocyte, a dict on the command line replaces
+it, and is only for a TypedDict and for a value:
+
+| Written | Hydra | nematocyte |
+| --- | --- | --- |
+| `wandb={name:foo}`, for a TypedDict `wandb` | Merges `name` into it | Replaces it: only `name` is set |
+| `optimizer={beta1:0.5}`, for a group of TypedDicts | Merges into the selected option | Replaces what is set in the selected option, which stays selected |
+| `opt={lr:0.1}`, for a dataclass `opt` | Merges into it | Error, which shows `opt.lr=0.1` |
+| `model={num_hidden:2}`, for a group of dataclasses | Merges into the selected option | Error, which shows `model.num_hidden=2` |
+| `ema={decay:0.5}`, for `ema: EmaCfg \| None = None`, a dataclass | Switches it on | Error; switch it on with a named config, `ema=NAME` |
+
+To change one key of a TypedDict and keep the others, use a dotted key,
+`wandb.name=foo`, as for a dataclass. A dict is the same key as `wandb=NAME`
+and `wandb=null`, so the last one wins, and dotted keys under it are applied
+after it, in either order. To switch on an optional dataclass with values
+of your own, write a config file for it, such as `configs/ema/mine.yaml`,
+and select it. See [cli.md](design/cli.md#a-dict-for-a-typeddict-replaces-it).
 
 ### `~` only leaves out a TypedDict key
 

@@ -150,7 +150,10 @@ params:
 
 The jobs are the product of all discrete sweeps, from `params` and from the
 command line. A key given on the command line replaces the same key in
-`params`. `interval(...)` is an error that names the `optuna` sweeper.
+`params`. A dict for a TypedDict on the command line is applied with the
+selections, so a key under it in `params` applies on top of it
+([cli.md](cli.md#a-dict-for-a-typeddict-replaces-it)). `interval(...)` is an
+error that names the `optuna` sweeper.
 
 Hydra's `max_batch_size` is left out.
 

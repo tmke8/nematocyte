@@ -239,7 +239,15 @@ Lists and dictionaries are written with brackets and braces:
 ```bash
 python main.py 'wandb.tags=[baseline,cnn]' 'opt.optimizer_kwargs={eps:1e-8,amsgrad:true}'
 ```
-A dictionary given like this replaces the previous value as a whole.
+A dictionary given like this replaces the previous value as a whole: here, `optimizer_kwargs` has only these two keys, whatever a config file set in it. The same holds for a `TypedDict` such as `wandb`: `'wandb={...}'` replaces the whole dictionary, so it has to give every required key of `WandbKwargs` (`project`, `dir`, `entity` and `mode`) again. To change one key of a `TypedDict` and keep the others, use a dotted key, `wandb.project=test`. A dataclass such as `opt` cannot be given a dictionary; set its fields one by one, `opt.lr=0.01`.
+
+In a config file, it is the other way around: a mapping is merged into the previous value, and keys that it does not give keep their values. To replace the previous value in a config file, add `_replace_: true` to the mapping:
+```yaml
+opt:
+  optimizer_kwargs:
+    _replace_: true
+    eps: 1.0e-8
+```
 
 `wandb` is a `TypedDict`, `WandbKwargs` in `src/logging.py`, and most of its keys are `NotRequired`: a key that is not set is not in the dictionary, so `wandb.init()` uses its own default. If a config file sets such a key, `~` leaves it out again:
 ```bash

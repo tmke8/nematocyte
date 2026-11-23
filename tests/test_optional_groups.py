@@ -266,10 +266,21 @@ def test_null_among_the_values_shows_the_path_from_the_file(tmp_path: Path) -> N
     assert "_defaults_:\n      outer.model: null" in message
 
 
-def test_null_in_a_dict_on_the_command_line_switches_it_off() -> None:
-    # The dict stands for its dotted keys, and `outer.model=null` is allowed.
-    config = nematocyte.compose(WithOuter, overrides=("outer={model:null}",))
+def test_null_for_a_nested_group_under_defaults(tmp_path: Path) -> None:
+    config_dir = configs(tmp_path, {"c.yaml": "_defaults_:\n  outer.model: null\n"})
+    config = nematocyte.compose(WithOuter, config_dir, config_name="c")
     assert config.outer.model is None
+    config_dir = configs(
+        tmp_path,
+        {
+            "d.yaml": "_defaults_:\n  outer.model: null\nouter:\n  model:\n    width: 2\n"
+        },
+    )
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(WithOuter, config_dir, config_name="d")
+    message = str(excinfo.value)
+    assert "d.yaml" in message
+    assert "'outer.model' is switched off in the entry 'outer.model'" in message
 
 
 def test_values_after_null_under_defaults_are_an_error(tmp_path: Path) -> None:
@@ -280,8 +291,7 @@ def test_values_after_null_under_defaults_are_an_error(tmp_path: Path) -> None:
         compose(config_dir, config_name="c")
     message = str(excinfo.value)
     assert "c.yaml" in message
-    assert "'on' is an optional group of Config" in message
-    assert "switched off" in message
+    assert "'on' is switched off in the entry 'on' of '_defaults_'" in message
 
 
 def test_null_for_self_is_an_error(tmp_path: Path) -> None:
@@ -371,10 +381,22 @@ def test_null_and_a_selection_are_the_same_key(
     assert compose(overrides=overrides).model == expected
 
 
-def test_selection_and_dict_both_apply_in_either_order() -> None:
-    expected = Cnn(kernel=7)
-    assert compose(overrides=("model=cnn", "model={kernel:7}")).model == expected
-    assert compose(overrides=("model={kernel:7}", "model=cnn")).model == expected
+def test_selection_and_dict_are_the_same_key() -> None:
+    # The last one wins; a dict alone does not switch the group on.
+    config = compose(overrides=("norm={eps:1}", "norm=LN"))
+    assert config.norm == {"_option_": "LN"}
+    message = error_of("norm=LN", "norm={eps:1}")
+    assert "'norm' is an optional group of Config" in message
+
+
+def test_dict_replaces_the_selected_option_of_a_typeddict_group(
+    tmp_path: Path,
+) -> None:
+    config_dir = configs(
+        tmp_path, {"c.yaml": "_defaults_:\n  norm: LN\nnorm:\n  eps: 0.1\n"}
+    )
+    config = compose(config_dir, ("norm={}",), config_name="c")
+    assert config.norm == {"_option_": "LN"}
 
 
 # -- setting a field while it is off ------------------------------------------------
@@ -396,15 +418,23 @@ def test_dotted_key_under_a_group_that_is_off_is_an_error(
 
 
 def test_dict_does_not_switch_on_a_group() -> None:
+    message = error_of("norm={eps:2}")
+    assert "'norm={eps:2}'" in message
+    assert "'norm' is an optional group of Config" in message
+    assert "norm=BN" in message
+
+
+def test_dict_for_a_group_of_dataclasses_that_is_off_is_an_error() -> None:
     message = error_of("model={kernel:2}")
     assert "'model={kernel:2}'" in message
-    assert "'model' is an optional group of Config" in message
-    assert "model=fcn" in message
+    assert "'model' is a group of Config, whose options are dataclasses" in message
+    assert "switched off" in message
+    assert "model=NAME" in message
+    assert "Options: fcn, cnn" in message
 
 
-def test_null_and_a_dict_for_the_same_group_is_an_error() -> None:
-    message = error_of("on={kernel:2}", "on=null")
-    assert "'on' is an optional group of Config" in message
+def test_null_and_a_dict_are_the_same_key() -> None:
+    assert compose(overrides=("norm={eps:2}", "norm=null")).norm is None
 
 
 def test_mapping_in_a_file_does_not_switch_on_a_group(tmp_path: Path) -> None:

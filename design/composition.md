@@ -166,15 +166,20 @@ always wins. For one file, from lowest to highest:
 1. The defaults of the dataclasses.
 2. The config that the file names with `_self_`, composed completely,
    including its own `_self_`.
-3. The other entries in the file's `_defaults_`, shortest path first.
-4. The values in the file.
+3. The mappings in the file with `_replace_: true`, which drop what the
+   layers below set at their place
+   ([below](#_replace_-true-replaces-instead-of-merging)).
+4. The other entries in the file's `_defaults_`, shortest path first.
+5. The values in the file.
 
 The command line comes on top of the primary config, in the same way: first
-the added configs (`+NAME`), then its selections, shortest path first, then
-its values. An added config is composed as if it extended the primary config
-with `_self_` ([cli.md](cli.md)): its own `_self_` chain, its `_defaults_` and
-its values apply on top of the tree so far, without going back to the
-defaults of the dataclasses.
+the added configs (`+NAME`), then its selections and its dicts for
+TypedDicts, which replace them ([cli.md](cli.md#a-dict-for-a-typeddict-replaces-it)),
+shortest path first, then its values. An added config is
+composed as if it extended the primary config with `_self_`
+([cli.md](cli.md)): its own `_self_` chain, its `_defaults_` and its values
+apply on top of the tree so far, without going back to the defaults of the
+dataclasses.
 
 The order in which things are written, in a file or on the command line,
 never matters, with one exception: several added configs are applied in the
@@ -283,6 +288,145 @@ named config ([validation.md](validation.md)), because nobody wrote those.
 Python shows a warning with the same text only once from the same place,
 so the jobs of a multirun that drop the same values give one warning.
 
+### A mapping is merged into a mapping, also in a value
+
+In a config file, a mapping for a subconfig is merged into what the layers
+below set: the keys that it gives are set, and the others stay. The same
+holds for a value that is a mapping, such as that of a field typed
+`dict[...]`, as in Hydra:
+
+```python
+@dataclass
+class Opt:
+    kwargs: dict[str, Any] = field(
+        default_factory=lambda: {
+            "sched": {"gamma": 0.1, "step": 5},
+            "milestones": [1, 2],
+        }
+    )
+```
+
+| Written in a config file on top | `opt.kwargs` |
+| --- | --- |
+| `opt: {kwargs: {sched: {gamma: 0.5}, extra: 1}}` | `{sched: {gamma: 0.5, step: 5}, milestones: [1, 2], extra: 1}` |
+| `opt: {kwargs: {milestones: [9]}}` | `{sched: {gamma: 0.1, step: 5}, milestones: [9]}` |
+| `opt: {kwargs: {sched: null}}` | `{sched: null, milestones: [1, 2]}` |
+
+Hydra gives the same results (tested with Hydra 1.4).
+
+On the command line, a dict replaces instead
+([cli.md](cli.md#on-the-command-line-a-dict-replaces)):
+`opt.kwargs={sched:{step:1}}` gives `{sched: {step: 1}}`, where Hydra
+merges.
+
+- A mapping is merged into a mapping, deeply: a mapping inside it is merged
+  into the mapping at the same key. Anything else replaces what was there:
+  a list, null, a scalar, and a mapping over something that is not one,
+  such as `null` or a string.
+- What counts is the value, not the type of the field: a field typed `Any`
+  or `dict[str, int] | None` merges a mapping into the mapping that it
+  holds. A config class inside a value, such as `dict[str, Point]`, is a
+  mapping in a config file, and is merged as one.
+- The default of the field is the first layer, as for a subconfig.
+- An interpolation (`${...}`) is resolved after composition, so it is a
+  string while the layers are merged: a mapping written over it replaces
+  it ([interpolation.md](interpolation.md)).
+- On the command line, a dotted path ends at the field
+  ([cli.md](cli.md#on-the-command-line-a-dict-replaces)), so a key inside
+  the dict cannot be set on its own there.
+- `_replace_: true` in a mapping replaces instead of merging
+  ([below](#_replace_-true-replaces-instead-of-merging)).
+
+### `_replace_: true` replaces instead of merging
+
+Since a mapping is merged, a file has no way to take out a key that a layer
+below set: `wd: null` is a value, and `~KEY` exists only on the command
+line and only for a TypedDict
+([cli.md](cli.md#key-leaves-out-an-optional-key-of-a-typeddict)). A mapping
+can say instead that it replaces what the layers below set at its place:
+
+```yaml
+# configs/presets/plain_adam.yaml
+opt:
+  _replace_: true
+  lr: 0.001
+```
+
+With `opt: Opt = field(default_factory=lambda: Opt(lr=0.1, wd=0.01))`,
+`+presets/plain_adam` gives `opt == {"lr": 0.001}`. Without `_replace_`, it
+gives `{"lr": 0.001, "wd": 0.01}`.
+
+Hydra has no way to do this. Tested with Hydra 1.4, on top of a primary
+config with `opt: {lr: 0.1, wd: 0.01}`:
+
+| Written in a config file on top | Result in Hydra |
+| --- | --- |
+| `opt: {wd: null}` | `{lr: 0.1, wd: None}` |
+| `opt: {wd: ???}` | `{lr: 0.1, wd: 0.01}`: merging `???` does nothing |
+| `opt: {wd: {_delete_: true}}` | A dict with the key `_delete_` |
+
+Only `~opt.wd` on the command line takes the key out.
+
+In a value, `_replace_` works the same way, at any depth:
+
+```yaml
+opt:
+  kwargs:
+    sched:
+      _replace_: true
+      step: 1
+```
+
+gives `{sched: {step: 1}, milestones: [1, 2]}` with the `kwargs` above.
+
+The rules:
+
+- `_replace_: true` drops everything that the layers below set or selected
+  at its place, the default of the field included, as `~KEY` does for
+  one key. For a TypedDict, the node is then as if nothing had set anything
+  in it. A TypedDict has no defaults, so it is an empty dict, and each
+  `Required` key has to be set again ("a value is required" otherwise). A
+  subconfig or a group inside it is as if the TypedDict had no default: a
+  group has no option selected, and a subconfig starts from the defaults of
+  its class. In a value, the mapping is then only what the layer gives,
+  and an empty mapping if it gives nothing else.
+- The layers below are what was applied before the file: the default of
+  the field, the files below it, and the file's own chain of `_self_`.
+  What the file selects under `_defaults_` and sets among its values stays,
+  wherever it is written in the file: `_replace_` is applied before them
+  ([layers](#layers)).
+- `_replace_` exists only in config files. On the command line, a dict
+  for a TypedDict or a value replaces anyway
+  ([cli.md](cli.md#a-dict-for-a-typeddict-replaces-it)), so `_replace_` in
+  it is an error, and so is `opt._replace_=true`.
+- A TypedDict replaced in this way can be a subconfig, the selected option
+  of a group of TypedDicts, or an optional subconfig, which it switches on.
+  The option of a group stays selected, and only what was set in it is
+  dropped. `_replace_` is also allowed at the top level of a named config
+  for such a field, where it drops what was set for the field before the
+  file, including what the file's chain of `_self_` set.
+- In a value, `_replace_` is allowed in any mapping, but not in the items
+  of a list, which are replaced with the list anyway; there it is a key of
+  the item.
+- For a dataclass, `_replace_` is an error that names the class. Every
+  field of a dataclass that has a default can be set back to it, so a
+  dataclass needs it less; it may be allowed later. At the top level of a
+  primary config, where it would replace the whole config, it is an error
+  too.
+- The value is `true`. Anything else is an error; a mapping that is to be
+  merged leaves out the key.
+- An empty mapping, `kwargs: {}`, is merged, and so changes nothing. A dict
+  is made empty with `kwargs: {_replace_: true}`. Null is not an empty
+  dict: for a dict that does not take `None`, it is an error that shows this
+  spelling ([below](#details-of-finding-and-reading-files)).
+- `_replace_` is reserved on every config class
+  ([deserializer.md](deserializer.md#reserved-names)), and in the mappings
+  of a value: a dict with a key `_replace_` of its own cannot be written in
+  a config file or on the command line.
+- What `_replace_` drops is not warned about: the file says that it is to
+  be dropped. A warning that a selection below recorded for values under
+  the node is dropped with them.
+
 ### What a directory holds follows from the schema
 
 `configs/model/` holds named configs because `Config.model` is a dataclass
@@ -308,8 +452,10 @@ almost always means that the user expects `seed=one` to select
 `configs/seed/one.yaml`, but `seed=one` sets the value to the string `"one"`;
 the error catches the mistake at the directory. A primary config that sets
 such a field goes at the top of the config directory or in a directory that
-matches no field, and can be applied with `+NAME`: a dict in it replaces the
-dict as a whole, as `=` does on the command line ([cli.md](cli.md)).
+matches no field, and can be applied with `+NAME`: a dict in it is merged
+into the dict that the field holds
+([above](#a-mapping-is-merged-into-a-mapping-also-in-a-value)), where `=`
+on the command line replaces it.
 
 A file at the top of the config directory that is named after a subconfig
 or a group of the root dataclass, such as `configs/model.yaml`, is an error,
@@ -508,26 +654,30 @@ Python version. Reading config files does not need to be fast (see above).
   can be any string: `dm='größe 2'` selects `configs/dm/größe 2.yaml`.
   A file whose name breaks the rule, such as `configs/x:run.yaml`, cannot
   be selected. `--help` leaves it out, and the validator reports it.
-- A key of a subconfig or group with nothing under it (`model:` and then
-  only comments) is null to YAML, the same as `model: null`. Null switches
-  an optional subconfig (`ema: EmaCfg | None`) off
-  ([unions.md](unions.md#optional-subconfigs)). For an optional group
-  (`model: Model | None`), it is an error that shows the entry
-  `model: null` under `_defaults_`, where the group is switched off
-  ([unions.md](unions.md#optional-groups)). For any other subconfig or
-  group, it is an error that names the file, the key and the class, as in
-  Hydra ("field 'model' is not Optional"), and that says to leave out the
-  key or write `model: {}`. So commenting out every line under a key never
-  changes the config silently, except for an optional subconfig.
+- A key with nothing under it (`model:` and then only comments) is null to
+  YAML, the same as `model: null`. Among the values, null is an error for
+  anything that holds a mapping and does not take `None`: a subconfig or a
+  group, optional or not, and a value whose type is a dict without
+  `| None`. So commenting out every line under a key never changes the
+  config silently. The error names the file, the key and the class, and
+  shows what may have been meant: leaving out the key; for an optional
+  subconfig or group, switching it off under `_defaults_`
+  ([unions.md](unions.md#optional-subconfigs)); for a TypedDict or a dict,
+  making it empty with `{_replace_: true}`
+  ([above](#_replace_-true-replaces-instead-of-merging)). For a value whose
+  type takes `None`, such as `dict[int, int] | None` or `Any`, null is
+  `None`, as in Hydra.
+- In the file that switches an optional subconfig or group off under
+  `_defaults_`, a value for it among the values is an error that names the
+  file, the key and the entry.
 - A selection written among the values (`model: cnn` outside `_defaults_`)
   is an error that points to `_defaults_`.
 - A key `defaults`, as in Hydra, is an error that suggests `_defaults_`,
   unless the node has a field of that name.
 - `_defaults_` as a list, as in Hydra, is an error that shows the mapping
-  form. An entry with `null` switches off an optional group
-  (`model: null`, [unions.md](unions.md#optional-groups)), which Hydra's
-  `- model: null` does not do. For an optional subconfig, it is an error
-  that points to `ema: null` among the values. For anything else, it is an
+  form. An entry with `null` switches off an optional subconfig or group
+  (`ema: null`, `model: null`, [unions.md](unions.md#optional-subconfigs)),
+  which Hydra's `- model: null` does not do. For anything else, it is an
   error that says it is not needed: Hydra needs `- opt: null` only to list
   the group, so that `opt=NAME` works without `+` ([cli.md](cli.md)), and
   nematocyte reads that from the type of the field. `_self_: null` is an

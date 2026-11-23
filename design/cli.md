@@ -151,14 +151,18 @@ The rules:
   whether a preset or a job of a sweep sets it is not always known.
 - `~KEY` and `KEY=value` are the same key: the last one wins, as for a key
   that is given twice. `~KEY` is applied with the values, after all
-  selections, so `optimizer=adam ~optimizer.eps` works in either order.
+  selections and dicts, so `optimizer=adam ~optimizer.eps` works in either
+  order.
 - `~KEY` cannot be swept: there is no sweep between "left out" and values.
   With `--multirun` it holds for every job, and it takes the key out of the
   `params` of the sweeper, as any value on the command line does
   ([multirun.md](multirun.md)).
 - `~KEY` exists only on the command line and in the overrides of
   `nematocyte.compose`, as `+NAME` does. A config file cannot leave out a
-  key: `key: null` is a value.
+  single key: `key: null` is a value. It can replace the whole TypedDict
+  with `_replace_: true`, and set again the keys that are to stay, as a dict
+  on the command line does
+  ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)).
 - An interpolation that refers to a key that was left out is an error, as
   for a key that nothing set
   ([interpolation.md](interpolation.md)).
@@ -184,58 +188,84 @@ the schema instead:
   caught.
 - A field typed `dict[...]` accepts any key.
 
-### A dict-typed field is set as a whole, and replaced
+### On the command line, a dict replaces
 
-`opt.optimizer_kwargs={eps:1e-6}` replaces whatever the field held before.
-Hydra merges instead, which is not what `=` suggests.
+`opt.optimizer_kwargs={eps:1e-6}` replaces the dict that the field holds:
+only `eps` is left, whatever the default or a config file set in it. In a
+config file, a mapping is merged instead
+([composition.md](composition.md#a-mapping-is-merged-into-a-mapping-also-in-a-value)).
+Hydra merges on the command line too, but `=` reads as "set to this", and a
+single key of the dict has no other spelling on the command line.
 
 Dotted paths end at the dict-typed field. `opt.optimizer_kwargs.eps=1e-6` is
-not supported; to change one key, the whole dict is given again.
+not supported, unlike in Hydra; the error shows the dict,
+`opt.optimizer_kwargs={eps:1e-6}`, and the whole dict is given again. For
+dotted keys, use a `TypedDict`. A spelling that sets one key of a dict and
+keeps the others, such as `+opt.optimizer_kwargs.eps=1e-6`, may be added
+later.
 
-### A dict for a subconfig or a group stands for its dotted keys
+The same holds for any field that holds a value, whatever its type: a field
+typed `Any` or `dict[str, int] | None` is replaced by a dict, as it is by any
+other value. A key given twice is replaced as a whole too:
+`opt.optimizer_kwargs={a:1} opt.optimizer_kwargs={b:2}` gives `{b: 2}`.
 
-`opt={lr:0.1}` does what `opt: {lr: 0.1}` does in a config file: the values
-are merged into the subconfig, and the values that it held before stay. It
-is the same as `opt.lr=0.1`, and its keys are the same keys as the dotted
-ones. A `dict[...]` field is replaced instead
-([above](#a-dict-typed-field-is-set-as-a-whole-and-replaced)), as it is in
-a file too. So `=` means "as in a file" for both. Hydra merges the dict
-into the subconfig as well.
+### A dict for a TypedDict replaces it
 
-- The dict is applied with the values, in the order of the arguments, so
-  that the last one wins for each key: `opt.lr=0.2 opt={lr:0.1}` sets
-  `0.1`, and `opt={lr:0.1} opt.lr=0.2` sets `0.2`. Two dicts for the same
-  subconfig both apply: `opt={lr:0.1} opt={momentum:0.9}` sets both.
-- The dict stands for its dotted keys down to the first field that holds a
-  value. A dict there is the value: `opt={optimizer_kwargs:{eps:1e-6}}` is
-  `opt.optimizer_kwargs={eps:1e-6}`. Inside a group, which fields hold a
-  value depends on the option, so the dict is read after the selections.
-- A selection and a dict for the same key both apply, the selection first,
-  as with dotted keys: `opt=fast opt={lr:0.1}` applies the preset `fast`
-  and then sets `lr`, in either order.
-- For a group, the dict goes into the option that is selected, as in Hydra:
-  `model=cnn model={kernel_size:3}` gives `Cnn(kernel_size=3)` in either
-  order. If no option is selected, it is an error that lists the options.
-- A string for a nested group or subconfig is an error that points to
-  `KEY=NAME`, as a string among the values of a file points to
-  `_defaults_`.
-- For an optional subconfig that is off, a dict switches it on, and
-  `ema={}` does so with the class defaults
-  ([unions.md](unions.md#optional-subconfigs)). That happens with the
-  selections, also for an optional subconfig inside the dict, so that
-  `ema.every=4 ema={decay:0.5}` works in either order; the values of the
-  dict follow in order. Together with `ema=null`, in either order, the dict
-  is an error, since the order of the arguments does not decide between
-  them.
-- For an optional group that is off, a dict is an error: it names no
-  option. The error points to `model=NAME`
-  ([unions.md](unions.md#optional-groups)).
-- A key can be swept only once: `-m opt={lr:1},{lr:2} opt=fast,slow` is an
-  error.
-- With `--multirun`, a swept value keeps the place of its sweep among the
-  arguments. As in Hydra, `opt.lr=0.1,0.2 opt={lr:0.5}` gives two jobs that
-  both have `lr=0.5`, and `opt={lr:0.5} opt.lr=0.1,0.2` gives `0.1` and
-  `0.2`.
+`wandb={name:foo}`, where `wandb` is a TypedDict, replaces it: afterwards
+only `name` is set, whatever the default of the field and the config files
+set under it. To change one key and keep the others, use a dotted key:
+`wandb.name=foo`.
+
+- What goes is what `_replace_: true` in a config file drops
+  ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)):
+  everything set or selected under the TypedDict, the default of the field
+  included. A TypedDict has no defaults, so each `Required` key has to be
+  set again, by the dict or by a dotted key. A subconfig inside it starts
+  from the defaults of its class, and a group inside it has no option
+  selected.
+- The dict is applied as a selection is: `wandb={name:foo}`, `wandb=NAME`
+  and `wandb=null` are the same key, and the last one wins, so
+  `wandb=preset wandb={name:foo}` gives only `name`, and of two dicts for
+  the same key the last one wins. It is applied with the selections,
+  shortest path first, so what is given for a key under it, a value, `~KEY`
+  or a selection, applies after it, in either order:
+  `wandb.project=x wandb={name:foo}` sets both.
+- For an optional TypedDict that is off, the dict switches it on; `wandb={}`
+  switches it on with nothing set
+  ([unions.md](unions.md#optional-subconfigs)).
+- For a group of TypedDicts, the dict replaces what is set in the option
+  that is selected, and the option stays selected:
+  `optimizer={beta1:0.5}` gives `{_option_: adam, beta1: 0.5}` if `adam` was
+  selected. It is the same key as `optimizer=sgd`, so it cannot select an
+  option; that is `optimizer=sgd optimizer.momentum=0.5`. If no option is
+  selected, or the group is switched off, the dict is an error that lists
+  the options ([unions.md](unions.md#optional-groups)).
+- Inside the dict, a mapping for a TypedDict or a value is given as in a
+  file, and null switches an optional subconfig or group off. A group inside
+  has no option selected, so a mapping for it is an error that lists the
+  options; it is selected with a dotted key, `training.optimizer=adam`, which
+  applies after the dict. A string for a subconfig or a group is an error
+  that points to `KEY=NAME`.
+- `_replace_` in the dict is an error, since the dict replaces anyway, and
+  so is `wandb._replace_=true`, which points to the dict.
+- With `--multirun`, the dicts can be swept: `-m wandb={name:a},{name:b}`.
+
+Hydra merges a dict into a TypedDict, as into any subconfig.
+
+### A dataclass is not given a dict
+
+`opt={lr:0.1}` is an error when `opt` is a dataclass, and so is
+`model={num_hidden:2}` for a group of dataclasses. On the command line, a
+dict replaces, and a dataclass is set field by field: `opt.lr=0.1`. The
+error shows the dotted keys that the dict would have stood for, and the
+named configs for the field. A mapping for a dataclass inside a dict for a
+TypedDict is an error in the same way: `wandb={inner:{x:1}}` points to
+`wandb.inner.x=1`. Hydra merges the dict into the dataclass.
+
+- An optional dataclass that is off is switched on by a named config,
+  `ema=NAME` ([unions.md](unions.md#optional-subconfigs)). To switch it on
+  with values of one's own, a config file in its directory sets them, and is
+  selected. The error says so.
 
 ### A hand-written parser
 
@@ -317,14 +347,12 @@ so `seed=123` is a value.
 The order of the arguments has no meaning: `model.kernel_size=3 model=cnn`
 is the same as `model=cnn model.kernel_size=3`. Selections are applied
 first, shortest path first, and then the values. There are two exceptions.
-A key that is given more than once: the last one wins (`seed=1 seed=2` sets
-`2`). An earlier selection or value for the key is dropped before anything
-is applied, so that with `--multirun`, `seed=1,2 seed=3` is one job. A dict
-for a subconfig or a group is not dropped: it stands for its dotted keys,
-and is applied with the values, in the order of the arguments
-([below](#a-dict-for-a-subconfig-or-a-group-stands-for-its-dotted-keys)).
-And the added configs (`+NAME`) are applied in the order given, before all
-selections and values. What a selection does to
+A key that is given more than once: the last one wins, and the earlier ones
+are dropped before anything is applied (`seed=1 seed=2` sets `2`; with
+`--multirun`, `seed=1,2 seed=3` is one job). A dict for a TypedDict is
+applied with the selections
+([above](#a-dict-for-a-typeddict-replaces-it)). And the added configs
+(`+NAME`) are applied in the order given, before all selections and values. What a selection does to
 the values that the config files set is described in
 [composition.md](composition.md#layers).
 

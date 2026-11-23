@@ -13,7 +13,7 @@ from ._errors import ConfigError
 from ._files import SUFFIXES
 from ._interpolation import resolve
 from ._multirun import check_params, parse_params
-from ._overrides import Override
+from ._overrides import SWITCH_ON, Override
 from ._schema import RESERVED_KEY, Kind, class_fields, config_class
 from ._settings import Settings
 from ._tree import Path as KeyPath
@@ -121,7 +121,8 @@ def _selections(
         # An optional subconfig that is off is switched on with its defaults;
         # an optional group that is off, by selecting each option below.
         key = path[:depth]
-        choices.append((*overrides, Override(key, {}, f"{'.'.join(key)}={{}}")))
+        text = f"{'.'.join(key)} (switched on)"
+        choices.append((*overrides, Override(key, SWITCH_ON, text)))
     for option_name, option_cls in info.options.items():
         if child is not None and option_cls is child.cls:
             continue
