@@ -227,6 +227,8 @@ class Composer:
                     "so it cannot be left out. '~' leaves out a NotRequired "
                     f"key of a TypedDict.{hint}",
                 )
+            if override.value is None and not info.optional:
+                raise _error(source, self._null_message(parent, info))
             if info.kind is Kind.CONFIG and self._apply_subconfig_value(
                 parent, info, override
             ):
@@ -256,22 +258,13 @@ class Composer:
     ) -> bool:
         """Apply `null` or a dict for a subconfig, as in a file.
 
-        `null` switches an optional subconfig off; a dict is merged into the
-        subconfig, and switches an optional one on. False if the value is
-        neither, and so is the name of a preset.
+        `null` switches an optional subconfig off (null for any other is an
+        error before this); a dict is merged into the subconfig, and switches
+        an optional one on. False if the value is neither, and so is the name
+        of a preset.
         """
         source = repr(override.text)
-        key = override.key_text
         if override.value is None:
-            if not info.optional:
-                assert info.config_cls is not None
-                name = info.config_cls.__name__
-                raise _error(
-                    source,
-                    f"{key!r} is a subconfig of {parent.describe()}, which "
-                    f"cannot be switched off with null: its type is {name}, "
-                    f"not {name} | None.",
-                )
             parent.switch_off(info)
             return True
         if isinstance(override.value, dict):
@@ -284,6 +277,23 @@ class Composer:
             )
             return True
         return False
+
+    def _null_message(self, node: Node, info: FieldInfo) -> str:
+        """The error for null on a subconfig that is not optional, or a group."""
+        path = (*node.path, info.name)
+        key = format_path(path)
+        if info.kind is Kind.GROUP:
+            return (
+                f"{key!r} is a group of {node.describe()}, and cannot be null: "
+                f"only a subconfig of one class can be optional, as in "
+                f"X | None.{self._available(path, info)}"
+            )
+        assert info.config_cls is not None
+        name = info.config_cls.__name__
+        return (
+            f"{key!r} is a subconfig of {node.describe()}, and cannot be null: "
+            f"its type is {name}, not {name} | None."
+        )
 
     # -- where the files are ----------------------------------------------
 
@@ -508,7 +518,7 @@ class Composer:
         """Apply the values of a file, or of a dict on the command line.
 
         A mapping goes into a subconfig or a group, and switches an optional
-        subconfig on; null switches it off, and is ignored for any other
+        subconfig on; null switches it off, and is an error for any other
         subconfig or group.
         """
         for key, value in values.items():
@@ -527,8 +537,15 @@ class Composer:
             path = format_path((*node.path, info.name))
             if value is None:
                 # Also a key with nothing under it, which YAML reads as null.
-                if info.optional:
-                    node.switch_off(info)
+                if not info.optional:
+                    hint = (
+                        ""
+                        if command_line
+                        else f"\nA key with nothing under it is null too. Leave "
+                        f"out the key, or write {info.name}: {{}}."
+                    )
+                    raise _error(label, self._null_message(node, info) + hint)
+                node.switch_off(info)
                 continue
             if not isinstance(value, dict):
                 hint = ""
@@ -609,13 +626,6 @@ class Composer:
                 f"{key!r} is {what} and cannot be given a dict value: the dict "
                 f"names no option. Select one with {key}=NAME, and set its "
                 f"fields one by one, as in {key}.field=value."
-                f"{self._available(override.key, info)}",
-            )
-        if override.value is None:
-            raise _error(
-                source,
-                f"{key!r} is {what}, which cannot be switched off with null: "
-                f"only a subconfig of one class can be optional, as in X | None."
                 f"{self._available(override.key, info)}",
             )
         if not isinstance(override.value, str):

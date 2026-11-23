@@ -116,6 +116,8 @@ has `decay: float = 0.99` and `every: int = 1`:
 | File | `ema: {decay: 0.5}` | `EmaCfg(decay=0.5, every=1)` |
 | Command line | `ema={}`, `ema={decay:0.5}` | The same as in a file |
 | Command line | `ema.decay=0.5`, with `ema` at `None` | "Cannot set 'ema.decay' because 'ema' is None" |
+| File | `plain: null`, or `plain:` with nothing under it, for `plain: EmaCfg` | "field 'plain' is not Optional" |
+| File | The same for a group field typed as its base class, `model: ModelCfg = MISSING` | "field 'model' is not Optional"; with `Any` as the type, `None` |
 
 ### Decided
 
@@ -127,8 +129,9 @@ has `decay: float = 0.99` and `every: int = 1`:
 - **`null` switches it off**: `ema: null` in a file, `ema=null` on the
   command line. In a file, a key with nothing under it (`ema:` and then
   only comments) is the same value to YAML, and switches it off too. For a
-  subconfig that is not optional, and for a group, such a key is still
-  ignored ([composition.md](composition.md)). What lower layers set under
+  subconfig that is not optional, and for a group, null is an error, in a
+  file as on the command line, as in Hydra
+  ([composition.md](composition.md)). What lower layers set under
   the field is dropped, without a `DroppedValueWarning`: that is what
   `null` asks for.
 - **A mapping switches it on**: `ema: {decay: 0.5}` in a file,

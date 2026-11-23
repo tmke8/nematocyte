@@ -164,13 +164,41 @@ def test_key_with_nothing_under_it_switches_it_off(tmp_path: Path) -> None:
     assert compose(config_dir, config_name="off").on is None
 
 
-def test_key_with_nothing_under_it_is_ignored_for_a_plain_subconfig(
-    tmp_path: Path,
+@pytest.mark.parametrize("text", ["plain: null\n", "plain:\n  # lr: 0.3\n"])
+def test_null_for_a_plain_subconfig_in_a_file_is_an_error(
+    tmp_path: Path, text: str
 ) -> None:
-    config_dir = configs(tmp_path, {"c.yaml": "plain:\n  # lr: 0.3\ngroup:\n"})
-    config = compose(config_dir, config_name="c")
-    assert config.plain == Plain()
-    assert config.group == A()
+    # As in Hydra: "field 'plain' is not Optional".
+    config_dir = configs(tmp_path, {"c.yaml": text})
+    with pytest.raises(ConfigError) as excinfo:
+        compose(config_dir, config_name="c")
+    message = str(excinfo.value)
+    assert "c.yaml" in message
+    assert "'plain' is a subconfig of Config" in message
+    assert "Plain | None" in message
+    assert "nothing under it is null too" in message
+    assert "plain: {}" in message
+
+
+@pytest.mark.parametrize("text", ["group: null\n", "group:\n  # x: 3\n"])
+def test_null_for_a_group_in_a_file_is_an_error(tmp_path: Path, text: str) -> None:
+    # As in Hydra, for a group field typed as a base class.
+    config_dir = configs(tmp_path, {"c.yaml": text})
+    with pytest.raises(ConfigError) as excinfo:
+        compose(config_dir, config_name="c")
+    message = str(excinfo.value)
+    assert "c.yaml" in message
+    assert "'group' is a group of Config" in message
+    assert "Options: a, b" in message
+
+
+def test_null_for_a_nested_subconfig_in_a_dict_is_an_error() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        compose(overrides=("ema={inner:null}",))
+    message = str(excinfo.value)
+    assert "ema={inner:null}" in message
+    assert "'ema.inner' is a subconfig of EmaCfg" in message
+    assert "Inner | None" in message
 
 
 def test_switching_off_drops_what_was_set_without_a_warning(tmp_path: Path) -> None:
@@ -195,6 +223,7 @@ def test_null_for_a_group_is_an_error() -> None:
     message = str(excinfo.value)
     assert "'group=null'" in message
     assert "X | None" in message
+    assert "Options: a, b" in message
 
 
 def test_null_entry_in_defaults_points_to_the_values(tmp_path: Path) -> None:
