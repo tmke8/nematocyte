@@ -239,7 +239,10 @@ Lists and dictionaries are written with brackets and braces:
 ```bash
 python main.py 'wandb.tags=[baseline,cnn]' 'opt.optimizer_kwargs={eps:1e-8,amsgrad:true}'
 ```
-A dictionary given like this replaces the previous value as a whole.
+A dictionary given like this is merged into the previous value: keys that it does not give keep their values, as they would in a config file. To replace the previous value instead, add `_replace_:true`:
+```bash
+python main.py 'opt.optimizer_kwargs={_replace_:true,eps:1e-8}'
+```
 
 `wandb` is a `TypedDict`, `WandbKwargs` in `src/logging.py`, and most of its keys are `NotRequired`: a key that is not set is not in the dictionary, so `wandb.init()` uses its own default. If a config file sets such a key, `~` leaves it out again:
 ```bash

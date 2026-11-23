@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 import warnings
 
-from pydantic import Discriminator
+from pydantic import Discriminator, Tag
 import pytest
 
 import nematocyte
@@ -49,8 +49,31 @@ class Training(TypedDict):
 
 
 @dataclass(kw_only=True)
+class Small:
+    opt: Opt = field(default_factory=lambda: Opt(lr=0.1, wd=0.01))
+
+
+@dataclass(kw_only=True)
+class Big:
+    opt: Opt = field(default_factory=lambda: Opt(lr=0.2, wd=0.02))
+
+
+type Net = Annotated[
+    Annotated[Small, Tag("small")] | Annotated[Big, Tag("big")],
+    Discriminator(nematocyte.pick),
+]
+
+
+class Sched(TypedDict):
+    warmup: Opt | None
+    steps: NotRequired[int]
+
+
+@dataclass(kw_only=True)
 class Config:
     seed: int = 0
+    net: Net = field(default_factory=Small)
+    sched: Sched = field(default_factory=lambda: Sched(warmup=Opt(lr=0.3), steps=5))
     opt: Opt = field(default_factory=lambda: Opt(lr=0.1, wd=0.01))
     optimizer: Optimizer = field(
         default_factory=lambda: Adam(_option_="adam", beta1=0.9, eps=1e-8)
@@ -145,6 +168,30 @@ def test_replace_keeps_what_the_file_selects() -> None:
     }
 
 
+def test_replace_under_an_option_that_the_file_selects() -> None:
+    # The selection makes a new node, with the default of `Big.opt`; the
+    # `_replace_` written under it drops that default.
+    files = {
+        "presets/big.yaml": (
+            "_defaults_:\n  net: big\nnet:\n  opt:\n    _replace_: true\n    lr: 1\n"
+        )
+    }
+    assert compose(files, overrides=["+presets/big"]).net == Big(opt={"lr": 1})
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        ["net=big", "net={opt:{_replace_:true,lr:1}}"],
+        ["net={opt:{_replace_:true,lr:1}}", "net=big"],
+    ],
+)
+def test_replace_under_an_option_selected_on_the_command_line(
+    overrides: list[str],
+) -> None:
+    assert compose(overrides=overrides).net == Big(opt={"lr": 1})
+
+
 def test_after_replace_a_group_inside_has_no_option() -> None:
     files = {"presets/bare.yaml": "training:\n  _replace_: true\n"}
     with pytest.raises(ConfigError, match="training.optimizer: no option is selected"):
@@ -183,19 +230,6 @@ def test_a_later_layer_sets_values_again() -> None:
 def test_an_interpolation_to_a_replaced_key() -> None:
     with pytest.raises(ConfigError, match="'opt.wd', which has no value"):
         compose(PLAIN, overrides=["+presets/plain", "seed=${opt.wd}"])
-
-
-def test_replace_inside_a_dict_value_is_a_key_of_the_value() -> None:
-    @dataclass
-    class WithKwargs:
-        kwargs: dict[str, Any] = field(default_factory=dict)
-
-    config_dir = write_files(
-        Path.cwd() / "configs",
-        {"presets/kwargs.yaml": "kwargs:\n  _replace_: true\n"},
-    )
-    config = nematocyte.compose(WithKwargs, config_dir, overrides=["+presets/kwargs"])
-    assert config.kwargs == {"_replace_": True}
 
 
 # -- the dropped-value warning ----------------------------------------------------
@@ -274,6 +308,19 @@ def test_replace_on_the_command_line_keeps_a_selection_inside() -> None:
         "optimizer": {"_option_": "adam", "beta1": 0.5},
         "model": Model(),
     }
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        ["sched.warmup=null", "sched={_replace_:true,steps:1}"],
+        ["sched={_replace_:true,steps:1}", "sched.warmup=null"],
+    ],
+)
+def test_replace_keeps_a_switch_off_from_the_command_line(
+    overrides: list[str],
+) -> None:
+    assert compose(overrides=overrides).sched == {"warmup": None, "steps": 1}
 
 
 def test_replace_switches_on_an_optional_subconfig_from_the_command_line() -> None:

@@ -8,6 +8,7 @@ from typing import Any, cast
 
 from ._errors import ConfigError, SchemaError
 from ._json_form import to_json_form
+from ._merge import Part, merge_parts
 from ._overrides import format_value
 from ._schema import (
     OPTION_KEY,
@@ -91,16 +92,19 @@ class Node:
         """For a node of a group: the name of the option that its class is."""
         self.fields = class_fields(cls) if fields is None else fields
         self.children: dict[str, Node] = {}
-        self.off: set[str] = set()
+        self.off: dict[str, int] = {}
         """The optional subconfigs and groups that are switched off (null).
 
-        A field is off only while it has no node in `children`.
+        Each with the step when it was switched off; -1 for a default. A field
+        is off only while it has no node in `children`.
         """
         self.values: dict[str, Any] = {}
-        """The values that were set, as they came from a file or an override.
+        """The values that were set, merged from their `parts`.
 
         ``MISSING`` for a key of a `TypedDict` that `~key` left out.
         """
+        self.parts: dict[str, list[Part]] = {}
+        """What the files and overrides gave for each value, in order."""
         self.sources: dict[str, str] = {}
         """Where each of the values was set, for error messages."""
         self.steps: dict[str, int] = {}
@@ -120,7 +124,7 @@ class Node:
         path = (*self.path, info.name)
         if default is None and info.optional:
             # An optional subconfig or group that is off by default has no node.
-            self.off.add(info.name)
+            self.off[info.name] = -1
             return
         if info.kind is Kind.CONFIG:
             assert info.config_cls is not None
@@ -185,7 +189,7 @@ class Node:
         """
         assert info.optional
         self.children.pop(info.name, None)
-        self.off.add(info.name)
+        self.off[info.name] = next_step()
         self.touched = True
 
     def switch_on(self, info: FieldInfo) -> Node:
@@ -200,7 +204,7 @@ class Node:
             assert info.config_cls is not None
             child = Node(info.config_cls, (*self.path, info.name))
             self.children[info.name] = child
-        self.off.discard(info.name)
+        self.off.pop(info.name, None)
         child.touched = True
         return child
 
@@ -230,33 +234,85 @@ class Node:
         default = self.default_value(info)
         return default if default is MISSING else to_json_form(default)
 
-    def set_value(self, name: str, value: Any, source: str) -> None:
-        self.values[name] = value
+    def set_value(
+        self,
+        name: str,
+        value: Any,
+        source: str,
+        *,
+        since: int | None = None,
+        whole: bool = False,
+    ) -> None:
+        """Set a value on top of what was set before.
+
+        A mapping is merged into a mapping. `since` is when the layer that
+        sets the value started, which a `_replace_` in the value goes back
+        to; without it, the layer starts with the value. With `whole`, the
+        value replaces what was there.
+        """
+        step = next_step()
+        part = Part(value, step, step if since is None else since, whole)
+        self.parts.setdefault(name, []).append(part)
+        self._merge(name)
         self.sources[name] = source
-        self.steps[name] = next_step()
+        self.steps[name] = step
         self.touched = True
 
-    def unset_value(self, name: str, source: str) -> None:
+    def _merge(self, name: str) -> None:
+        info = self.fields[name]
+        default = self.default_value(info)
+        base = default if default is MISSING else to_json_form(default)
+        self.values[name] = merge_parts(base, self.parts[name])
+
+    def unset_value(self, name: str, source: str, *, since: int | None = None) -> None:
         """Leave the key out, whatever set it before, the default included."""
-        self.set_value(name, MISSING, source)
+        self.set_value(name, MISSING, source, since=since, whole=True)
 
-    def replace(self) -> None:
-        """Drop everything set or selected under the node, as `_replace_` does.
+    def changed_since(self, step: int) -> bool:
+        """Whether anything under the node was set or selected at `step` or later."""
+        return (
+            any(value >= step for value in self.steps.values())
+            or any(value >= step for value in self.off.values())
+            or (self.selection is not None and self.selection.start >= step)
+            or any(child.changed_since(step) for child in self.children.values())
+        )
 
-        The default of the field goes too: the node is as if nothing had set
-        anything in it, and its subconfigs and groups are as if it had no
-        default. The option of a group's node stays.
+    def replace(self, since: int) -> None:
+        """Drop what was set or selected under the node before `since`.
+
+        That is what `_replace_` does, from the start of its layer. The
+        default of the field goes too, and what is not kept is as if the node
+        had no default. A group that was selected at `since` or later is kept
+        as it is: its node is new. The option of the node itself stays.
         """
         self.default = MISSING
-        self.values.clear()
-        self.sources.clear()
-        self.steps.clear()
-        self.children.clear()
-        self.off.clear()
+        for name, parts in list(self.parts.items()):
+            kept = [part for part in parts if part.step >= since]
+            if kept:
+                self.parts[name] = kept
+                self._merge(name)
+                continue
+            del self.parts[name], self.values[name]
+            del self.sources[name], self.steps[name]
         self.touched = True
         for info in self.fields.values():
-            if info.kind is not Kind.VALUE:
-                self.expand_field(info)
+            if info.kind is Kind.VALUE:
+                continue
+            child = self.children.get(info.name)
+            if child is None and self.off.get(info.name, -1) >= since:
+                continue
+            if child is not None:
+                selected = (
+                    child.selection is not None and child.selection.start >= since
+                )
+                if info.kind is Kind.GROUP and selected:
+                    continue
+                if child.changed_since(since):
+                    child.replace(since)
+                    continue
+            self.children.pop(info.name, None)
+            self.off.pop(info.name, None)
+            self.expand_field(info)
 
     def to_json_tree(self) -> dict[str, Any]:
         """The node in JSON form, with ``_option_`` for the groups.
@@ -303,11 +359,11 @@ def _from_json_tree(
         child_path = (*path, info.name)
         where = format_path(child_path)
         if info.kind is Kind.VALUE:
-            node.set_value(info.name, value, rebuild.source)
+            node.set_value(info.name, value, rebuild.source, whole=True)
             continue
         if value is None and info.optional:
             # An optional subconfig or group that is off: it has no node.
-            node.off.add(info.name)
+            node.off[info.name] = -1
             continue
         what = "a group" if info.kind is Kind.GROUP else "a subconfig"
         if not isinstance(value, Mapping):
