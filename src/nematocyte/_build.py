@@ -23,7 +23,7 @@ from ._schema import (
 from ._tree import Node, format_path, unknown_key_message
 from ._types import type_text
 
-__all__ = ["build"]
+__all__ = ["build", "checked_json"]
 
 
 def _input(node: Node, skip: str | None) -> dict[str, Any]:
@@ -389,6 +389,19 @@ def build(node: Node, *, skip: str | None = None) -> object:
     collected and reported together. `skip` names a field of `node` to
     leave out.
     """
+    return _build(node, skip)[0]
+
+
+def checked_json(node: Node, *, skip: str | None = None) -> str:
+    """Build the instance for `node` as `build` does, and return the JSON text.
+
+    The text is what pydantic validated, so validating it again with the
+    adapter of the node's class gives the same instance, without the tree.
+    """
+    return _build(node, skip)[1]
+
+
+def _build(node: Node, skip: str | None) -> tuple[object, str]:
     assert node.cls is not None
     adapter = class_adapter(node.cls)
     errors: list[str] = []
@@ -412,4 +425,4 @@ def build(node: Node, *, skip: str | None = None) -> object:
     _check_defaults(node, errors, skip, failed)
     if errors:
         raise ConfigError("Error in the configuration:\n" + "\n".join(errors))
-    return instance
+    return instance, text

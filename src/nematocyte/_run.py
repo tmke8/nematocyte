@@ -9,8 +9,11 @@ from pathlib import Path
 import sys
 from typing import Any, cast
 
+from pydantic import ValidationError
+
 from ._build import build
 from ._errors import ConfigError
+from ._schema import class_adapter
 from ._settings import LogLevel
 from ._tree import node_from_json_tree
 from ._types import JSONValue
@@ -48,13 +51,14 @@ class Entry:
 class Job:
     """One job: a number, and the config that was composed for it.
 
-    The config is the resolved tree as plain dicts, lists and scalars. The
-    job builds the config object from it and does not read any config file.
+    The config is the resolved tree as JSON text, the text that was
+    validated when the job was made. The job builds the config object from
+    it and does not read any config file.
     """
 
     number: int
     overrides: list[str]
-    config: dict[str, Any]
+    config: str
     log: LogLevel = "info"
     """The value of `nematocyte.log`, which is the same for every job."""
 
@@ -115,30 +119,13 @@ class _Context:
         internal = directory / _INTERNAL_DIR
         if not internal.is_dir():
             internal.mkdir(parents=True, exist_ok=True)
-            _write_json(internal / "config.json", self.job.config)
+            _write_json(internal / "config.json", json.loads(self.job.config))
             _write_json(internal / "overrides.json", self.job.overrides)
         return directory
 
 
-def _json_keys(value: Any) -> Any:
-    """JSON only has string keys; other keys are written as their text."""
-    if isinstance(value, dict):
-        return {
-            key if isinstance(key, str) else json.dumps(key, default=str): _json_keys(v)
-            for key, v in value.items()
-        }
-    if isinstance(value, list):
-        return [_json_keys(item) for item in value]
-    return value
-
-
-def _json_text(content: Any, *, indent: int | None = None) -> str:
-    """The content as JSON. A value that JSON does not have is written as its text."""
-    return json.dumps(_json_keys(content), indent=indent, default=str)
-
-
 def _write_json(path: Path, content: Any) -> None:
-    path.write_text(_json_text(content, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(content, indent=2) + "\n", encoding="utf-8")
 
 
 _current: _Context | None = None
@@ -178,7 +165,7 @@ def run_config() -> dict[str, JSONValue]:
     before it is used, or the result cast to `dict[str, Any]`.
     """
     config = _context("run_config").job.config
-    return cast("dict[str, JSONValue]", json.loads(_json_text(config)))
+    return cast("dict[str, JSONValue]", json.loads(config))
 
 
 def job_num() -> int:
@@ -238,13 +225,28 @@ def configure_logging(*, file: bool = True) -> None:
     )
 
 
+def _config_object(entry: Entry, job: Job) -> object:
+    """The config object of a job, validated from its JSON text.
+
+    The text was checked when the job was made, so it fails here only if a
+    constructor depends on where or when it runs. Then the tree is rebuilt,
+    so that the error names the keys, as `build` does.
+    """
+    try:
+        return class_adapter(entry.config_cls).validate_json(job.config, strict=True)
+    except ValidationError:
+        # Outside the handler, so that pydantic's error is not chained to it.
+        pass
+    root = node_from_json_tree(
+        entry.config_cls, json.loads(job.config), source="the config of the job"
+    )
+    return build(root)
+
+
 def run_job(entry: Entry, job: Job, start: StartDir) -> Any:
     """Build the config object of a job and call the function with it."""
     global _current  # noqa: PLW0603
-    root = node_from_json_tree(
-        entry.config_cls, job.config, source="the config of the job"
-    )
-    config = build(root)
+    config = _config_object(entry, job)
     previous = _current
     _current = _Context(start, job)
     try:

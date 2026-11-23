@@ -109,8 +109,12 @@ The launching process does all the config work for every job:
 2. Resolve the interpolations.
 3. Build the config object, to check it. The object is then thrown away.
 
-What is sent to the job is the resolved tree: plain dicts, lists and scalars.
-The job builds the config object from it and calls the function.
+What is sent to the job is the resolved tree as the JSON text that step 3
+validated. The job builds the config object from that text with one call to
+pydantic and calls the function. Only if that fails, which a constructor
+that depends on where or when it runs can make happen, does the job rebuild
+the tree from the text, so that the error names the keys, the classes and
+the job's config as the source, as the check in step 3 would.
 
 Consequences:
 
@@ -293,5 +297,5 @@ is in the launching process.
   shares between executors are translated by hand. `mem_gb` is a `float`.
   `submitit_folder` and `name` default to null and are filled in at launch.
 - What is pickled for a SLURM job is the decorated function, the resolved
-  tree and the directory of the multirun. The job needs the program's
+  tree as JSON text and the directory of the multirun. The job needs the program's
   modules to be importable, as with Hydra.

@@ -186,8 +186,10 @@ fields; those then take the default in the class.
   as in `compose`.
 - The root can be a dataclass or a TypedDict, as for `compose`. Unlike
   `to_dict`, nothing has to be flat.
-- The job of a multirun is rebuilt from its resolved tree in the same way,
-  with the same checks; that tree always has every key.
+- The job of a multirun is built from its resolved tree, as JSON text,
+  with the same call to pydantic; that tree always has every key. Only if
+  that fails does the job rebuild the tree in the same way as here, for the
+  error messages ([multirun.md](multirun.md)).
 
 ### The output directory
 
