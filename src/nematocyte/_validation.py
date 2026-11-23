@@ -49,8 +49,9 @@ def _classify(composer: Composer, relative: Path) -> tuple[KeyPath, str] | None:
         infos = [fields[part] for fields in candidates if part in fields]
         here = "/".join(relative.parts[: index + 1])
         parent = ".".join(path)
-        # A field keeps its directory when an option has the same name.
-        if part in options and not infos:
+        # No option has a field named after an option, so the directory is the
+        # option's.
+        if part in options:
             if index != len(directories) - 1:
                 raise ConfigError(
                     f"{relative.as_posix()} belongs nowhere: the directory "

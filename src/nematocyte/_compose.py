@@ -78,16 +78,6 @@ def _option_fields(info: FieldInfo) -> set[str]:
     return {name for cls in info.options.values() for name in class_fields(cls)}
 
 
-def _option_directories(info: FieldInfo) -> list[str]:
-    """The options of a group that have a directory, in the group's directory.
-
-    An option that is also a field of an option has none: the directory with
-    its name belongs to the field.
-    """
-    fields = _option_fields(info)
-    return [option for option in info.options if option not in fields]
-
-
 def _file_doc(path: Path) -> str:
     """The first paragraph of the `_doc_` of the config file at `path`."""
     return first_paragraph(load_file(path).doc)
@@ -357,20 +347,13 @@ class Composer:
         }
 
     def _named_files(self, path: KeyPath, info: FieldInfo) -> dict[str, Path]:
-        """The config files for the field `info` at `path`, by name, sorted.
-
-        The directory named after an option whose name is also a field of an
-        option belongs to the field, and is left out.
-        """
+        """The config files for the field `info` at `path`, by name, sorted."""
         directory = self.directory(path)
         if directory is None:
             return {}
         places = [
             (directory, ""),
-            *(
-                (directory / option, f"{option}/")
-                for option in _option_directories(info)
-            ),
+            *((directory / option, f"{option}/") for option in info.options),
         ]
         # A file that no name can select is left out; the validator reports it.
         return dict(
@@ -421,11 +404,7 @@ class Composer:
                     f"or to a directory that matches no field.",
                 )
             middle = path.parts[1:-1]
-            if (
-                info is not None
-                and len(middle) == 1
-                and middle[0] in _option_directories(info)
-            ):
+            if info is not None and len(middle) == 1 and middle[0] in info.options:
                 # The directory of an option holds configs of the group.
                 selection = f"{first}={middle[0]}/{path.name}"
             else:
@@ -782,7 +761,9 @@ class Composer:
                 "through '_self_': " + " -> ".join(p.name for p in (*chain, file_path)),
             )
         file = load_file(file_path)
-        base = file.defaults.get(SELF_KEY)
+        # A file in the directory of an option extends the option, unless its
+        # `_self_` names another config.
+        base = file.defaults.get(SELF_KEY, option)
         if base is not None:
             self._select_config(
                 parent,
@@ -795,7 +776,9 @@ class Composer:
             raise _error(
                 file.label,
                 f"A config for the group {format_path(path)!r} has to say which "
-                f"option it extends:\n    _defaults_:\n      _self_: <option>"
+                f"option it extends:\n    _defaults_:\n      _self_: <option>\n"
+                f"A file in the directory of an option, such as "
+                f"{'/'.join(path)}/<option>/, extends that option without it."
                 f"{self._available(path, info)}"
                 f"{_hydra_defaults_hint(file, _option_fields(info))}",
             )
@@ -848,23 +831,6 @@ class Composer:
                 f"is a config in the directory of an option of the group, as "
                 f"in OPTION/NAME, one level deep, where NAME is the name of "
                 f"the file, without '..', a backslash or a drive."
-                f"{self._available(path, info)}",
-            )
-        if option not in _option_directories(info):
-            owners = [
-                option_name
-                for option_name, cls in info.options.items()
-                if option in class_fields(cls)
-            ]
-            directory = self.directory((*path, option))
-            raise _error(
-                source,
-                f"{where!r} has no config called {name!r}: {option!r} is an "
-                f"option of {where!r}, but also a field of the option "
-                f"{' and '.join(repr(o) for o in owners)}, so the directory "
-                f"{directory} belongs to that field and holds no configs of "
-                f"the option. Configs that extend the option {option!r} go "
-                f"in the directory of {where!r} itself."
                 f"{self._available(path, info)}",
             )
         return option, stem

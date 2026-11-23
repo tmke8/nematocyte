@@ -1,7 +1,7 @@
 """Reading the schema off the dataclasses (`design/unions.md`, `helptext.md`)."""
 
 from dataclasses import InitVar, dataclass, field, make_dataclass
-from typing import Annotated, ClassVar, Literal
+from typing import Annotated, ClassVar, Literal, NotRequired, TypedDict
 
 from pydantic import ConfigDict, Discriminator, Tag, with_config
 import pytest
@@ -317,3 +317,104 @@ def test_generated_class_docstring_is_ignored() -> None:
 
     # A subclass does not inherit the docstring of its base.
     assert class_doc(Sub) == ""
+
+
+# -- an option and a field of an option with the same name ------------------
+
+
+@dataclass
+class _WithSubconfig:
+    b: A = field(default_factory=A)
+
+
+@dataclass
+class _WithGroup:
+    b: Annotated[
+        Annotated[A, Tag("x")] | Annotated[B, Tag("y")], Discriminator(nematocyte.pick)
+    ] = field(default_factory=A)
+
+
+@dataclass
+class _WithOptionalSubconfig:
+    b: A | None = None
+
+
+@dataclass
+class _WithValue:
+    b: int = 1
+
+
+@dataclass
+class _SubconfigInner:
+    model: Annotated[
+        Annotated[_WithSubconfig, Tag("a")] | Annotated[B, Tag("b")],
+        Discriminator(nematocyte.pick),
+    ]
+
+
+@dataclass
+class _GroupInner:
+    model: Annotated[
+        Annotated[_WithGroup, Tag("a")] | Annotated[B, Tag("b")],
+        Discriminator(nematocyte.pick),
+    ]
+
+
+@dataclass
+class _OptionalSubconfigInner:
+    model: Annotated[
+        Annotated[_WithOptionalSubconfig, Tag("a")] | Annotated[B, Tag("b")],
+        Discriminator(nematocyte.pick),
+    ]
+
+
+@dataclass
+class _ValueInner:
+    model: Annotated[
+        Annotated[_WithValue, Tag("a")] | Annotated[B, Tag("b")],
+        Discriminator(nematocyte.pick),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("inner", "option_cls"),
+    [
+        (_SubconfigInner, _WithSubconfig),
+        (_GroupInner, _WithGroup),
+        (_OptionalSubconfigInner, _WithOptionalSubconfig),
+        (_ValueInner, _WithValue),
+    ],
+)
+def test_option_cannot_have_a_field_named_after_an_option(
+    inner: type, option_cls: type
+) -> None:
+    # The directory `model/b/` would be both the option's and the field's. The
+    # group is below the root, so that the check is made for every class.
+    root = make_dataclass("Root", [("inner", inner)])
+    with pytest.raises(SchemaError) as excinfo:
+        validate_schema(root)
+    message = str(excinfo.value)
+    assert f"{inner.__name__}.model" in message
+    assert "'b'" in message
+    assert "'a'" in message
+    assert f"{option_cls.__name__}.b" in message
+    assert "b/" in message
+
+
+def test_typeddict_option_cannot_have_a_field_named_after_an_option() -> None:
+    class Sub(TypedDict):
+        depth: NotRequired[int]
+
+    class First(TypedDict):
+        _option_: Literal["first"]
+        second: Sub
+
+    class Second(TypedDict):
+        _option_: Literal["second"]
+
+    @dataclass
+    class C:
+        model: Annotated[First | Second, Discriminator("_option_")]
+
+    with pytest.raises(SchemaError, match=r"(?s)C\.model.*'second'.*First\.second"):
+        validate_schema(C)

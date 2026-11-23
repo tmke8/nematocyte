@@ -596,9 +596,29 @@ def validate_schema(cls: type, *, root: bool = True) -> None:
             "nematocyte's own settings and cannot be the name of a field of the "
             "root config class."
         )
-    for _ in reachable_classes(cls):
-        pass
+    for current in reachable_classes(cls):
+        for info in class_fields(current).values():
+            _check_option_directories(info, f"{current.__name__}.{info.name}")
     class_adapter(cls)
+
+
+def _check_option_directories(info: FieldInfo, where: str) -> None:
+    """No option of a group has a field named after an option.
+
+    The directory of an option, in the group's directory, has the name of the
+    option, and a directory named after a field is the field's: for its named
+    configs, or, for a value, an error.
+    """
+    for option_name, option_cls in info.options.items():
+        for name in class_fields(option_cls):
+            if name in info.options:
+                raise SchemaError(
+                    f"{where}: {name!r} is an option of the group, and also a "
+                    f"field of its option {option_name!r} "
+                    f"({option_cls.__name__}.{name}). The directory {name}/ in "
+                    f"the group's directory would then be both the option's "
+                    f"and the field's. Rename the option or the field."
+                )
 
 
 def reachable_classes(cls: type) -> Iterator[type]:
