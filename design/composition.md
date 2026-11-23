@@ -166,12 +166,15 @@ always wins. For one file, from lowest to highest:
 1. The defaults of the dataclasses.
 2. The config that the file names with `_self_`, composed completely,
    including its own `_self_`.
-3. The other entries in the file's `_defaults_`, shortest path first.
-4. The values in the file.
+3. The mappings in the file with `_replace_: true`, which drop what the
+   layers below set under a TypedDict
+   ([below](#_replace_-true-replaces-a-typeddict-instead-of-merging-into-it)).
+4. The other entries in the file's `_defaults_`, shortest path first.
+5. The values in the file.
 
 The command line comes on top of the primary config, in the same way: first
-the added configs (`+NAME`), then its selections, shortest path first, then
-its values. An added config is composed as if it extended the primary config
+the added configs (`+NAME`), then the dicts with `_replace_: true`, then its
+selections, shortest path first, then its values. An added config is composed as if it extended the primary config
 with `_self_` ([cli.md](cli.md)): its own `_self_` chain, its `_defaults_` and
 its values apply on top of the tree so far, without going back to the
 defaults of the dataclasses.
@@ -282,6 +285,80 @@ in a run. It does not warn for the selections it makes itself to check a
 named config ([validation.md](validation.md)), because nobody wrote those.
 Python shows a warning with the same text only once from the same place,
 so the jobs of a multirun that drop the same values give one warning.
+
+### `_replace_: true` replaces a TypedDict instead of merging into it
+
+A mapping for a subconfig is merged into what the layers below set: the
+keys that it gives are set, and the others stay. That leaves a file no way
+to take out a `NotRequired` key that a layer below set: `wd: null` is a
+value, and `~KEY` exists only on the command line
+([cli.md](cli.md#key-leaves-out-an-optional-key-of-a-typeddict)). The
+mapping for a TypedDict can say instead that it replaces the node:
+
+```yaml
+# configs/presets/plain_adam.yaml
+opt:
+  _replace_: true
+  lr: 0.001
+```
+
+With `opt: Opt = field(default_factory=lambda: Opt(lr=0.1, wd=0.01))`,
+`+presets/plain_adam` gives `opt == {"lr": 0.001}`. Without `_replace_`, it
+gives `{"lr": 0.001, "wd": 0.01}`.
+
+Hydra has no way to do this. Tested with Hydra 1.4, on top of a primary
+config with `opt: {lr: 0.1, wd: 0.01}`:
+
+| Written in a config file on top | Result in Hydra |
+| --- | --- |
+| `opt: {wd: null}` | `{lr: 0.1, wd: None}` |
+| `opt: {wd: ???}` | `{lr: 0.1, wd: 0.01}`: merging `???` does nothing |
+| `opt: {wd: {_delete_: true}}` | A dict with the key `_delete_` |
+
+Only `~opt.wd` on the command line takes the key out.
+
+The rules:
+
+- `_replace_: true` drops everything that the layers below set or selected
+  under the node, the default of the field included, as `~KEY` does for
+  one key. The node is then as if nothing had set anything in it. A
+  TypedDict has no defaults, so it is an empty dict, and each `Required`
+  key has to be set again ("a value is required" otherwise). A subconfig
+  or a group inside it is as if the TypedDict had no default: a group has
+  no option selected, and a subconfig starts from the defaults of its
+  class.
+- The layers below are what was applied before the file: the default of
+  the field, the files below it, and the file's own chain of `_self_`.
+  What the file selects under `_defaults_` and sets among its values stays,
+  wherever it is written in the file: `_replace_` is applied before them
+  ([layers](#layers)).
+- On the command line, `opt={_replace_:true,lr:0.1}` drops what the config
+  files set under `opt`, and not what the command line sets, whatever the
+  order of the arguments: `opt=fast opt={_replace_:true}` keeps the preset
+  `fast`, and `opt.wd=0.1 opt={_replace_:true,lr:0.1}` keeps `wd`. The
+  `params` of a sweeper count as the command line
+  ([multirun.md](multirun.md)). `opt._replace_=true` is an error that
+  points to the dict.
+- The node is a TypedDict: a subconfig, the selected option of a group of
+  TypedDicts, or an optional subconfig, which it switches on. The option
+  of a group stays selected, and only what was set in it is dropped.
+  `_replace_` is also allowed at the top level of a named config for such
+  a field, where it drops what was set for the field before the file,
+  including what the file's chain of `_self_` set.
+- For a dataclass, `_replace_` is an error that names the class. Every
+  field of a dataclass that has a default can be set back to it, so a
+  dataclass needs it less; it may be allowed later. At the top level of a
+  primary config, where it would replace the whole config, it is an error
+  too.
+- The value is `true`. Anything else is an error; a mapping that is to be
+  merged leaves out the key.
+- `_replace_` is reserved on every config class
+  ([deserializer.md](deserializer.md#reserved-names)). Inside the value of
+  a `dict[...]` field it is a key like any other, since such a dict is
+  replaced as a whole anyway ([cli.md](cli.md)).
+- What `_replace_` drops is not warned about: the file says that it is to
+  be dropped. A warning that a selection below recorded for values under
+  the node is dropped with them.
 
 ### What a directory holds follows from the schema
 

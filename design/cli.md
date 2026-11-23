@@ -158,7 +158,9 @@ The rules:
   ([multirun.md](multirun.md)).
 - `~KEY` exists only on the command line and in the overrides of
   `nematocyte.compose`, as `+NAME` does. A config file cannot leave out a
-  key: `key: null` is a value.
+  single key: `key: null` is a value. It can replace the whole TypedDict
+  with `_replace_: true`, and set again the keys that are to stay
+  ([composition.md](composition.md#_replace_-true-replaces-a-typeddict-instead-of-merging-into-it)).
 - An interpolation that refers to a key that was left out is an error, as
   for a key that nothing set
   ([interpolation.md](interpolation.md)).
@@ -230,6 +232,12 @@ into the subconfig as well.
 - For an optional group that is off, a dict is an error: it names no
   option. The error points to `model=NAME`
   ([unions.md](unions.md#optional-groups)).
+- For a TypedDict, `_replace_:true` in the dict drops what the config files
+  set under the node, before any selection or value on the command line:
+  `opt={_replace_:true,lr:0.1}`
+  ([composition.md](composition.md#_replace_-true-replaces-a-typeddict-instead-of-merging-into-it)).
+  It is not a key of its own: `opt._replace_=true` is an error that points
+  to the dict.
 - A key can be swept only once: `-m opt={lr:1},{lr:2} opt=fast,slow` is an
   error.
 - With `--multirun`, a swept value keeps the place of its sweep among the
