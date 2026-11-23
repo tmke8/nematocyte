@@ -26,6 +26,8 @@ __all__ = [
     "make_root",
     "next_step",
     "node_from_json_tree",
+    "require_child",
+    "root_fields",
     "unknown_key_message",
 ]
 
@@ -71,7 +73,7 @@ class Node:
 
     def __init__(
         self,
-        cls: type | None,
+        cls: type,
         path: Path,
         *,
         default: Any = MISSING,
@@ -85,10 +87,7 @@ class Node:
         """The default instance that missing values are taken from, if any."""
         self.option = option
         """For a node of a group: the name of the option that its class is."""
-        if fields is None:
-            assert cls is not None
-            fields = class_fields(cls)
-        self.fields = fields
+        self.fields = class_fields(cls) if fields is None else fields
         self.children: dict[str, Node] = {}
         self.values: dict[str, Any] = {}
         """The values that were set, as they came from a file or an override."""
@@ -154,7 +153,7 @@ class Node:
 
     @property
     def class_name(self) -> str:
-        return self.cls.__name__ if self.cls is not None else "the config"
+        return self.cls.__name__
 
     def describe(self) -> str:
         """The class of the node and where it is, for error messages."""
@@ -305,8 +304,8 @@ def node_from_json_tree(cls: type, tree: Mapping[Any, Any], *, source: str) -> N
     return node
 
 
-def make_root(config_cls: type, settings_cls: type) -> Node:
-    """The root of the tree: the user's config, and nematocyte's own settings."""
+def root_fields(config_cls: type, settings_cls: type) -> dict[str, FieldInfo]:
+    """The fields of the root: the user's config, and nematocyte's own settings."""
     fields = dict(class_fields(config_cls))
     fields[RESERVED_KEY] = FieldInfo(
         name=RESERVED_KEY,
@@ -315,13 +314,12 @@ def make_root(config_cls: type, settings_cls: type) -> Node:
         owner=None,
         config_cls=settings_cls,
     )
-    root = Node(config_cls, (), fields=fields, expand=False)
-    for info in fields.values():
-        if info.name == RESERVED_KEY:
-            root.children[RESERVED_KEY] = Node(settings_cls, (RESERVED_KEY,))
-        elif info.kind is not Kind.VALUE:
-            root.expand_field(info)
-    return root
+    return fields
+
+
+def make_root(config_cls: type, settings_cls: type) -> Node:
+    """The root of the tree: the user's config, and nematocyte's own settings."""
+    return Node(config_cls, (), fields=root_fields(config_cls, settings_cls))
 
 
 def unknown_key_message(node: Node, name: str) -> str:

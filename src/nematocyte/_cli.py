@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from ._build import build, checked_json
+from ._build import build, build_settings, checked_json
 from ._compose import Composer
 from ._errors import ConfigError
 from ._help import format_cfg, format_help
@@ -39,15 +39,9 @@ def _parser(program: str) -> argparse.ArgumentParser:
 
 
 def _settings(root: Node, now: datetime) -> Settings:
-    node = root.children[RESERVED_KEY]
-    resolve(root, now, only=node)
-    return _built_settings(node)
-
-
-def _built_settings(node: Node) -> Settings:
-    settings = build(node)
-    assert isinstance(settings, Settings)
-    return settings
+    """Resolve and build nematocyte's own settings, and nothing else."""
+    resolve(root, now, only=root.children[RESERVED_KEY])
+    return build_settings(root)
 
 
 def _require_multirun(root: Node) -> None:
@@ -110,7 +104,7 @@ def _run(
         # resolved and built as in a normal run, to report any error.
         resolve(root, now)
         build(root, skip=RESERVED_KEY)
-        build(root.children[RESERVED_KEY])
+        build_settings(root)
         return 0
 
     if args.multirun:
@@ -130,7 +124,7 @@ def _run(
     _require_multirun(root)
     resolve(root, now)
     config = checked_json(root, skip=RESERVED_KEY)
-    settings = _built_settings(root.children[RESERVED_KEY])
+    settings = build_settings(root)
     arguments = [a.text for a in added] + [o.text for o in overrides]
     job = Job(0, arguments, config, settings.log)
     run_job(entry, job, _start_dir(settings, now))

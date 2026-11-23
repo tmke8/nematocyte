@@ -20,7 +20,6 @@ from typing import (
     NotRequired,
     ReadOnly,
     Required,
-    TypeAliasType,
     TypeIs,
     Union,
     cast,
@@ -42,7 +41,7 @@ from pydantic import (
 )
 
 from ._errors import SchemaError
-from ._types import type_text
+from ._types import type_text, unwrap
 
 __all__ = [
     "RESERVED_KEY",
@@ -59,6 +58,7 @@ __all__ = [
     "is_exact_dict_or_frozendict",
     "is_typeddict_class",
     "pick",
+    "reachable_classes",
     "typeddict_option",
     "validate_schema",
 ]
@@ -156,13 +156,6 @@ class FieldInfo:
         return MISSING
 
     @property
-    def has_class_default(self) -> bool:
-        return self.field is not None and (
-            self.field.default is not MISSING
-            or self.field.default_factory is not MISSING
-        )
-
-    @property
     def doc(self) -> str:
         """The first paragraph of the `doc` of the field; empty if it has none.
 
@@ -245,22 +238,9 @@ def _strip_qualifiers(tp: Any) -> Any:
     return tp
 
 
-def _unwrap(tp: Any) -> tuple[Any, list[Any]]:
-    """Strip PEP 695 aliases and `Annotated`, collecting the metadata."""
-    metadata: list[Any] = []
-    while True:
-        if isinstance(tp, TypeAliasType):
-            tp = tp.__value__
-        elif get_origin(tp) is Annotated:
-            metadata = [*tp.__metadata__, *metadata]
-            tp = tp.__origin__
-        else:
-            return tp, metadata
-
-
 def _members(tp: Any) -> Iterator[tuple[Any, list[Any]]]:
     """The members of a union, each with its metadata; a non-union is one member."""
-    inner, metadata = _unwrap(tp)
+    inner, metadata = unwrap(tp)
     if get_origin(inner) in (Union, types.UnionType):
         for arg in get_args(inner):
             yield from _members(arg)
@@ -272,22 +252,26 @@ def _type_name(tp: Any) -> str:
     return tp.__name__ if isinstance(tp, type) else str(tp)
 
 
+def _type_hints(cls: type) -> dict[str, Any]:
+    try:
+        return typing.get_type_hints(cls, include_extras=True)
+    except Exception as exc:
+        raise SchemaError(
+            f"The type annotations of {cls.__name__} cannot be resolved: {exc}"
+        ) from exc
+
+
 def typeddict_option(cls: type) -> str | None:
     """The option name that a `TypedDict` declares in its `_option_` key.
 
     `None` if it has no such key. The key has to be a required
     ``Literal["name"]`` with exactly one string.
     """
-    try:
-        hints = typing.get_type_hints(cls, include_extras=True)
-    except Exception as exc:
-        raise SchemaError(
-            f"The type annotations of {cls.__name__} cannot be resolved: {exc}"
-        ) from exc
+    hints = _type_hints(cls)
     if OPTION_KEY not in hints:
         return None
     where = f"{cls.__name__}.{OPTION_KEY}"
-    tp, _ = _unwrap(_strip_qualifiers(hints[OPTION_KEY]))
+    tp, _ = unwrap(_strip_qualifiers(hints[OPTION_KEY]))
     args = get_args(tp)
     if get_origin(tp) is not Literal or len(args) != 1 or not isinstance(args[0], str):
         raise SchemaError(
@@ -362,7 +346,7 @@ def _check_discriminator(metadata: list[Any], *, typeddicts: bool, where: str) -
 
 def _group_members(annotation: Any) -> tuple[list[tuple[Any, list[Any]]], list[Any]]:
     """The members of a union with their metadata, and the metadata of the union."""
-    inner, outer = _unwrap(annotation)
+    inner, outer = unwrap(annotation)
     if get_origin(inner) in (Union, types.UnionType):
         return list(_members(inner)), outer
     # A group with one option: its Tag and the Discriminator are both in the
@@ -450,12 +434,7 @@ def class_fields(cls: type) -> dict[str, FieldInfo]:
         return cached
     if not is_config_class(cls):
         raise SchemaError(f"{_type_name(cls)} is not a dataclass or a TypedDict.")
-    try:
-        hints = typing.get_type_hints(cls, include_extras=True)
-    except Exception as exc:
-        raise SchemaError(
-            f"The type annotations of {cls.__name__} cannot be resolved: {exc}"
-        ) from exc
+    hints = _type_hints(cls)
 
     result: dict[str, FieldInfo] = {}
     # Registered before the fields are analysed, so that a class which refers
@@ -553,12 +532,12 @@ def validate_schema(cls: type, *, root: bool = True) -> None:
             "nematocyte's own settings and cannot be the name of a field of the "
             "root config class."
         )
-    for _ in _reachable(cls):
+    for _ in reachable_classes(cls):
         pass
     class_adapter(cls)
 
 
-def _reachable(cls: type) -> Iterator[type]:
+def reachable_classes(cls: type) -> Iterator[type]:
     """`cls` and every config class under it, each checked by `class_fields`."""
     seen: set[type] = set()
     todo = [cls]
@@ -626,7 +605,7 @@ def field_adapter(info: FieldInfo) -> TypeAdapter[Any] | None:
 
 def _unreadable(cls: type, exc: Exception) -> str:
     """The error for a config class that pydantic cannot read, naming the field."""
-    for config_cls in _reachable(cls):
+    for config_cls in reachable_classes(cls):
         for info in class_fields(config_cls).values():
             if info.kind is Kind.VALUE and field_adapter(info) is None:
                 return (

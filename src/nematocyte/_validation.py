@@ -7,16 +7,17 @@ from pathlib import Path
 from typing import Any
 from typing_extensions import TypeForm
 
-from ._build import build
+from ._build import build, build_settings
 from ._compose import Composer
 from ._errors import ConfigError
 from ._files import SUFFIXES
 from ._interpolation import resolve
 from ._multirun import check_params, parse_params
 from ._overrides import Override
-from ._schema import RESERVED_KEY, FieldInfo, Kind, class_fields, config_class
+from ._schema import RESERVED_KEY, Kind, class_fields, config_class
 from ._settings import Settings
 from ._tree import Path as KeyPath
+from ._tree import root_fields
 
 __all__ = ["ValidationResult", "Validator", "validate_configs"]
 
@@ -40,15 +41,7 @@ def _classify(composer: Composer, relative: Path) -> tuple[KeyPath, str] | None:
 
     `None` for a primary config.
     """
-    root_fields = dict(class_fields(composer.config_cls))
-    root_fields[RESERVED_KEY] = FieldInfo(
-        name=RESERVED_KEY,
-        kind=Kind.CONFIG,
-        annotation=composer.settings_cls,
-        owner=None,
-        config_cls=composer.settings_cls,
-    )
-    candidates = [root_fields]
+    candidates = [root_fields(composer.config_cls, composer.settings_cls)]
     options: set[str] = set()
     path: list[str] = []
     directories = relative.parts[:-1]
@@ -152,8 +145,7 @@ def _check_tree(
     resolve(root, datetime.now())
     build(root, skip=RESERVED_KEY)
     # nematocyte's own settings are always built: their classes are its own.
-    settings = build(root.children[RESERVED_KEY])
-    assert isinstance(settings, Settings)
+    settings = build_settings(root)
     if settings.sweeper.params is not None:
         where = relative.as_posix()
         check_params(

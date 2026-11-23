@@ -1,89 +1,48 @@
 """Turning the composed tree into config instances, with one call to pydantic."""
 
-from collections.abc import Collection, Iterable, Mapping
-import dataclasses
+from collections.abc import Iterator
 from dataclasses import MISSING
 import json
-import math
-from typing import Any, cast
+from typing import Any
 
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails
 
 from ._errors import ConfigError
-from ._json_form import is_json_form, to_json_form
+from ._json_form import first_difference, is_json_form, to_json_form, without_json_form
 from ._overrides import format_value
-from ._schema import (
-    FieldInfo,
-    Kind,
-    class_adapter,
-    field_adapter,
-    is_dict_or_frozendict,
-)
+from ._schema import RESERVED_KEY, FieldInfo, Kind, class_adapter, field_adapter
+from ._settings import Settings
 from ._tree import Node, format_path, unknown_key_message
 from ._types import type_text
 
-__all__ = ["build", "checked_json"]
+__all__ = ["build", "build_settings", "checked_json"]
 
 
-def _input(node: Node, skip: str | None) -> dict[str, Any]:
-    """The node in JSON form, the input for pydantic.
+def _value_fields(node: Node, skip: str | None) -> Iterator[tuple[Node, FieldInfo]]:
+    """Every field that holds a value in the tree under `node`, with its node.
 
-    The node of a group names its option under `_option_`, from which
-    `nematocyte.pick` reads it. A value or a subconfig that is missing is
-    left out, and pydantic reports it.
+    `skip` names a field of `node` to leave out.
     """
-    data = node.to_json_tree()
-    if skip is not None:
-        data.pop(skip, None)
-    return data
-
-
-_JSON_SCALARS = (str, int, float, bool, type(None))
-
-type _Part = tuple[str, Any]
-
-
-def _without_json_form(value: Any, seen: frozenset[int] = frozenset()) -> _Part | None:
-    """The first part of a value in JSON form that JSON has no form for.
-
-    The location is `""` for the value itself. A container that holds
-    itself has no JSON form either.
-    """
-    if isinstance(value, _JSON_SCALARS):
-        return None
-    if id(value) in seen or not isinstance(value, (dict, list)):
-        return "", value
-    inner = seen | {id(value)}
-    items: Iterable[tuple[Any, Any]] = (
-        cast("dict[Any, Any]", value).items()
-        if isinstance(value, dict)
-        else enumerate(cast("list[Any]", value))
-    )
-    for key, item in items:
-        if not isinstance(key, _JSON_SCALARS):
-            return "", key
-        found = _without_json_form(item, inner)
-        if found is not None:
-            location, part = found
-            return (f"{key}.{location}" if location else str(key)), part
-    return None
-
-
-def _json_problems(node: Node, skip: str | None, errors: list[str]) -> None:
-    """The errors for every value in the tree that JSON has no form for."""
     for info in node.fields.values():
         if info.name == skip:
             continue
-        if info.kind is not Kind.VALUE:
+        if info.kind is Kind.VALUE:
+            yield node, info
+        else:
             child = node.children.get(info.name)
             if child is not None:
-                _json_problems(child, None, errors)
-            continue
+                yield from _value_fields(child, None)
+
+
+def _json_problems(root: Node, skip: str | None) -> list[str]:
+    """The errors for every value in the tree that JSON has no form for."""
+    errors: list[str] = []
+    for node, info in _value_fields(root, skip):
         value = node.value(info)
         if value is MISSING:
             continue
-        found = _without_json_form(to_json_form(value))
+        found = without_json_form(to_json_form(value))
         if found is None:
             continue
         inner, part = found
@@ -102,6 +61,7 @@ def _json_problems(node: Node, skip: str | None, errors: list[str]) -> None:
             f"{hint}\n    Value: {value!r} ({_origin(node, info)})"
             f"{_field_line(node, info)}"
         )
+    return errors
 
 
 type _Loc = tuple[int | str, ...]
@@ -223,24 +183,19 @@ def _translate(node: Node, exc: ValidationError) -> tuple[list[str], set[_FieldK
     return texts, set(by_field)
 
 
-def _check_defaults(
-    node: Node, errors: list[str], skip: str | None, failed: set[_FieldKey]
-) -> None:
+def _default_problems(
+    root: Node, skip: str | None, failed: set[_FieldKey]
+) -> list[str]:
     """The check that pydantic does not make, for every default it accepted."""
-    for info in node.fields.values():
-        if info.name == skip:
-            continue
-        if info.kind is not Kind.VALUE:
-            child = node.children.get(info.name)
-            if child is not None:
-                _check_defaults(child, errors, None, failed)
-            continue
+    errors: list[str] = []
+    for node, info in _value_fields(root, skip):
         if info.name in node.values or (id(node), info.name) in failed:
             continue
         problem = _default_problem(node, info)
         if problem is not None:
             path = format_path((*node.path, info.name))
             errors.append(f"{path}: {problem}{_field_line(node, info)}")
+    return errors
 
 
 def _default_problem(node: Node, info: FieldInfo) -> str | None:
@@ -274,7 +229,7 @@ def _default_problem(node: Node, info: FieldInfo) -> str | None:
     except ValidationError:
         # Only the JSON form is valid, as with `name: str = Path("x")`.
         return None
-    lost = _difference(direct, result)
+    lost = first_difference(direct, result)
     if lost is None:
         return None
     inner, before, after = lost
@@ -285,98 +240,6 @@ def _default_problem(node: Node, info: FieldInfo) -> str | None:
         f"{type(before).__name__} from that, or a default that a config file "
         f"can hold.\n    Value: {default!r} ({_origin(node, info)})"
     )
-
-
-type _Pairs = list[tuple[str, Any, Any]]
-
-
-def _difference(expected: Any, actual: Any) -> tuple[str, Any, Any] | None:
-    """The first place where `actual` differs from `expected`, with both values.
-
-    A list, tuple, set and frozenset count as the same, as do a dict and a
-    frozendict: a config file cannot tell them apart. The location is `""`
-    for the value itself.
-    """
-    if expected is actual:
-        return None
-    pairs = _parts(expected, actual)
-    if pairs is None:
-        return "", expected, actual
-    for location, item, out in pairs:
-        found = _difference(item, out)
-        if found is not None:
-            inner, before, after = found
-            joined = f"{location}.{inner}" if location and inner else location or inner
-            return joined, before, after
-    return None
-
-
-def _parts(expected: Any, actual: Any) -> _Pairs | None:
-    """The parts of two values that are compared; `None` if they differ already."""
-    if is_dict_or_frozendict(expected) and is_dict_or_frozendict(actual):
-        return _mapping_parts(expected, actual)
-    if isinstance(expected, _COLLECTIONS) and isinstance(actual, _COLLECTIONS):
-        return _collection_parts(expected, actual)
-    if type(expected) is not type(actual):
-        return None
-    if dataclasses.is_dataclass(expected) and not isinstance(expected, type):
-        return [
-            (field.name, getattr(expected, field.name), getattr(actual, field.name))
-            for field in dataclasses.fields(expected)
-            if field.init
-        ]
-    return [] if _equal(expected, actual) else None
-
-
-_COLLECTIONS = (list, tuple, set, frozenset)
-
-
-def _mapping_parts(
-    expected: Mapping[Any, Any], actual: Mapping[Any, Any]
-) -> _Pairs | None:
-    if len(expected) != len(actual):
-        return None
-    keys = {key: key for key in actual}
-    pairs: _Pairs = []
-    for key, item in expected.items():
-        if key not in keys:
-            return None
-        pairs.append(("", key, keys[key]))
-        pairs.append((str(key), item, actual[key]))
-    return pairs
-
-
-def _collection_parts(
-    expected: Collection[Any], actual: Collection[Any]
-) -> _Pairs | None:
-    if len(expected) != len(actual):
-        return None
-    if isinstance(expected, (set, frozenset)) or isinstance(actual, (set, frozenset)):
-        # Without an order, each item is matched with an equal one.
-        remaining = list(actual)
-        for item in expected:
-            index = next(
-                (
-                    i
-                    for i, out in enumerate(remaining)
-                    if _difference(item, out) is None
-                ),
-                None,
-            )
-            if index is None:
-                return None
-            del remaining[index]
-        return []
-    return [
-        (str(index), item, out)
-        for index, (item, out) in enumerate(zip(expected, actual, strict=True))
-    ]
-
-
-def _equal(expected: Any, actual: Any) -> bool:
-    if isinstance(expected, float) and math.isnan(expected):
-        return math.isnan(actual)
-    return bool(expected == actual)
 
 
 def build(node: Node, *, skip: str | None = None) -> object:
@@ -392,6 +255,13 @@ def build(node: Node, *, skip: str | None = None) -> object:
     return _build(node, skip)[0]
 
 
+def build_settings(root: Node) -> Settings:
+    """Build nematocyte's own settings, from the root of a composed tree."""
+    settings = build(root.children[RESERVED_KEY])
+    assert isinstance(settings, Settings)
+    return settings
+
+
 def checked_json(node: Node, *, skip: str | None = None) -> str:
     """Build the instance for `node` as `build` does, and return the JSON text.
 
@@ -402,18 +272,23 @@ def checked_json(node: Node, *, skip: str | None = None) -> str:
 
 
 def _build(node: Node, skip: str | None) -> tuple[object, str]:
-    assert node.cls is not None
     adapter = class_adapter(node.cls)
+    # The node of a group names its option under `_option_`, from which
+    # `nematocyte.pick` reads it. A value or a subconfig that is missing is
+    # left out, and pydantic reports it.
+    data = node.to_json_tree()
+    if skip is not None:
+        data.pop(skip, None)
+    try:
+        text = json.dumps(data)
+    except (TypeError, ValueError) as exc:
+        problems = _json_problems(node, skip) or [f"The config has no JSON form: {exc}"]
+        raise ConfigError(
+            "Error in the configuration:\n" + "\n".join(problems)
+        ) from None
     errors: list[str] = []
     failed: set[_FieldKey] = set()
     instance: object = None
-    try:
-        text = json.dumps(_input(node, skip))
-    except (TypeError, ValueError) as exc:
-        _json_problems(node, skip, errors)
-        if not errors:
-            errors = [f"The config has no JSON form: {exc}"]
-        raise ConfigError("Error in the configuration:\n" + "\n".join(errors)) from None
     try:
         instance = adapter.validate_json(text, strict=True)
     except ValidationError as exc:
@@ -422,7 +297,7 @@ def _build(node: Node, skip: str | None) -> tuple[object, str]:
         # A constructor raised something other than a `ValueError` or an
         # `AssertionError`; pydantic passes it on, without its location.
         errors = [f"{type(exc).__name__}: {exc}"]
-    _check_defaults(node, errors, skip, failed)
+    errors += _default_problems(node, skip, failed)
     if errors:
         raise ConfigError("Error in the configuration:\n" + "\n".join(errors))
     return instance, text

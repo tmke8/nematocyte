@@ -33,6 +33,7 @@ __all__ = [
     "RangeSweep",
     "Sweep",
     "format_value",
+    "is_sweep",
     "last_wins",
     "parse_argument",
     "parse_override",
@@ -108,7 +109,7 @@ class Override:
 
     @property
     def is_sweep(self) -> bool:
-        return isinstance(self.value, (ChoiceSweep, RangeSweep, IntervalSweep))
+        return is_sweep(self.value)
 
 
 @dataclass(frozen=True)
@@ -413,7 +414,8 @@ def _typed(text: str) -> Any:
     return text
 
 
-def _is_sweep(value: Any) -> bool:
+def is_sweep(value: Any) -> bool:
+    """Whether `value` is a sweep, and not a plain value."""
     return isinstance(value, (ChoiceSweep, RangeSweep, IntervalSweep))
 
 
@@ -426,7 +428,7 @@ def _number(value: Any, function: str) -> int | float:
 def _choice(*values: Any) -> ChoiceSweep:
     if not values:
         raise ConfigError("choice() needs at least one value.")
-    if any(_is_sweep(value) for value in values):
+    if any(is_sweep(value) for value in values):
         raise ConfigError("A sweep cannot be an item of choice().")
     return ChoiceSweep(tuple(values))
 
