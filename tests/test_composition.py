@@ -943,6 +943,7 @@ def test_group_key_with_nothing_under_it_is_an_error(config_dir: Path) -> None:
     message = str(excinfo.value)
     assert "empty.yaml" in message
     assert "'model' is a group of Config" in message
+    assert "leave out the key" in message
 
 
 # -- added configs: +NAME ----------------------------------------------------

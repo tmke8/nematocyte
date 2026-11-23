@@ -175,15 +175,29 @@ def test_null_on_the_command_line_switches_it_off() -> None:
     assert compose(overrides=("on=null",)).on is None
 
 
-def test_null_in_a_file_switches_it_off(tmp_path: Path) -> None:
-    config_dir = configs(tmp_path, {"off.yaml": "on: null\n"})
+def test_null_under_defaults_switches_it_off(tmp_path: Path) -> None:
+    config_dir = configs(
+        tmp_path,
+        {"off.yaml": "_defaults_:\n  on: null\n", "set.yaml": "on:\n  every: 5\n"},
+    )
     assert compose(config_dir, config_name="off").on is None
+    # What a lower layer set under it goes.
+    assert compose(config_dir, ("+off",), config_name="set").on is None
 
 
-def test_key_with_nothing_under_it_switches_it_off(tmp_path: Path) -> None:
-    # YAML reads a key with only comments under it as null.
-    config_dir = configs(tmp_path, {"off.yaml": "on:\n  # decay: 0.3\n"})
-    assert compose(config_dir, config_name="off").on is None
+@pytest.mark.parametrize("text", ["on: null\n", "on:\n  # decay: 0.3\n"])
+def test_null_among_the_values_points_to_defaults(tmp_path: Path, text: str) -> None:
+    # YAML reads a key with only comments under it as null. Hydra switches
+    # the subconfig off, so a silent "nothing" would surprise.
+    config_dir = configs(tmp_path, {"c.yaml": text})
+    with pytest.raises(ConfigError) as excinfo:
+        compose(config_dir, config_name="c")
+    message = str(excinfo.value)
+    assert "c.yaml" in message
+    assert "'on' is an optional subconfig of Config" in message
+    assert "_defaults_:\n      on: null" in message
+    assert "leave out the key" in message
+    assert "_replace_" not in message
 
 
 @pytest.mark.parametrize("text", ["plain: null\n", "plain:\n  # lr: 0.3\n"])
@@ -199,7 +213,17 @@ def test_null_for_a_plain_subconfig_in_a_file_is_an_error(
     assert "'plain' is a subconfig of Config" in message
     assert "Plain | None" in message
     assert "nothing under it is null too" in message
-    assert "plain: {}" in message
+    assert "leave out the key" in message
+
+
+def test_null_for_a_typeddict_in_a_file_points_to_replace(tmp_path: Path) -> None:
+    config_dir = configs(tmp_path, {"c.yaml": "ema:\n  # decay: 0.3\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(TdConfig, config_dir, config_name="c")
+    message = str(excinfo.value)
+    assert "'ema' is an optional subconfig of TdConfig" in message
+    assert "_defaults_:\n      ema: null" in message
+    assert "ema: {_replace_: true}" in message
 
 
 @pytest.mark.parametrize("text", ["group: null\n", "group:\n  # x: 3\n"])
@@ -212,6 +236,40 @@ def test_null_for_a_group_in_a_file_is_an_error(tmp_path: Path, text: str) -> No
     assert "c.yaml" in message
     assert "'group' is a group of Config" in message
     assert "Options: a, b" in message
+
+
+@dataclass
+class WithDicts:
+    counts: dict[str, int] = field(default_factory=lambda: {"a": 1})
+    maybe: dict[str, int] | None = field(default_factory=lambda: {"a": 1})
+    anything: Any = field(default_factory=lambda: {"a": 1})
+
+
+@pytest.mark.parametrize("text", ["counts: null\n", "counts:\n  # a: 2\n"])
+def test_null_for_a_dict_in_a_file_is_an_error(tmp_path: Path, text: str) -> None:
+    config_dir = configs(tmp_path, {"c.yaml": text})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(WithDicts, config_dir, config_name="c")
+    message = str(excinfo.value)
+    assert "c.yaml" in message
+    assert "'counts' of WithDicts holds a dict" in message
+    assert "counts: {_replace_: true}" in message
+    assert "leave out the key" in message
+
+
+def test_null_for_a_dict_that_takes_none_is_a_value(tmp_path: Path) -> None:
+    config_dir = configs(tmp_path, {"c.yaml": "maybe: null\nanything:\n"})
+    config = nematocyte.compose(WithDicts, config_dir, config_name="c")
+    assert config.maybe is None
+    assert config.anything is None
+
+
+def test_an_empty_dict_is_written_with_replace(tmp_path: Path) -> None:
+    config_dir = configs(tmp_path, {"c.yaml": "counts: {_replace_: true}\nmaybe: {}\n"})
+    config = nematocyte.compose(WithDicts, config_dir, config_name="c")
+    assert config.counts == {}
+    # An empty mapping is merged, and changes nothing.
+    assert config.maybe == {"a": 1}
 
 
 def test_null_for_a_nested_subconfig_in_a_dict_is_an_error() -> None:
@@ -248,14 +306,42 @@ def test_null_for_a_group_is_an_error() -> None:
     assert "Options: a, b" in message
 
 
-def test_null_entry_in_defaults_points_to_the_values(tmp_path: Path) -> None:
-    config_dir = configs(tmp_path, {"c.yaml": "_defaults_:\n  ema: null\n"})
+@pytest.mark.parametrize("key", ["plain", "group"])
+def test_null_under_defaults_for_a_field_that_is_not_optional_is_an_error(
+    tmp_path: Path, key: str
+) -> None:
+    config_dir = configs(tmp_path, {"c.yaml": f"_defaults_:\n  {key}: null\n"})
     with pytest.raises(ConfigError) as excinfo:
         compose(config_dir, config_name="c")
     message = str(excinfo.value)
     assert "c.yaml" in message
-    assert "'ema' is an optional subconfig" in message
-    assert "among the values, outside '_defaults_': ema: null" in message
+    assert f"'{key}' is a" in message
+    assert "cannot be null" in message
+
+
+@pytest.mark.parametrize("body", ["ema:\n  decay: 0.5\n", "ema: null\n", "ema:\n"])
+def test_values_after_null_under_defaults_are_an_error(
+    tmp_path: Path, body: str
+) -> None:
+    config_dir = configs(tmp_path, {"c.yaml": "_defaults_:\n  ema: null\n" + body})
+    with pytest.raises(ConfigError) as excinfo:
+        compose(config_dir, config_name="c")
+    message = str(excinfo.value)
+    assert "c.yaml" in message
+    assert "'ema' is switched off in the entry 'ema' of '_defaults_'" in message
+
+
+def test_a_higher_file_switches_on_what_a_lower_one_switched_off(
+    tmp_path: Path,
+) -> None:
+    config_dir = configs(
+        tmp_path,
+        {
+            "off.yaml": "_defaults_:\n  ema: null\n",
+            "on_again.yaml": "_defaults_:\n  _self_: off\nema:\n  every: 3\n",
+        },
+    )
+    assert compose(config_dir, config_name="on_again").ema == EmaCfg(every=3)
 
 
 # -- a mapping switches it on ---------------------------------------------------
@@ -294,7 +380,7 @@ def test_switching_on_starts_from_the_class_defaults(tmp_path: Path) -> None:
     config_dir = configs(
         tmp_path,
         {
-            "off.yaml": "on: null\n",
+            "off.yaml": "_defaults_:\n  on: null\n",
             "on_again.yaml": "_defaults_:\n  _self_: off\non:\n  every: 3\n",
             "on/three.yaml": "every: 3\n",
         },

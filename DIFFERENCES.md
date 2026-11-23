@@ -205,11 +205,11 @@ Python code, and `_target_` is an unknown key like any other. A program that
 wants to name a class in its config keeps the import path in a `str` field
 and imports it itself. See [unions.md](design/unions.md).
 
-### A group is switched off with `null`, under `_defaults_` in a file
+### Switched off with `null` under `_defaults_` in a file
 
-A group is optional when its type is `Model | None`, with `None` outside
-the union of the group. In a file, it is switched off under `_defaults_`,
-next to the selections:
+An optional subconfig, `ema: EmaCfg | None`, and an optional group,
+`model: Model | None` with `None` outside the union of the group, are
+switched off under `_defaults_` in a file, next to the selections:
 
 ```yaml
 _defaults_:
@@ -219,22 +219,35 @@ _defaults_:
 In Hydra, `- model: null` in the defaults list means something else: it
 selects nothing, and the field keeps the default of the dataclass, so a
 default of `Fcn()` stays on. Hydra switches the group off with
-`model: null` in the body of a file, for a field typed
-`Optional[ModelCfg]`. In nematocyte, that is an error that points to
-`_defaults_`, since among the values `model` holds the fields of the
-selected option, whose class does not allow null; so is a key with nothing
-under it. On the command line, `model=null` switches it off, where
-Hydra crashes ("Config group override must be a string or a list"). It is
-switched on by selecting an option, as in `model=cnn`. A mapping does not
-switch it on: `model.kernel=2` while the group is off is an error that
-points to `model=NAME`.
+`model: null` or `ema: null` in the body of a file, for a field typed
+`Optional[...]`, and gives an error there for any other field ("field
+'model' is not Optional").
 
-An optional subconfig of one class, `ema: EmaCfg | None`, is switched off
-among the values instead, `ema: null`, and switched on with a mapping in a
-file, as in Hydra, or with a named config. On the command line, a dataclass
-is not given a dict
+In nematocyte, null in the body of a file is an error for anything that
+holds a mapping and does not take `None`: any subconfig or group, and a
+dict without `| None`. The error shows what may have been meant: the entry
+under `_defaults_`, leaving out the key, or, for a TypedDict or a dict,
+`{_replace_: true}`, which makes it empty.
+
+| In the body of a file | Hydra | nematocyte |
+| --- | --- | --- |
+| `ema: null`, for `ema: EmaCfg \| None` | `None` | Error, which shows the entry under `_defaults_` |
+| `ema:` with only comments under it | `None` | The same error |
+| `plain: null`, for `plain: Plain` | Error | Error |
+| `counts: null`, for `counts: dict[str, int]` | Error | Error, which shows `counts: {_replace_: true}` |
+| `maybe: null`, for `maybe: dict[str, int] \| None` | `None` | `None` |
+
+The Hydra column was tested by merging into the structured config with
+OmegaConf, as Hydra does.
+
+On the command line, `model=null` switches it off, where Hydra crashes
+("Config group override must be a string or a list"). A group is switched
+on by selecting an option, as in `model=cnn`, and a subconfig by a mapping
+in a file or a named config. A dotted key does not switch either on:
+`model.kernel=2` while the group is off is an error that points to
+`model=NAME`. On the command line, a dataclass is not given a dict
 ([below](#a-dict-replaces-and-a-dataclass-takes-none)). See
-[unions.md](design/unions.md#optional-groups).
+[unions.md](design/unions.md#optional-subconfigs).
 
 ### A hand-written `__init__` is not called
 
@@ -322,8 +335,9 @@ _defaults_:
 - A key can be a dotted path: `model.norm: my_batchnorm`.
 - `- opt: null`, which Hydra needs so that `opt=NAME` works without `+`, is
   not needed, and is an error. Under `_defaults_`, null only switches off
-  an optional group, `model: null`, which is not what it means in Hydra
-  ([above](#a-group-is-switched-off-with-null-under-_defaults_-in-a-file)).
+  an optional subconfig or group, `model: null`, which is not what it
+  means in Hydra
+  ([above](#switched-off-with-null-under-_defaults_-in-a-file)).
 - A key `defaults`, as in Hydra, is an error that suggests `_defaults_`,
   unless the node has a field of that name. A list is an error that shows
   the mapping form.

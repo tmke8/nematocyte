@@ -329,15 +329,7 @@ class Composer:
         return "\n".join(lines) + self._available(path, info)
 
     def _defaults_null_message(self, node: Node, info: FieldInfo) -> str:
-        """The error for null under `_defaults_`, for all but an optional group."""
-        key = format_path((*node.path, info.name))
-        if info.optional:
-            return (
-                f"{key!r} is an optional subconfig of {node.describe()}, and is "
-                f"switched off among the values, outside '_defaults_': "
-                f"{info.name}: null. Under '_defaults_', null switches off an "
-                f"optional group."
-            )
+        """The error for null under `_defaults_`, for a field that is not optional."""
         return (
             f"{self._null_message(node, info)}\nAn entry with null, as in "
             f"Hydra's '- {info.name}: null', is not needed in nematocyte; "
@@ -575,6 +567,8 @@ class Composer:
             for key, name in file.defaults.items()
             if key != SELF_KEY
         ]
+        # What the file switches off here, it cannot set among its values.
+        switched_off: dict[KeyPath, str] = {}
         # Shortest path first: `model.norm` is inside `model` and is applied later.
         for path, key, name in sorted(entries, key=lambda entry: len(entry[0])):
             source = f"{file.label}, in the entry {key!r} of '_defaults_'"
@@ -593,12 +587,15 @@ class Composer:
                     "as a value, outside '_defaults_'.",
                 )
             if name is None:
-                if info.kind is not Kind.GROUP or not info.optional:
+                if not info.optional:
                     raise _error(source, self._defaults_null_message(parent, info))
                 parent.switch_off(info)
+                switched_off[path] = key
                 continue
             self._select(parent, info, name, source, file.label)
-        self._apply_values(node, file.values, file.label, since=since)
+        self._apply_values(
+            node, file.values, file.label, since=since, switched_off=switched_off
+        )
 
     def _apply_values(
         self,
@@ -608,16 +605,19 @@ class Composer:
         *,
         since: int,
         command_line: bool = False,
+        switched_off: dict[KeyPath, str] | None = None,
         prefix: KeyPath = (),
     ) -> None:
         """Apply the values of a file, or of a dict on the command line.
 
         A mapping goes into a subconfig or a group, and switches an optional
-        subconfig on. Null switches an optional subconfig off, and an optional
-        group on the command line; in a file, an optional group is switched
-        off under `_defaults_`. Null is an error for any other subconfig or
-        group. A dict on the command line holds no mapping for a dataclass.
-        `prefix` is the path of `node` below the node of the file.
+        subconfig on. In a file, null for a subconfig or a group is nothing:
+        they are switched off under `_defaults_`. `switched_off` maps what the
+        file switched off there, by its path below the node of the file, to
+        the entry; the file cannot give it a value as well. On the command
+        line, null switches an optional subconfig or group off, and is an
+        error for any other. A dict on the command line holds no mapping for
+        a dataclass. `prefix` is the path of `node` below the node of the file.
 
         A value is merged into what was set before. `since` is when the layer
         started: a `_replace_` drops what was set before it.
@@ -634,32 +634,27 @@ class Composer:
             if info is None:
                 raise _error(label, unknown_key_message(node, str(key)))
             if info.kind is Kind.VALUE:
+                if not command_line:
+                    _check_null_for_a_dict(node, info, value, label)
                 _check_value_replaces(node, info, value, label)
                 node.set_value(info.name, value, label, since=since)
                 continue
             path = format_path((*node.path, info.name))
+            if switched_off is not None:
+                _check_not_switched_off(
+                    switched_off, (*prefix, info.name), path, value, label
+                )
             if value is None:
                 self._apply_null(
                     node, info, label, command_line=command_line, prefix=prefix
                 )
                 continue
             if not isinstance(value, dict):
-                hint = ""
-                if isinstance(value, str) and command_line:
-                    hint = (
-                        f"\nTo select the config called {value!r} for {path!r}: "
-                        f"{path}={format_value(value)}"
-                    )
-                elif isinstance(value, str):
-                    hint = (
-                        f"\nTo select the config called {value!r} for {path!r}, "
-                        f"write it under '_defaults_'."
-                    )
-                what = "a group" if info.kind is Kind.GROUP else "a subconfig"
                 raise _error(
                     label,
-                    f"{path!r} is {what}, so its value has to be a mapping of "
-                    f"its fields, not {value!r}.{hint}",
+                    _not_a_mapping_message(
+                        path, info, value, command_line=command_line
+                    ),
                 )
             if command_line and not _holds_typeddicts(info):
                 raise _error(label, self._dataclass_dict_message(node, info, value))
@@ -677,6 +672,7 @@ class Composer:
                 label,
                 since=since,
                 command_line=command_line,
+                switched_off=switched_off,
                 prefix=(*prefix, info.name),
             )
 
@@ -691,28 +687,44 @@ class Composer:
     ) -> None:
         """Apply null for a subconfig or a group, from a file or a dict.
 
-        A key with nothing under it is null too, to YAML.
+        On the command line, null switches an optional subconfig or group
+        off. In a file, it is an error: they are switched off under
+        `_defaults_`, and a key with nothing under it, which YAML reads as
+        null, may have been meant to leave them as they are.
         """
-        if not info.optional:
-            hint = (
-                ""
-                if command_line
-                else f"\nA key with nothing under it is null too. Leave "
-                f"out the key, or write {info.name}: {{}}."
+        if command_line and info.optional:
+            node.switch_off(info)
+            return
+        if command_line:
+            raise _error(label, self._null_message(node, info))
+        raise _error(label, self._file_null_message(node, info, prefix))
+
+    def _file_null_message(self, node: Node, info: FieldInfo, prefix: KeyPath) -> str:
+        """The error for null among the values of a file, for a subconfig or group."""
+        path = (*node.path, info.name)
+        key = format_path(path)
+        what = "group" if info.kind is Kind.GROUP else "subconfig"
+        if info.optional:
+            lines = [
+                f"{key!r} is an optional {what} of {node.describe()}, and cannot "
+                f"be null among the values of a config file, nor a key with "
+                f"nothing under it, which YAML reads as null. (In Hydra, this "
+                f"switches it off.)",
+                f"To switch it off, write the entry under '_defaults_':\n"
+                f"    _defaults_:\n      {format_path((*prefix, info.name))}: null",
+            ]
+        else:
+            lines = [
+                f"{self._null_message(node, info)} A key with nothing under it "
+                f"is null too, to YAML."
+            ]
+        lines.append("To leave it as it is, leave out the key.")
+        if _holds_typeddicts(info):
+            lines.append(
+                f"To drop what was set in it before: {info.name}: "
+                f"{{{REPLACE_KEY}: true}}"
             )
-            raise _error(label, self._null_message(node, info) + hint)
-        if info.kind is Kind.GROUP and not command_line:
-            path = format_path((*node.path, info.name))
-            key = format_path((*prefix, info.name))
-            raise _error(
-                label,
-                f"{path!r} is an optional group of {node.describe()}. In a "
-                f"config file, it is switched off under '_defaults_', where "
-                f"its options are selected:\n    _defaults_:\n      {key}: "
-                f"null\nA key with nothing under it is null too; to leave the "
-                f"group as it is, leave out the key.",
-            )
-        node.switch_off(info)
+        return "\n".join(lines)
 
     # -- selections --------------------------------------------------------
 
@@ -1011,6 +1023,66 @@ def _explicit(node: Node, selections: tuple[Selection, ...]) -> Iterator[_Droppe
         yield from _explicit(child, inner)
 
 
+def _not_a_mapping_message(
+    path: str, info: FieldInfo, value: Any, *, command_line: bool
+) -> str:
+    """The error for a value of a subconfig or a group that is not a mapping."""
+    hint = ""
+    if isinstance(value, str) and command_line:
+        hint = (
+            f"\nTo select the config called {value!r} for {path!r}: "
+            f"{path}={format_value(value)}"
+        )
+    elif isinstance(value, str):
+        hint = (
+            f"\nTo select the config called {value!r} for {path!r}, "
+            f"write it under '_defaults_'."
+        )
+    what = "a group" if info.kind is Kind.GROUP else "a subconfig"
+    return (
+        f"{path!r} is {what}, so its value has to be a mapping of its fields, "
+        f"not {value!r}.{hint}"
+    )
+
+
+def _check_null_for_a_dict(node: Node, info: FieldInfo, value: Any, label: str) -> None:
+    """In a file, null for a value that is a dict, and cannot be `None`, is an error.
+
+    A key with nothing under it is null to YAML, and may have been meant as
+    an empty dict, which is written with `_replace_`.
+    """
+    if value is not None or _takes_none(info) or not _takes_a_mapping(info):
+        return
+    key = format_path((*node.path, info.name))
+    raise _error(
+        label,
+        f"{key!r} of {node.describe()} holds a dict, and its type does not "
+        f"allow None, so it cannot be null, nor a key with nothing under it, "
+        f"which YAML reads as null. An empty dict is written "
+        f"{info.name}: {{{REPLACE_KEY}: true}}, which drops what was set in it "
+        f"before; to leave it as it is, leave out the key.",
+    )
+
+
+def _check_not_switched_off(
+    switched_off: dict[KeyPath, str],
+    here: KeyPath,
+    path: str,
+    value: Any,
+    label: str,
+) -> None:
+    """A file cannot give a value to what it switches off under `_defaults_`."""
+    entry = switched_off.get(here)
+    if entry is not None:
+        shown = "nothing under it" if value is None else format_value(value)
+        raise _error(
+            label,
+            f"{path!r} is switched off in the entry {entry!r} of '_defaults_', "
+            f"and the same file gives it a value among the values ({shown}). "
+            f"Remove one of the two.",
+        )
+
+
 def _switches_on(info: FieldInfo) -> bool:
     """Whether a mapping switches on the field: an optional subconfig.
 
@@ -1126,6 +1198,18 @@ def _check_value_replaces(node: Node, info: FieldInfo, value: Any, label: str) -
                 f"set before there; to merge the mapping into it, leave out "
                 "the key.",
             )
+
+
+def _takes_a_mapping(info: FieldInfo) -> bool:
+    """Whether the field accepts an empty dict, and so holds a mapping."""
+    adapter = field_adapter(info)
+    if adapter is None:
+        return False
+    try:
+        adapter.validate_python({})
+    except ValidationError:
+        return False
+    return True
 
 
 def _takes_none(info: FieldInfo) -> bool:

@@ -266,6 +266,23 @@ def test_null_among_the_values_shows_the_path_from_the_file(tmp_path: Path) -> N
     assert "_defaults_:\n      outer.model: null" in message
 
 
+def test_null_for_a_nested_group_under_defaults(tmp_path: Path) -> None:
+    config_dir = configs(tmp_path, {"c.yaml": "_defaults_:\n  outer.model: null\n"})
+    config = nematocyte.compose(WithOuter, config_dir, config_name="c")
+    assert config.outer.model is None
+    config_dir = configs(
+        tmp_path,
+        {
+            "d.yaml": "_defaults_:\n  outer.model: null\nouter:\n  model:\n    width: 2\n"
+        },
+    )
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(WithOuter, config_dir, config_name="d")
+    message = str(excinfo.value)
+    assert "d.yaml" in message
+    assert "'outer.model' is switched off in the entry 'outer.model'" in message
+
+
 def test_values_after_null_under_defaults_are_an_error(tmp_path: Path) -> None:
     config_dir = configs(
         tmp_path, {"c.yaml": "_defaults_:\n  on: null\non:\n  kernel: 2\n"}
@@ -274,8 +291,7 @@ def test_values_after_null_under_defaults_are_an_error(tmp_path: Path) -> None:
         compose(config_dir, config_name="c")
     message = str(excinfo.value)
     assert "c.yaml" in message
-    assert "'on' is an optional group of Config" in message
-    assert "switched off" in message
+    assert "'on' is switched off in the entry 'on' of '_defaults_'" in message
 
 
 def test_null_for_self_is_an_error(tmp_path: Path) -> None:

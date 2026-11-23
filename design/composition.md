@@ -415,6 +415,10 @@ The rules:
   too.
 - The value is `true`. Anything else is an error; a mapping that is to be
   merged leaves out the key.
+- An empty mapping, `kwargs: {}`, is merged, and so changes nothing. A dict
+  is made empty with `kwargs: {_replace_: true}`. Null is not an empty
+  dict: for a dict that does not take `None`, it is an error that shows this
+  spelling ([below](#details-of-finding-and-reading-files)).
 - `_replace_` is reserved on every config class
   ([deserializer.md](deserializer.md#reserved-names)), and in the mappings
   of a value: a dict with a key `_replace_` of its own cannot be written in
@@ -650,26 +654,30 @@ Python version. Reading config files does not need to be fast (see above).
   can be any string: `dm='größe 2'` selects `configs/dm/größe 2.yaml`.
   A file whose name breaks the rule, such as `configs/x:run.yaml`, cannot
   be selected. `--help` leaves it out, and the validator reports it.
-- A key of a subconfig or group with nothing under it (`model:` and then
-  only comments) is null to YAML, the same as `model: null`. Null switches
-  an optional subconfig (`ema: EmaCfg | None`) off
-  ([unions.md](unions.md#optional-subconfigs)). For an optional group
-  (`model: Model | None`), it is an error that shows the entry
-  `model: null` under `_defaults_`, where the group is switched off
-  ([unions.md](unions.md#optional-groups)). For any other subconfig or
-  group, it is an error that names the file, the key and the class, as in
-  Hydra ("field 'model' is not Optional"), and that says to leave out the
-  key or write `model: {}`. So commenting out every line under a key never
-  changes the config silently, except for an optional subconfig.
+- A key with nothing under it (`model:` and then only comments) is null to
+  YAML, the same as `model: null`. Among the values, null is an error for
+  anything that holds a mapping and does not take `None`: a subconfig or a
+  group, optional or not, and a value whose type is a dict without
+  `| None`. So commenting out every line under a key never changes the
+  config silently. The error names the file, the key and the class, and
+  shows what may have been meant: leaving out the key; for an optional
+  subconfig or group, switching it off under `_defaults_`
+  ([unions.md](unions.md#optional-subconfigs)); for a TypedDict or a dict,
+  making it empty with `{_replace_: true}`
+  ([above](#_replace_-true-replaces-instead-of-merging)). For a value whose
+  type takes `None`, such as `dict[int, int] | None` or `Any`, null is
+  `None`, as in Hydra.
+- In the file that switches an optional subconfig or group off under
+  `_defaults_`, a value for it among the values is an error that names the
+  file, the key and the entry.
 - A selection written among the values (`model: cnn` outside `_defaults_`)
   is an error that points to `_defaults_`.
 - A key `defaults`, as in Hydra, is an error that suggests `_defaults_`,
   unless the node has a field of that name.
 - `_defaults_` as a list, as in Hydra, is an error that shows the mapping
-  form. An entry with `null` switches off an optional group
-  (`model: null`, [unions.md](unions.md#optional-groups)), which Hydra's
-  `- model: null` does not do. For an optional subconfig, it is an error
-  that points to `ema: null` among the values. For anything else, it is an
+  form. An entry with `null` switches off an optional subconfig or group
+  (`ema: null`, `model: null`, [unions.md](unions.md#optional-subconfigs)),
+  which Hydra's `- model: null` does not do. For anything else, it is an
   error that says it is not needed: Hydra needs `- opt: null` only to list
   the group, so that `opt=NAME` works without `+` ([cli.md](cli.md)), and
   nematocyte reads that from the type of the field. `_self_: null` is an
