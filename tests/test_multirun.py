@@ -5,6 +5,7 @@ a stand-in for submitit's executor.
 """
 
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 import inspect
 from pathlib import Path
 import pickle
@@ -181,6 +182,45 @@ def test_post_init_error_is_found_before_anything_runs(
     assert run(make_main(empty_config_dir(), seen), ["-m", "gpu=0,-7"]) == 1
     assert not seen
     assert "Invalid GPU index -7" in capsys.readouterr().err
+
+
+_unavailable_sizes: set[int] = set()
+
+
+@dataclass
+class _Part:
+    size: int = 1
+
+    def __post_init__(self) -> None:
+        if self.size in _unavailable_sizes:
+            raise ValueError(f"size {self.size} is not available here")
+        if self.size == 3:
+            # Valid when the job is made, not when it runs.
+            _unavailable_sizes.add(self.size)
+
+
+@dataclass
+class _Outer:
+    part: _Part
+
+
+def test_error_that_only_the_job_finds_names_the_key(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _unavailable_sizes.clear()
+    seen: list[_Outer] = []
+
+    @nematocyte.main(_Outer, config_path=empty_config_dir())
+    def main(config: _Outer) -> None:
+        seen.append(config)
+
+    assert run(main, ["-m", "part.size=3"]) == 1
+    assert not seen
+    err = capsys.readouterr().err
+    assert "Job #0 (part.size=3) failed" in err
+    assert "part (_Part): size 3 is not available here" in err
+    # The error is the one of the rebuilt tree, not pydantic's own.
+    assert "ValidationError" not in err
 
 
 def test_failed_job_does_not_stop_the_others(

@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from ._build import build
+from ._build import build, checked_json
 from ._compose import Composer
 from ._errors import ConfigError
 from ._help import format_cfg, format_help
@@ -129,10 +129,8 @@ def _run(
     root = composer.compose(config_name, overrides, added)
     _require_multirun(root)
     resolve(root, now)
-    build(root, skip=RESERVED_KEY)
+    config = checked_json(root, skip=RESERVED_KEY)
     settings = _built_settings(root.children[RESERVED_KEY])
-    config = root.to_json_tree()
-    config.pop(RESERVED_KEY, None)
     arguments = [a.text for a in added] + [o.text for o in overrides]
     job = Job(0, arguments, config, settings.log)
     run_job(entry, job, _start_dir(settings, now))

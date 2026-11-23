@@ -11,7 +11,7 @@ from typing import Any
 
 from ruamel.yaml import YAML
 
-from ._build import build
+from ._build import checked_json
 from ._compose import Composer
 from ._errors import ConfigError
 from ._interpolation import resolve
@@ -137,7 +137,7 @@ class Multirun:
         """Compose, resolve and check the config of one job.
 
         The config object is built to check it, and then thrown away: the job
-        gets the resolved tree and builds the object again.
+        gets the JSON text that was validated and builds the object again.
         """
         fixed = {override.key: override for override in self.fixed}
         for path, value in assignments:
@@ -147,15 +147,13 @@ class Multirun:
         try:
             root = self.composer.compose(self.config_name, overrides, self.added)
             resolve(root, self.now)
-            build(root, skip=RESERVED_KEY)
+            config = checked_json(root, skip=RESERVED_KEY)
         except ConfigError as exc:
             shown = " ".join(
                 [a.text for a in self.added]
                 + [o.text for o in overrides if o.key[0] != RESERVED_KEY]
             )
             raise ConfigError(f"In job #{number} ({shown}):\n{exc}") from None
-        config = root.to_json_tree()
-        config.pop(RESERVED_KEY, None)
         return Job(
             number,
             [a.text for a in self.added] + [o.text for o in overrides],
