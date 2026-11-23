@@ -160,7 +160,7 @@ The rules:
   `nematocyte.compose`, as `+NAME` does. A config file cannot leave out a
   single key: `key: null` is a value. It can replace the whole TypedDict
   with `_replace_: true`, and set again the keys that are to stay
-  ([composition.md](composition.md#_replace_-true-replaces-a-typeddict-instead-of-merging-into-it)).
+  ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)).
 - An interpolation that refers to a key that was left out is an error, as
   for a key that nothing set
   ([interpolation.md](interpolation.md)).
@@ -186,30 +186,35 @@ the schema instead:
   caught.
 - A field typed `dict[...]` accepts any key.
 
-### A dict-typed field is set as a whole, and replaced
+### A dict-typed field is given as a mapping, and merged
 
-`opt.optimizer_kwargs={eps:1e-6}` replaces whatever the field held before.
-Hydra merges instead, which is not what `=` suggests.
+`opt.optimizer_kwargs={eps:1e-6}` is merged into the dict that the field
+holds, as in a config file and as in Hydra
+([composition.md](composition.md#a-mapping-is-merged-into-a-mapping-also-in-a-value)).
+`opt.optimizer_kwargs={_replace_:true,eps:1e-6}` replaces it instead
+([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)).
 
 Dotted paths end at the dict-typed field. `opt.optimizer_kwargs.eps=1e-6` is
-not supported; to change one key, the whole dict is given again.
+not supported, unlike in Hydra; a key inside the dict is set with a mapping,
+which the error shows: `opt.optimizer_kwargs={eps:1e-6}`. For dotted keys,
+use a `TypedDict`.
 
 ### A dict for a subconfig or a group stands for its dotted keys
 
 `opt={lr:0.1}` does what `opt: {lr: 0.1}` does in a config file: the values
 are merged into the subconfig, and the values that it held before stay. It
 is the same as `opt.lr=0.1`, and its keys are the same keys as the dotted
-ones. A `dict[...]` field is replaced instead
-([above](#a-dict-typed-field-is-set-as-a-whole-and-replaced)), as it is in
-a file too. So `=` means "as in a file" for both. Hydra merges the dict
-into the subconfig as well.
+ones. A `dict[...]` field is merged in the same way
+([above](#a-dict-typed-field-is-given-as-a-mapping-and-merged)), so `=`
+means "as in a file" for both. Hydra merges both as well.
 
 - The dict is applied with the values, in the order of the arguments, so
   that the last one wins for each key: `opt.lr=0.2 opt={lr:0.1}` sets
   `0.1`, and `opt={lr:0.1} opt.lr=0.2` sets `0.2`. Two dicts for the same
   subconfig both apply: `opt={lr:0.1} opt={momentum:0.9}` sets both.
 - The dict stands for its dotted keys down to the first field that holds a
-  value. A dict there is the value: `opt={optimizer_kwargs:{eps:1e-6}}` is
+  value. A dict there is the value, which is merged into the value that
+  the field holds: `opt={optimizer_kwargs:{eps:1e-6}}` is
   `opt.optimizer_kwargs={eps:1e-6}`. Inside a group, which fields hold a
   value depends on the option, so the dict is read after the selections.
 - A selection and a dict for the same key both apply, the selection first,
@@ -232,10 +237,10 @@ into the subconfig as well.
 - For an optional group that is off, a dict is an error: it names no
   option. The error points to `model=NAME`
   ([unions.md](unions.md#optional-groups)).
-- For a TypedDict, `_replace_:true` in the dict drops what the config files
-  set under the node, before any selection or value on the command line:
-  `opt={_replace_:true,lr:0.1}`
-  ([composition.md](composition.md#_replace_-true-replaces-a-typeddict-instead-of-merging-into-it)).
+- For a TypedDict, and in a dict value, `_replace_:true` in the dict drops
+  what the config files set at its place, and keeps every selection and
+  value on the command line: `opt={_replace_:true,lr:0.1}`
+  ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)).
   It is not a key of its own: `opt._replace_=true` is an error that points
   to the dict.
 - A key can be swept only once: `-m opt={lr:1},{lr:2} opt=fast,slow` is an

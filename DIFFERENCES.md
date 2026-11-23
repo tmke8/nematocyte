@@ -124,7 +124,7 @@ Give the field the type it holds (`color: Color`), or, for a choice between
 config classes, make it a group ([unions.md](design/unions.md)). See
 [deserializer.md](design/deserializer.md).
 
-### Dict fields are open, and replaced as a whole
+### Dict fields are open, and take no dotted keys
 
 For a field typed `dict[...]`, such as
 `optimizer_kwargs: dict[str, Any] | None`:
@@ -132,8 +132,12 @@ For a field typed `dict[...]`, such as
 | Written | Hydra | nematocyte |
 | --- | --- | --- |
 | `opt.optimizer_kwargs={eps:1e-6}` | Error, asks for `+` | Sets the dict |
-| ... when the field already holds `{amsgrad: true}` | Merges the two | Replaces it: only `eps` is left |
-| `opt.optimizer_kwargs.eps=1e-6` | Error | Error; give the whole dict |
+| ... when the field already holds `{amsgrad: true}` | Merges the two | Merges the two, as Hydra does |
+| `opt.optimizer_kwargs={_replace_:true,eps:1e-6}` | Error, asks for `+`; with `+`, merges and keeps the key `_replace_` | Replaces it: only `eps` is left |
+| `opt.optimizer_kwargs.eps=1e-6`, when the field holds a dict with `eps` | Sets `eps` | Error, which points to `opt.optimizer_kwargs={eps:1e-6}` |
+
+As in Hydra, a mapping in a config file is merged deeply into a mapping,
+whatever the type of the field.
 
 If possible, use `TypedDict` instead. Then you can set
 `opt.optimizer_kwargs.eps=1e-6` on the commandline.
@@ -256,12 +260,13 @@ other values. See [composition.md](design/composition.md#layers).
 
 ## Config files
 
-### `_replace_: true` replaces a TypedDict
+### `_replace_: true` replaces instead of merging
 
 A mapping in a config file is merged into what was set before, in Hydra and
 in nematocyte. In Hydra, a file cannot take out a key that a lower layer
 set: `key: null` sets `None`, and `key: ???` leaves the value as it was. In
-nematocyte, the mapping for a TypedDict can replace the node instead:
+nematocyte, a mapping for a TypedDict, or a mapping in a value such as a
+`dict[...]`, can replace what was there instead:
 
 ```yaml
 opt:
@@ -272,8 +277,9 @@ opt:
 `opt` is then `{"lr": 0.001}`, whatever the field default, the primary
 config or a preset set under it. On the command line, the same is
 `opt={_replace_:true,lr:0.001}`; `~opt.wd` takes out a single key. A
-dataclass cannot be replaced this way. See
-[composition.md](design/composition.md#_replace_-true-replaces-a-typeddict-instead-of-merging-into-it).
+dataclass cannot be replaced this way. A dict that is to hold a key
+`_replace_` of its own cannot be written. See
+[composition.md](design/composition.md#_replace_-true-replaces-instead-of-merging).
 
 ### `_defaults_` is a mapping
 
@@ -354,8 +360,8 @@ See [composition.md](design/composition.md).
   error. In Hydra every directory is a config group, so `counts=heavy` puts
   the file's content into the dict and merges it with the default. In
   nematocyte, a primary config such as `configs/counts_heavy.yaml`, which
-  writes `counts:` at the top, can be applied with `+counts_heavy`; it
-  replaces the dict as a whole. For presets that go straight into the
+  writes `counts:` at the top, can be applied with `+counts_heavy`; it is
+  merged into the dict, as in Hydra. For presets that go straight into the
   field, use a `TypedDict` instead.
 - In a group's directory, a subdirectory named after an option, such as
   `configs/dm/celeba/`, holds further configs for the group, selected as

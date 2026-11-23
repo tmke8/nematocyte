@@ -349,7 +349,7 @@ def test_directory_named_after_a_value_holds_no_primary_configs(
     assert "seed=one" not in message
 
 
-def test_primary_config_for_a_dict_replaces_it_as_a_whole(config_dir: Path) -> None:
+def test_primary_config_for_a_dict_is_merged_into_it(config_dir: Path) -> None:
     write_files(
         config_dir,
         {
@@ -360,8 +360,8 @@ def test_primary_config_for_a_dict_replaces_it_as_a_whole(config_dir: Path) -> N
     config = nematocyte.compose(
         Config, config_dir, config_name="kwargs", overrides=["+kwargs_heavy"]
     )
-    # Hydra would merge the two dicts.
-    assert config.opt.optimizer_kwargs == {"eps": 1e-6}
+    # As in Hydra.
+    assert config.opt.optimizer_kwargs == {"amsgrad": True, "eps": 1e-6}
 
 
 @pytest.mark.parametrize(

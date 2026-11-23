@@ -381,14 +381,16 @@ def test_two_dicts_for_the_same_subconfig_both_apply() -> None:
 @pytest.mark.parametrize(
     ("overrides", "kwargs"),
     [
-        (("plain.kwargs={a:1}", "plain={kwargs:{b:2}}"), {"b": 2}),
-        (("plain={kwargs:{b:2}}", "plain.kwargs={a:1}"), {"a": 1}),
+        (("plain.kwargs={a:1}", "plain={kwargs:{b:2}}"), {"a": 1, "b": 2}),
+        (("plain={kwargs:{b:2}}", "plain.kwargs={a:1}"), {"b": 2, "a": 1}),
+        (("plain.kwargs={a:1}", "plain={kwargs:{a:2}}"), {"a": 2}),
+        (("plain={kwargs:{a:2}}", "plain.kwargs={a:1}"), {"a": 1}),
     ],
 )
 def test_dict_stops_at_a_field_that_holds_a_value(
     overrides: tuple[str, ...], kwargs: dict[str, int]
 ) -> None:
-    # A `dict[...]` field in the dict is replaced as a whole, by the later one.
+    # A `dict[...]` field in the dict is merged with the other, in order.
     assert compose(overrides=overrides).plain.kwargs == kwargs
 
 
@@ -479,10 +481,19 @@ def test_dict_for_a_plain_subconfig_keeps_values_set_before(tmp_path: Path) -> N
     assert config.plain == Plain(lr=0.5, momentum=0.9)
 
 
-def test_dict_field_inside_the_dict_is_replaced(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("override", "kwargs"),
+    [
+        ("plain={kwargs:{b:2}}", {"a": 1, "b": 2}),
+        ("plain={kwargs:{_replace_:true,b:2}}", {"b": 2}),
+    ],
+)
+def test_dict_field_inside_the_dict_is_merged(
+    tmp_path: Path, override: str, kwargs: dict[str, int]
+) -> None:
     config_dir = configs(tmp_path, {"c.yaml": "plain:\n  kwargs:\n    a: 1\n"})
-    config = compose(config_dir, ("plain={kwargs:{b:2}}",), config_name="c")
-    assert config.plain.kwargs == {"b": 2}
+    config = compose(config_dir, (override,), config_name="c")
+    assert config.plain.kwargs == kwargs
 
 
 def test_unknown_key_in_the_dict_is_an_error() -> None:

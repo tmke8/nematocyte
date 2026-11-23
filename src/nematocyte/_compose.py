@@ -22,6 +22,7 @@ from ._files import (
     list_files,
     load_file,
 )
+from ._merge import replace_paths
 from ._overrides import AddedConfig, Override, format_value, last_wins
 from ._schema import (
     DEFAULTS_KEY,
@@ -200,14 +201,12 @@ class Composer:
         the values of the dicts for a subconfig or a group, which stand for
         their dotted keys: a later value for the same key wins.
 
-        Before anything else, a dict with `_replace_` drops what the config
-        files set under its TypedDict, so that it keeps what the command line
-        sets, whatever the order of the arguments.
+        The command line is one layer: a `_replace_` in a dict drops what the
+        config files set, and keeps what the command line sets, whatever the
+        order of the arguments.
         """
+        since = next_step()
         overrides = last_wins(overrides)
-        for override in overrides:
-            if isinstance(override.value, dict):
-                self._replace_override(root, override)
         later: set[int] = set()
         switched_off: dict[KeyPath, str] = {}
         for override in sorted(overrides, key=lambda o: len(o.key)):
@@ -252,11 +251,11 @@ class Composer:
                 root, override.key, source, _plain_value(override)
             )
             if info.kind is not Kind.VALUE:
-                self._apply_mapping(parent, info, override, switched_off)
+                self._apply_mapping(parent, info, override, switched_off, since)
                 continue
             if override.unset:
                 _check_unset(override, parent, info)
-                parent.unset_value(info.name, f"the override {source}")
+                parent.unset_value(info.name, f"the override {source}", since=since)
                 continue
             if override.is_sweep:
                 raise _error(
@@ -265,7 +264,9 @@ class Composer:
                     "to run one job per value, or quote the value to pass it "
                     "as a string.",
                 )
-            parent.set_value(info.name, override.value, f"the override {source}")
+            label = f"the override {source}"
+            _check_value_replaces(parent, info, override.value, label)
+            parent.set_value(info.name, override.value, label, since=since)
 
     def _apply_mapping(
         self,
@@ -273,6 +274,7 @@ class Composer:
         info: FieldInfo,
         override: Override,
         switched_off: dict[KeyPath, str],
+        since: int,
     ) -> None:
         """Apply a dict for a subconfig or a group, as in a file.
 
@@ -292,7 +294,12 @@ class Composer:
                 raise _error(source, str(exc)) from None
         child.touched = True
         self._apply_values(
-            child, override.value, label, command_line=True, switched_off=switched_off
+            child,
+            override.value,
+            label,
+            since=since,
+            command_line=True,
+            switched_off=switched_off,
         )
 
     def _defaults_null_message(self, node: Node, info: FieldInfo) -> str:
@@ -329,31 +336,19 @@ class Composer:
             f"its type is {name}, not {name} | None."
         )
 
-    def _replace_override(self, root: Node, override: Override) -> None:
-        """Apply `_replace_` in the dict of `override`, if it is in the tree."""
-        assert isinstance(override.value, dict)
-        node = _find_node(root, override.key)
-        if node is not None:
-            label = f"the override {override.text!r}"
-            self._replace_nodes(node, override.value, label)
+    def _replace(
+        self, node: Node, values: dict[Any, Any], label: str, since: int
+    ) -> dict[Any, Any]:
+        """Apply `_replace_: true` in the mapping `values` for `node`, if it has it.
 
-    def _replace_nodes(self, node: Node, values: dict[Any, Any], label: str) -> None:
-        """Apply `_replace_` in `values`, and in the mappings inside it.
-
-        This comes before the rest of the layer: a node that is not in the
-        tree yet is skipped, since it has nothing to drop.
+        The rest of the mapping is returned, without the key.
         """
-        if REPLACE_KEY in values:
-            _check_replace(node, values[REPLACE_KEY], label)
-            node.replace()
-            self._forget_drops(node.path)
-        for key, value in values.items():
-            info = node.fields.get(key) if isinstance(key, str) else None
-            if info is None or info.kind is Kind.VALUE or not isinstance(value, dict):
-                continue
-            child = node.children.get(info.name)
-            if child is not None:
-                self._replace_nodes(child, value, label)
+        if REPLACE_KEY not in values:
+            return values
+        _check_replace(node, values[REPLACE_KEY], label)
+        node.replace(since)
+        self._forget_drops(node.path)
+        return {key: value for key, value in values.items() if key != REPLACE_KEY}
 
     def _forget_drops(self, path: KeyPath) -> None:
         """Forget the values under `path` that a selection dropped.
@@ -547,8 +542,8 @@ class Composer:
                 file.label,
                 f"{_HYDRA_DEFAULTS_KEY!r} is not a field of {node.describe()}.{hint}",
             )
-        # `_replace_` drops what the layers below set, not what this file selects.
-        self._replace_nodes(node, file.values, file.label)
+        # A `_replace_` in the file drops what was set before this point.
+        since = next_step()
         entries = [
             (tuple(key.split(".")), key, name)
             for key, name in file.defaults.items()
@@ -577,7 +572,7 @@ class Composer:
                 parent.switch_off(info)
                 continue
             self._select(parent, info, name, source, file.label)
-        self._apply_values(node, file.values, file.label)
+        self._apply_values(node, file.values, file.label, since=since)
 
     def _apply_values(
         self,
@@ -585,6 +580,7 @@ class Composer:
         values: dict[Any, Any],
         label: str,
         *,
+        since: int,
         command_line: bool = False,
         switched_off: dict[KeyPath, str] | None = None,
         prefix: KeyPath = (),
@@ -598,14 +594,12 @@ class Composer:
         group. `switched_off` maps the optional subconfigs that `null` on the
         command line switched off to the override; a dict cannot switch those
         on again. `prefix` is the path of `node` below the node of the file.
+
+        A value is merged into what was set before. `since` is when the layer
+        started: a `_replace_` drops what was set before it.
         """
+        values = self._replace(node, values, label, since)
         for key, value in values.items():
-            if key == REPLACE_KEY:
-                # Applied before the rest of the layer, by `_replace_nodes`,
-                # where the node was in the tree; it is checked again here,
-                # for a node that only this mapping switches on.
-                _check_replace(node, value, label)
-                continue
             info = node.fields.get(key) if isinstance(key, str) else None
             if info is None and key == DOC_KEY and not command_line:
                 raise _error(
@@ -616,7 +610,8 @@ class Composer:
             if info is None:
                 raise _error(label, unknown_key_message(node, str(key)))
             if info.kind is Kind.VALUE:
-                node.set_value(info.name, value, label)
+                _check_value_replaces(node, info, value, label)
+                node.set_value(info.name, value, label, since=since)
                 continue
             path = format_path((*node.path, info.name))
             if value is None:
@@ -656,6 +651,7 @@ class Composer:
                 child,
                 value,
                 label,
+                since=since,
                 command_line=command_line,
                 switched_off=switched_off,
                 prefix=(*prefix, info.name),
@@ -723,12 +719,18 @@ class Composer:
                 return node, info
             if info.kind is Kind.VALUE:
                 here = format_path((*node.path, segment))
-                rest = format_path(path[index + 1 :])
+                rest = path[index + 1 :]
+                example = "{...}"
+                if value is not MISSING:
+                    nested = value
+                    for key in reversed(rest):
+                        nested = {key: nested}
+                    example = format_value(nested)
                 raise _error(
                     source,
                     f"{here!r} is a value, not a subconfig, so it has no key "
-                    f"{rest!r}. A value such as a dict is set as a whole: "
-                    f"{here}={{...}}.",
+                    f"{format_path(rest)!r}. A dict value is given as a mapping, "
+                    f"which is merged into the dict it holds: {here}={example}",
                 )
             if node.is_off(info):
                 rest = path[index + 1 :]
@@ -808,7 +810,7 @@ class Composer:
             node = Node(info.options[name], path, option=name)
             node.touched = True
             parent.children[info.name] = node
-            parent.off.discard(info.name)
+            parent.off.pop(info.name, None)
             return
 
         option, stem = self._split_name(path, info, name, source)
@@ -1095,15 +1097,18 @@ def _check_replace(node: Node, value: Any, label: str) -> None:
         )
 
 
-def _find_node(root: Node, path: KeyPath) -> Node | None:
-    """The node at `path`, or `None` if it is not in the tree, or is a value."""
-    node = root
-    for segment in path:
-        child = node.children.get(segment)
-        if child is None:
-            return None
-        node = child
-    return node
+def _check_value_replaces(node: Node, info: FieldInfo, value: Any, label: str) -> None:
+    """`_replace_` in a mapping inside a value takes true."""
+    for path, flag in replace_paths(value):
+        if flag is not True:
+            where = format_path((*node.path, info.name, *map(str, path)))
+            raise _error(
+                label,
+                f"{REPLACE_KEY!r} in the mapping for {where!r} is "
+                f"{format_value(flag)}. It takes true, which replaces what was "
+                f"set before there; to merge the mapping into it, leave out "
+                "the key.",
+            )
 
 
 def _takes_none(info: FieldInfo) -> bool:

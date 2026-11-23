@@ -339,7 +339,7 @@ write. A name that is reserved only at the root may go without.
 | `_self_` | Every config class | A key in `_defaults_`, next to the names of fields |
 | `_option_` | Every config class | The key that names the option of a group, in `to_dict` and in a TypedDict option. Reserved on every class, not only on options: one rule is simpler, and it keeps the name free |
 | `_doc_` | Every config class | The key of a config file that describes the file, for `--help` ([helptext.md](helptext.md#docs-of-config-files)) |
-| `_replace_` | Every config class | The key of the mapping for a TypedDict that replaces what was set before, instead of merging into it ([composition.md](composition.md#_replace_-true-replaces-a-typeddict-instead-of-merging-into-it)). Reserved on dataclasses too, so that it can be allowed there later |
+| `_replace_` | Every config class, and every mapping in a value | The key of a mapping that replaces what was set before, instead of merging into it ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)). Reserved on dataclasses too, so that it can be allowed there later |
 | `nematocyte` | The root config class | nematocyte's own settings ([cli.md](cli.md)) |
 
 - A field with a reserved name is an error that names the class and the
@@ -377,7 +377,7 @@ class Opt(TypedDict):
   ([cli.md](cli.md#key-leaves-out-an-optional-key-of-a-typeddict)). In a
   config file, `_replace_: true` in the mapping for the TypedDict drops
   every key that was set before
-  ([composition.md](composition.md#_replace_-true-replaces-a-typeddict-instead-of-merging-into-it)).
+  ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)).
   `total=False` and inheritance are read through `__required_keys__`.
 - `NotRequired` is only for values. A subconfig or a group cannot be
   `NotRequired`: leaving a whole subconfig out of the dict is not
