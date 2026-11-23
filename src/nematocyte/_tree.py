@@ -90,7 +90,10 @@ class Node:
         self.fields = class_fields(cls) if fields is None else fields
         self.children: dict[str, Node] = {}
         self.values: dict[str, Any] = {}
-        """The values that were set, as they came from a file or an override."""
+        """The values that were set, as they came from a file or an override.
+
+        ``MISSING`` for a key of a `TypedDict` that `~key` left out.
+        """
         self.sources: dict[str, str] = {}
         """Where each of the values was set, for error messages."""
         self.steps: dict[str, int] = {}
@@ -189,6 +192,10 @@ class Node:
         self.sources[name] = source
         self.steps[name] = next_step()
         self.touched = True
+
+    def unset_value(self, name: str, source: str) -> None:
+        """Leave the key out, whatever set it before, the default included."""
+        self.set_value(name, MISSING, source)
 
     def to_json_tree(self) -> dict[str, Any]:
         """The node in JSON form, with ``_option_`` for the groups.

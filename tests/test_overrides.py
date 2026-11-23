@@ -10,6 +10,7 @@ from nematocyte._overrides import (
     AddedConfig,
     ChoiceSweep,
     IntervalSweep,
+    Override,
     RangeSweep,
     format_value,
     parse_argument,
@@ -140,7 +141,6 @@ def test_interval_keeps_integers() -> None:
         # The overrides that nematocyte removes.
         "+seed=1",
         "++seed=1",
-        "~seed",
         "~seed=1",
         # Grammar that is left out.
         "model@pkg=cnn",
@@ -232,6 +232,55 @@ def test_split_arguments_keeps_the_order_of_added_configs() -> None:
     )
     assert [config.name for config in added] == ["a", "b"]
     assert [override.text for override in overrides] == ["seed=2", "model=cnn"]
+
+
+# -- ~KEY ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["~wandb.name", "~seed", "~ wandb.name"])
+def test_tilde_leaves_out_a_key(text: str) -> None:
+    override = parse_argument(text)
+    assert isinstance(override, Override)
+    assert override.unset
+    assert override.key == tuple(text[1:].strip().split("."))
+    assert override.text == text
+    assert not override.is_sweep
+    assert parse_override(text) == override
+
+
+@pytest.mark.parametrize(
+    ("text", "value"), [("~wandb.name=x", "x"), ("~wandb.name=", "")]
+)
+def test_tilde_with_equals_shows_both_forms(text: str, value: str) -> None:
+    # Hydra's `~key=value` deletes the key only if it has the value.
+    with pytest.raises(ConfigError) as excinfo:
+        parse_argument(text)
+    message = str(excinfo.value)
+    assert repr(text) in message
+    assert "~wandb.name leaves" in message
+    assert f"wandb.name={value}." in message
+
+
+@pytest.mark.parametrize(
+    "text", ["~", "~ ", "~~wandb.name", "~+wandb.name", "~wandb/name", "~a@p", "~a..b"]
+)
+def test_tilde_needs_a_key(text: str) -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        parse_argument(text)
+    assert repr(text) in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    ("texts", "kept"),
+    [
+        (["a.b=1", "~a.b"], "~a.b"),
+        (["~a.b", "a.b=1"], "a.b=1"),
+        (["~a.b", "seed=1", "~a.b"], "~a.b"),
+    ],
+)
+def test_tilde_and_a_value_are_the_same_key(texts: list[str], kept: str) -> None:
+    _, overrides = split_arguments(texts)
+    assert [o.text for o in overrides if o.key == ("a", "b")] == [kept]
 
 
 def test_error_for_slash_shows_the_dotted_key() -> None:

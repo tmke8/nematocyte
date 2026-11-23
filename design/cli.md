@@ -10,6 +10,9 @@ use of `+` they are not used in `hydra-example`. That one use, adding a
 preset such as `+presets=debug` on top of an experiment, keeps the `+`, in a
 simpler form: `+presets/debug`.
 
+`~key` came back later, in a narrow form: it leaves out an optional key of a
+TypedDict ([below](#key-leaves-out-an-optional-key-of-a-typeddict)).
+
 ## How Hydra does it
 
 Read from the source of Hydra 1.4.0rc3 and confirmed by running about 60
@@ -62,12 +65,14 @@ Unlike YAML 1.1, `1e-3` is a float here.
 
 ## Decided
 
-### No `++` or `~`, and `+` only adds a primary config
+### No `++`, `+` only adds a primary config, and `~` only leaves out a key
 
 The grammar's top-level rule keeps `key=value` and `key=`, and adds
-`+NAME`, with no `=` (next section). `+key=value`, `++key=value` and `~key`
-are errors. For `+presets=debug`, the error shows both forms that may have
-been meant: `+presets/debug` and `presets=debug`.
+`+NAME`, with no `=` (next section), and `~KEY`, with no `=`
+([below](#key-leaves-out-an-optional-key-of-a-typeddict)). `+key=value`,
+`++key=value` and `~key=value` are errors. For `+presets=debug`, the error
+shows both forms that may have been meant: `+presets/debug` and
+`presets=debug`.
 
 ### `+NAME` applies a primary config on top
 
@@ -107,6 +112,56 @@ The rules:
   `nematocyte.compose`). A file says what it builds on with `_self_`.
 - Without a primary config (`--config-name ''`), the added config applies on
   top of the dataclass defaults.
+
+### `~KEY` leaves out an optional key of a TypedDict
+
+A `NotRequired` key of a TypedDict has a state that no `key=value` reaches:
+not being in the dict at all ([deserializer.md](deserializer.md#typeddict-configs)).
+`wandb.name=null` puts `None` into the dict, which is not the same for a
+program that passes the dict on as keyword arguments. Once the default of
+the field, a primary config or a preset has set the key, `~KEY` is the way
+to take it out again:
+
+```sh
+python main.py +presets/debug ~wandb.name
+```
+
+In Hydra, `~key` deletes any key from the config, and `~key=value` deletes
+it only if it has that value.
+
+The rules:
+
+- `~KEY` leaves the key out of the dict that the program gets, as if nothing
+  had set it, whatever set it before: the default instance of the field, the
+  primary config, an added config, or a selected config file.
+- KEY has to be a `NotRequired` key of a TypedDict (`total=False` and
+  inheritance count, as everywhere). Anything else is an error that names
+  the argument, the key and the class: a `Required` key; a field of a
+  dataclass, where the error points to `KEY=null` if the field takes
+  `None`; a subconfig or a group, which cannot be `NotRequired`
+  ([unions.md](unions.md#no-optional-dataclass-fields-for-now)); and an
+  unknown key, as for `KEY=value`.
+- `~KEY=value` is an error, which shows the two forms that may have been
+  meant, `~KEY` and `KEY=value`. Hydra's conditional delete is not
+  supported.
+- Leaving out a key that nothing set is allowed, and does nothing. Hydra
+  makes it an error; here the schema already says that the key exists, and
+  whether a preset or a job of a sweep sets it is not always known.
+- `~KEY` and `KEY=value` are the same key: the last one wins, as for a key
+  that is given twice. `~KEY` is applied with the values, after all
+  selections, so `optimizer=adam ~optimizer.eps` works in either order.
+- `~KEY` cannot be swept: there is no sweep between "left out" and values.
+  With `--multirun` it holds for every job, and it takes the key out of the
+  `params` of the sweeper, as any value on the command line does
+  ([multirun.md](multirun.md)).
+- `~KEY` exists only on the command line and in the overrides of
+  `nematocyte.compose`, as `+NAME` does. A config file cannot leave out a
+  key: `key: null` is a value.
+- An interpolation that refers to a key that was left out is an error, as
+  for a key that nothing set
+  ([interpolation.md](interpolation.md)).
+- `--help` shows the key as not set (`key=` with `(not set)`), and `--cfg`
+  as the comment `# key: not set` ([helptext.md](helptext.md)).
 
 ### Dict-typed fields are open
 

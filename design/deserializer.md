@@ -371,7 +371,9 @@ class Opt(TypedDict):
   no `__post_init__` to run.
 - A TypedDict has no defaults. A `Required` key that nothing sets is an
   error ("a value is required"), as for a dataclass field without a
-  default. A `NotRequired` key that nothing sets is left out of the dict.
+  default. A `NotRequired` key that nothing sets is left out of the dict,
+  and `~KEY` on the command line leaves it out even if something set it
+  ([cli.md](cli.md#key-leaves-out-an-optional-key-of-a-typeddict)).
   `total=False` and inheritance are read through `__required_keys__`.
 - `NotRequired` is only for values. A subconfig or a group cannot be
   `NotRequired`, for the reasons in

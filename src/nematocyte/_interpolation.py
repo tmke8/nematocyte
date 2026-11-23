@@ -156,11 +156,18 @@ class _Resolver:
                 value = self.resolved_value(node, segment)
             else:
                 value = node.value(info)
-                if value is MISSING:
-                    raise ConfigError(
-                        f"{expression} refers to "
-                        f"{format_path(path[: index + 1])!r}, which has no value."
-                    )
+            if value is MISSING:
+                # Nothing set it, or `~key` left it out.
+                left_out = (
+                    f" It was left out by {node.sources[segment]}."
+                    if segment in node.sources
+                    else ""
+                )
+                raise ConfigError(
+                    f"{expression} refers to "
+                    f"{format_path(path[: index + 1])!r}, which has no value."
+                    f"{left_out}"
+                )
             return self._descend(value, path[index + 1 :], expression)
         raise ConfigError(f"{expression} is empty.")
 

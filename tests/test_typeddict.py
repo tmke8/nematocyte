@@ -553,6 +553,164 @@ def test_interpolation_to_an_unset_key() -> None:
         )
 
 
+# -- leaving out a key with ~KEY ------------------------------------------------
+
+
+@dataclass(kw_only=True)
+class WithWd:
+    seed: int = 0
+    hidden_dim: int | None = None
+    opt: Opt = field(default_factory=lambda: Opt(lr=0.1, wd=0.01))
+
+
+ROOT_RUN = {
+    "run.yaml": "_defaults_:\n  model: fcn\nseed: 1\nname: x\nopt:\n  lr: 1e-3\n  wd: 0\n"
+}
+
+
+def test_tilde_leaves_out_a_key_of_the_default() -> None:
+    config = compose_root(WithWd, overrides=["~opt.wd"])
+    assert config.opt == {"lr": 0.1}
+
+
+def test_tilde_leaves_out_keys_of_a_primary_config() -> None:
+    config = compose_root(
+        Root, ROOT_RUN, config_name="run", overrides=["~name", "~opt.wd"]
+    )
+    assert config == {"seed": 1, "opt": {"lr": 0.001}, "model": Fcn()}
+
+
+def test_tilde_leaves_out_a_key_of_an_added_config() -> None:
+    files = {"presets/wd.yaml": "opt:\n  wd: 0.5\n"}
+    config = compose_root(WithWd, files, overrides=["+presets/wd", "~opt.wd"])
+    assert config.opt == {"lr": 0.1}
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        ["optimizer=small_eps", "~optimizer.eps"],
+        ["~optimizer.eps", "optimizer=small_eps"],
+    ],
+)
+def test_tilde_leaves_out_a_key_of_a_selected_option(overrides: list[str]) -> None:
+    # Applied after the selection, whatever the order of the arguments.
+    files = {
+        "optimizer/small_eps.yaml": "_defaults_:\n  _self_: adam\nbeta1: 0.9\neps: 1e-8\n"
+    }
+    config = compose_root(WithOptimizer, files, overrides=overrides)
+    assert config.optimizer == {"_option_": "adam", "beta1": 0.9}
+
+
+def test_tilde_on_a_key_that_nothing_set_does_nothing() -> None:
+    config = compose_root(DataclassRoot, overrides=["~opt.wd"])
+    assert config.opt == {"lr": 0.1}
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        (["opt.wd=0.5", "~opt.wd"], {"lr": 0.1}),
+        (["~opt.wd", "opt.wd=0.5"], {"lr": 0.1, "wd": 0.5}),
+    ],
+)
+def test_tilde_and_a_value_last_one_wins(
+    overrides: list[str], expected: dict[str, float]
+) -> None:
+    assert compose_root(WithWd, overrides=overrides).opt == expected
+
+
+@pytest.mark.parametrize(
+    ("cls", "text", "parts"),
+    [
+        (WithWd, "~opt.lr", ["'opt.lr'", "required key", "Opt"]),
+        (WithWd, "~seed", ["'seed'", "dataclass", "WithWd"]),
+        (WithWd, "~opt", ["'opt'", "subconfig", "WithWd"]),
+        (WithDefaultOptimizer, "~optimizer", ["'optimizer'", "group"]),
+        (WithWd, "~opt.wdd", ["'wdd'", "Opt", "Did you mean 'wd'?"]),
+        (Root, "~model.num_hidden", ["'model.num_hidden'", "dataclass", "Fcn"]),
+    ],
+)
+def test_tilde_only_leaves_out_a_notrequired_key(
+    cls: type, text: str, parts: list[str]
+) -> None:
+    overrides = [text, "model=fcn"] if cls is Root else [text]
+    with pytest.raises(ConfigError) as info:
+        compose_root(cls, overrides=overrides)
+    message = str(info.value)
+    assert repr(text) in message
+    for part in parts:
+        assert part in message
+    assert "=null" not in message
+
+
+def test_tilde_on_a_field_that_takes_none_points_to_null() -> None:
+    with pytest.raises(ConfigError, match="hidden_dim=null"):
+        compose_root(WithWd, overrides=["~hidden_dim"])
+
+
+def test_interpolation_to_a_key_that_was_left_out() -> None:
+    with pytest.raises(ConfigError) as info:
+        compose_root(WithWd, overrides=["~opt.wd", "opt.lr=${opt.wd}"])
+    message = str(info.value)
+    assert "'opt.wd', which has no value" in message
+    assert "'~opt.wd'" in message
+
+
+def test_help_and_cfg_after_tilde() -> None:
+    help_text, cfg_text = _texts(WithWd, ("~opt.wd",))
+    assert "  # wd: not set" in cfg_text
+    assert any(
+        line.startswith("opt.wd=") and "(not set)" in line
+        for line in help_text.splitlines()
+    )
+    assert any(line.startswith("~KEY") for line in help_text.splitlines())
+
+
+def test_multirun_with_tilde(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[tuple[WithWd, dict[str, Any]]] = []
+
+    @nematocyte.main(WithWd, config_path=tmp_path)
+    def main(config: WithWd) -> None:
+        seen.append((config, cast("dict[str, Any]", nematocyte.run_config())))
+
+    main(["-m", "seed=1,2", "~opt.wd"])
+    capsys.readouterr()
+    assert [config.seed for config, _ in seen] == [1, 2]
+    for config, saved in seen:
+        assert config.opt == {"lr": 0.1}
+        assert saved["opt"] == {"lr": 0.1}
+        assert nematocyte.from_run_config(WithWd, saved) == config
+
+
+def test_tilde_takes_a_key_out_of_the_params_of_the_sweeper(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_files(
+        tmp_path,
+        {
+            "nematocyte/sweeper/wds.yaml": (
+                "_defaults_:\n  _self_: basic\n\nparams:\n  opt.wd: 0.1,0.2\n"
+                "  seed: 1,2\n"
+            )
+        },
+    )
+    seen: list[WithWd] = []
+
+    @nematocyte.main(WithWd, config_path=tmp_path)
+    def main(config: WithWd) -> None:
+        seen.append(config)
+
+    main(["-m", "nematocyte.sweeper=wds", "~opt.wd"])
+    capsys.readouterr()
+    assert [(config.seed, config.opt) for config in seen] == [
+        (1, {"lr": 0.1}),
+        (2, {"lr": 0.1}),
+    ]
+
+
 # -- to_dict -------------------------------------------------------------------
 
 

@@ -9,6 +9,8 @@ import re
 from typing import Any
 import warnings
 
+from pydantic import ValidationError
+
 from ._errors import ConfigError, DroppedValueWarning
 from ._files import (
     SUFFIXES,
@@ -28,7 +30,9 @@ from ._schema import (
     FieldInfo,
     Kind,
     class_fields,
+    field_adapter,
     first_paragraph,
+    is_typeddict_class,
     validate_schema,
 )
 from ._tree import (
@@ -207,11 +211,23 @@ class Composer:
             if info.kind is Kind.VALUE:
                 values.append(override)
                 continue
+            if override.unset:
+                what = "a group" if info.kind is Kind.GROUP else "a subconfig"
+                raise _error(
+                    source,
+                    f"{override.key_text!r} is {what} of {parent.describe()}, "
+                    "so it cannot be left out. '~' leaves out a NotRequired "
+                    "key of a TypedDict.",
+                )
             name = self._selection_name(override, info)
             self._select(parent, info, name, source, f"the override {source}")
         for override in values:
             source = repr(override.text)
             parent, info = self._locate(root, override.key, source)
+            if override.unset:
+                _check_unset(override, parent, info)
+                parent.unset_value(info.name, f"the override {source}")
+                continue
             if override.is_sweep:
                 raise _error(
                     source,
@@ -756,6 +772,40 @@ def _explicit(node: Node, selections: tuple[Selection, ...]) -> Iterator[_Droppe
                 )
             inner = (*selections, child.selection)
         yield from _explicit(child, inner)
+
+
+def _check_unset(override: Override, parent: Node, info: FieldInfo) -> None:
+    """`~key` leaves out only a `NotRequired` key of a `TypedDict`."""
+    source = repr(override.text)
+    key = override.key_text
+    if not is_typeddict_class(parent.cls):
+        hint = ""
+        if _takes_none(info):
+            hint = f" To set it to None: {key}=null"
+        raise _error(
+            source,
+            f"{key!r} is a field of the dataclass {parent.describe()}, so it "
+            "cannot be left out. '~' leaves out a NotRequired key of a "
+            f"TypedDict.{hint}",
+        )
+    if info.required:
+        raise _error(
+            source,
+            f"{key!r} is a required key of {parent.describe()}, so it cannot "
+            "be left out. '~' leaves out a NotRequired key of a TypedDict.",
+        )
+
+
+def _takes_none(info: FieldInfo) -> bool:
+    """Whether the field accepts `None`, as `key=null` would give it."""
+    adapter = field_adapter(info)
+    if adapter is None:
+        return False
+    try:
+        adapter.validate_json("null", strict=True)
+    except ValidationError:
+        return False
+    return True
 
 
 def _is_lost(root: Node, replaced: KeyPath, item: _Dropped) -> bool:
