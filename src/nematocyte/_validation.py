@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from typing_extensions import TypeForm
 
-from ._build import build
+from ._build import build, build_settings
 from ._compose import Composer
 from ._errors import ConfigError
 from ._files import SUFFIXES
@@ -145,8 +145,7 @@ def _check_tree(
     resolve(root, datetime.now())
     build(root, skip=RESERVED_KEY)
     # nematocyte's own settings are always built: their classes are its own.
-    settings = build(root.children[RESERVED_KEY])
-    assert isinstance(settings, Settings)
+    settings = build_settings(root)
     if settings.sweeper.params is not None:
         where = relative.as_posix()
         check_params(

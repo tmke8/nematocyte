@@ -1,29 +1,22 @@
 """Turning the composed tree into config instances, with one call to pydantic."""
 
-from collections.abc import Collection, Iterable, Iterator, Mapping
-import dataclasses
+from collections.abc import Iterator
 from dataclasses import MISSING
 import json
-import math
-from typing import Any, cast
+from typing import Any
 
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails
 
 from ._errors import ConfigError
-from ._json_form import is_json_form, to_json_form
+from ._json_form import first_difference, is_json_form, to_json_form, without_json_form
 from ._overrides import format_value
-from ._schema import (
-    FieldInfo,
-    Kind,
-    class_adapter,
-    field_adapter,
-    is_dict_or_frozendict,
-)
+from ._schema import RESERVED_KEY, FieldInfo, Kind, class_adapter, field_adapter
+from ._settings import Settings
 from ._tree import Node, format_path, unknown_key_message
 from ._types import type_text
 
-__all__ = ["build", "checked_json"]
+__all__ = ["build", "build_settings", "checked_json"]
 
 
 def _value_fields(node: Node, skip: str | None) -> Iterator[tuple[Node, FieldInfo]]:
@@ -42,37 +35,6 @@ def _value_fields(node: Node, skip: str | None) -> Iterator[tuple[Node, FieldInf
                 yield from _value_fields(child, None)
 
 
-_JSON_SCALARS = (str, int, float, bool, type(None))
-
-type _Part = tuple[str, Any]
-
-
-def _without_json_form(value: Any, seen: frozenset[int] = frozenset()) -> _Part | None:
-    """The first part of a value in JSON form that JSON has no form for.
-
-    The location is `""` for the value itself. A container that holds
-    itself has no JSON form either.
-    """
-    if isinstance(value, _JSON_SCALARS):
-        return None
-    if id(value) in seen or not isinstance(value, (dict, list)):
-        return "", value
-    inner = seen | {id(value)}
-    items: Iterable[tuple[Any, Any]] = (
-        cast("dict[Any, Any]", value).items()
-        if isinstance(value, dict)
-        else enumerate(cast("list[Any]", value))
-    )
-    for key, item in items:
-        if not isinstance(key, _JSON_SCALARS):
-            return "", key
-        found = _without_json_form(item, inner)
-        if found is not None:
-            location, part = found
-            return (f"{key}.{location}" if location else str(key)), part
-    return None
-
-
 def _json_problems(root: Node, skip: str | None) -> list[str]:
     """The errors for every value in the tree that JSON has no form for."""
     errors: list[str] = []
@@ -80,7 +42,7 @@ def _json_problems(root: Node, skip: str | None) -> list[str]:
         value = node.value(info)
         if value is MISSING:
             continue
-        found = _without_json_form(to_json_form(value))
+        found = without_json_form(to_json_form(value))
         if found is None:
             continue
         inner, part = found
@@ -267,7 +229,7 @@ def _default_problem(node: Node, info: FieldInfo) -> str | None:
     except ValidationError:
         # Only the JSON form is valid, as with `name: str = Path("x")`.
         return None
-    lost = _difference(direct, result)
+    lost = first_difference(direct, result)
     if lost is None:
         return None
     inner, before, after = lost
@@ -278,98 +240,6 @@ def _default_problem(node: Node, info: FieldInfo) -> str | None:
         f"{type(before).__name__} from that, or a default that a config file "
         f"can hold.\n    Value: {default!r} ({_origin(node, info)})"
     )
-
-
-type _Pairs = list[tuple[str, Any, Any]]
-
-
-def _difference(expected: Any, actual: Any) -> tuple[str, Any, Any] | None:
-    """The first place where `actual` differs from `expected`, with both values.
-
-    A list, tuple, set and frozenset count as the same, as do a dict and a
-    frozendict: a config file cannot tell them apart. The location is `""`
-    for the value itself.
-    """
-    if expected is actual:
-        return None
-    pairs = _parts(expected, actual)
-    if pairs is None:
-        return "", expected, actual
-    for location, item, out in pairs:
-        found = _difference(item, out)
-        if found is not None:
-            inner, before, after = found
-            joined = f"{location}.{inner}" if location and inner else location or inner
-            return joined, before, after
-    return None
-
-
-def _parts(expected: Any, actual: Any) -> _Pairs | None:
-    """The parts of two values that are compared; `None` if they differ already."""
-    if is_dict_or_frozendict(expected) and is_dict_or_frozendict(actual):
-        return _mapping_parts(expected, actual)
-    if isinstance(expected, _COLLECTIONS) and isinstance(actual, _COLLECTIONS):
-        return _collection_parts(expected, actual)
-    if type(expected) is not type(actual):
-        return None
-    if dataclasses.is_dataclass(expected) and not isinstance(expected, type):
-        return [
-            (field.name, getattr(expected, field.name), getattr(actual, field.name))
-            for field in dataclasses.fields(expected)
-            if field.init
-        ]
-    return [] if _equal(expected, actual) else None
-
-
-_COLLECTIONS = (list, tuple, set, frozenset)
-
-
-def _mapping_parts(
-    expected: Mapping[Any, Any], actual: Mapping[Any, Any]
-) -> _Pairs | None:
-    if len(expected) != len(actual):
-        return None
-    keys = {key: key for key in actual}
-    pairs: _Pairs = []
-    for key, item in expected.items():
-        if key not in keys:
-            return None
-        pairs.append(("", key, keys[key]))
-        pairs.append((str(key), item, actual[key]))
-    return pairs
-
-
-def _collection_parts(
-    expected: Collection[Any], actual: Collection[Any]
-) -> _Pairs | None:
-    if len(expected) != len(actual):
-        return None
-    if isinstance(expected, (set, frozenset)) or isinstance(actual, (set, frozenset)):
-        # Without an order, each item is matched with an equal one.
-        remaining = list(actual)
-        for item in expected:
-            index = next(
-                (
-                    i
-                    for i, out in enumerate(remaining)
-                    if _difference(item, out) is None
-                ),
-                None,
-            )
-            if index is None:
-                return None
-            del remaining[index]
-        return []
-    return [
-        (str(index), item, out)
-        for index, (item, out) in enumerate(zip(expected, actual, strict=True))
-    ]
-
-
-def _equal(expected: Any, actual: Any) -> bool:
-    if isinstance(expected, float) and math.isnan(expected):
-        return math.isnan(actual)
-    return bool(expected == actual)
 
 
 def build(node: Node, *, skip: str | None = None) -> object:
@@ -383,6 +253,13 @@ def build(node: Node, *, skip: str | None = None) -> object:
     leave out.
     """
     return _build(node, skip)[0]
+
+
+def build_settings(root: Node) -> Settings:
+    """Build nematocyte's own settings, from the root of a composed tree."""
+    settings = build(root.children[RESERVED_KEY])
+    assert isinstance(settings, Settings)
+    return settings
 
 
 def checked_json(node: Node, *, skip: str | None = None) -> str:

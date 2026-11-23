@@ -1,10 +1,12 @@
 """Turning values into what a JSON file would hold."""
 
+from collections.abc import Collection, Iterable, Mapping
 import dataclasses
 import datetime
 import enum
+import math
 from pathlib import PurePath
-from typing import Any
+from typing import Any, cast
 
 from ._errors import ConfigError
 from ._schema import (
@@ -18,7 +20,13 @@ from ._schema import (
     reachable_classes,
 )
 
-__all__ = ["is_json_form", "to_dict", "to_json_form"]
+__all__ = [
+    "first_difference",
+    "is_json_form",
+    "to_dict",
+    "to_json_form",
+    "without_json_form",
+]
 
 
 def _json_set(value: set[Any] | frozenset[Any]) -> list[Any]:
@@ -89,6 +97,126 @@ def is_json_form(value: Any) -> bool:
     converted = isinstance(value, (enum.Enum, PurePath, *_DATES, *_CONTAINERS))
     instance = dataclasses.is_dataclass(value) and not isinstance(value, type)
     return not (converted or instance or is_dict_or_frozendict(value))
+
+
+_JSON_SCALARS = (str, int, float, bool, type(None))
+
+type _Part = tuple[str, Any]
+
+
+def without_json_form(value: Any, seen: frozenset[int] = frozenset()) -> _Part | None:
+    """The first part of a value in JSON form that JSON has no form for.
+
+    The location is `""` for the value itself. A container that holds
+    itself has no JSON form either.
+    """
+    if isinstance(value, _JSON_SCALARS):
+        return None
+    if id(value) in seen or not isinstance(value, (dict, list)):
+        return "", value
+    inner = seen | {id(value)}
+    items: Iterable[tuple[Any, Any]] = (
+        cast("dict[Any, Any]", value).items()
+        if isinstance(value, dict)
+        else enumerate(cast("list[Any]", value))
+    )
+    for key, item in items:
+        if not isinstance(key, _JSON_SCALARS):
+            return "", key
+        found = without_json_form(item, inner)
+        if found is not None:
+            location, part = found
+            return (f"{key}.{location}" if location else str(key)), part
+    return None
+
+
+type _Pairs = list[tuple[str, Any, Any]]
+
+
+def first_difference(expected: Any, actual: Any) -> tuple[str, Any, Any] | None:
+    """The first place where `actual` differs from `expected`, with both values.
+
+    A list, tuple, set and frozenset count as the same, as do a dict and a
+    frozendict: a config file cannot tell them apart. The location is `""`
+    for the value itself.
+    """
+    if expected is actual:
+        return None
+    pairs = _parts(expected, actual)
+    if pairs is None:
+        return "", expected, actual
+    for location, item, out in pairs:
+        found = first_difference(item, out)
+        if found is not None:
+            inner, before, after = found
+            joined = f"{location}.{inner}" if location and inner else location or inner
+            return joined, before, after
+    return None
+
+
+def _parts(expected: Any, actual: Any) -> _Pairs | None:
+    """The parts of two values that are compared; `None` if they differ already."""
+    if is_dict_or_frozendict(expected) and is_dict_or_frozendict(actual):
+        return _mapping_parts(expected, actual)
+    if isinstance(expected, _CONTAINERS) and isinstance(actual, _CONTAINERS):
+        return _collection_parts(expected, actual)
+    if type(expected) is not type(actual):
+        return None
+    if dataclasses.is_dataclass(expected) and not isinstance(expected, type):
+        return [
+            (field.name, getattr(expected, field.name), getattr(actual, field.name))
+            for field in dataclasses.fields(expected)
+            if field.init
+        ]
+    return [] if _equal(expected, actual) else None
+
+
+def _mapping_parts(
+    expected: Mapping[Any, Any], actual: Mapping[Any, Any]
+) -> _Pairs | None:
+    if len(expected) != len(actual):
+        return None
+    keys = {key: key for key in actual}
+    pairs: _Pairs = []
+    for key, item in expected.items():
+        if key not in keys:
+            return None
+        pairs.append(("", key, keys[key]))
+        pairs.append((str(key), item, actual[key]))
+    return pairs
+
+
+def _collection_parts(
+    expected: Collection[Any], actual: Collection[Any]
+) -> _Pairs | None:
+    if len(expected) != len(actual):
+        return None
+    if isinstance(expected, (set, frozenset)) or isinstance(actual, (set, frozenset)):
+        # Without an order, each item is matched with an equal one.
+        remaining = list(actual)
+        for item in expected:
+            index = next(
+                (
+                    i
+                    for i, out in enumerate(remaining)
+                    if first_difference(item, out) is None
+                ),
+                None,
+            )
+            if index is None:
+                return None
+            del remaining[index]
+        return []
+    return [
+        (str(index), item, out)
+        for index, (item, out) in enumerate(zip(expected, actual, strict=True))
+    ]
+
+
+def _equal(expected: Any, actual: Any) -> bool:
+    if isinstance(expected, float) and math.isnan(expected):
+        return math.isnan(actual)
+    return bool(expected == actual)
 
 
 def _check_flat_typeddicts(cls: type) -> None:

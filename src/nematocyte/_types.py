@@ -8,12 +8,25 @@ from typing import Annotated, Any, Literal, TypeAliasType, Union, get_args, get_
 
 from ._overrides import format_value
 
-__all__ = ["JSONValue", "type_text"]
+__all__ = ["JSONValue", "type_text", "unwrap"]
 
 type JSONValue = (
     Mapping[str, JSONValue] | list[JSONValue] | str | int | float | bool | None
 )
 """A value as `json.load` returns it. A mapping need not be a `dict`."""
+
+
+def unwrap(tp: Any) -> tuple[Any, list[Any]]:
+    """Strip PEP 695 aliases and `Annotated`, collecting the metadata."""
+    metadata: list[Any] = []
+    while True:
+        if isinstance(tp, TypeAliasType):
+            tp = tp.__value__
+        elif get_origin(tp) is Annotated:
+            metadata = [*tp.__metadata__, *metadata]
+            tp = tp.__origin__
+        else:
+            return tp, metadata
 
 
 def _class_text(tp: type) -> str:
@@ -26,13 +39,7 @@ def _class_text(tp: type) -> str:
 
 def type_text(tp: Any) -> str:
     """The type of a value, the way `--help` shows it."""
-    while True:
-        if isinstance(tp, TypeAliasType):
-            tp = tp.__value__
-        elif get_origin(tp) is Annotated:
-            tp = tp.__origin__
-        else:
-            break
+    tp, _ = unwrap(tp)
     origin = get_origin(tp)
     if tp is None or tp is type(None):
         text = "null"

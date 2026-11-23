@@ -20,7 +20,6 @@ from typing import (
     NotRequired,
     ReadOnly,
     Required,
-    TypeAliasType,
     TypeIs,
     Union,
     cast,
@@ -42,7 +41,7 @@ from pydantic import (
 )
 
 from ._errors import SchemaError
-from ._types import type_text
+from ._types import type_text, unwrap
 
 __all__ = [
     "RESERVED_KEY",
@@ -239,22 +238,9 @@ def _strip_qualifiers(tp: Any) -> Any:
     return tp
 
 
-def _unwrap(tp: Any) -> tuple[Any, list[Any]]:
-    """Strip PEP 695 aliases and `Annotated`, collecting the metadata."""
-    metadata: list[Any] = []
-    while True:
-        if isinstance(tp, TypeAliasType):
-            tp = tp.__value__
-        elif get_origin(tp) is Annotated:
-            metadata = [*tp.__metadata__, *metadata]
-            tp = tp.__origin__
-        else:
-            return tp, metadata
-
-
 def _members(tp: Any) -> Iterator[tuple[Any, list[Any]]]:
     """The members of a union, each with its metadata; a non-union is one member."""
-    inner, metadata = _unwrap(tp)
+    inner, metadata = unwrap(tp)
     if get_origin(inner) in (Union, types.UnionType):
         for arg in get_args(inner):
             yield from _members(arg)
@@ -285,7 +271,7 @@ def typeddict_option(cls: type) -> str | None:
     if OPTION_KEY not in hints:
         return None
     where = f"{cls.__name__}.{OPTION_KEY}"
-    tp, _ = _unwrap(_strip_qualifiers(hints[OPTION_KEY]))
+    tp, _ = unwrap(_strip_qualifiers(hints[OPTION_KEY]))
     args = get_args(tp)
     if get_origin(tp) is not Literal or len(args) != 1 or not isinstance(args[0], str):
         raise SchemaError(
@@ -360,7 +346,7 @@ def _check_discriminator(metadata: list[Any], *, typeddicts: bool, where: str) -
 
 def _group_members(annotation: Any) -> tuple[list[tuple[Any, list[Any]]], list[Any]]:
     """The members of a union with their metadata, and the metadata of the union."""
-    inner, outer = _unwrap(annotation)
+    inner, outer = unwrap(annotation)
     if get_origin(inner) in (Union, types.UnionType):
         return list(_members(inner)), outer
     # A group with one option: its Tag and the Discriminator are both in the

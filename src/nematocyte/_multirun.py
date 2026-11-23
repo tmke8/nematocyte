@@ -136,11 +136,7 @@ class Multirun:
         The config object is built to check it, and then thrown away: the job
         gets the JSON text that was validated and builds the object again.
         """
-        fixed = {override.key: override for override in self.fixed}
-        for path, value in assignments:
-            key = ".".join(path)
-            fixed[path] = Override(path, value, f"{key}={format_value(value)}")
-        overrides = list(fixed.values())
+        overrides = self.overrides_with(assignments)
         try:
             root = self.composer.compose(self.config_name, overrides, self.added)
             resolve(root, self.now)
@@ -157,6 +153,16 @@ class Multirun:
             config,
             self.settings.log,
         )
+
+    def overrides_with(
+        self, assignments: Sequence[tuple[KeyPath, Any]]
+    ) -> list[Override]:
+        """The fixed overrides, with `assignments` on top of them."""
+        overrides = {override.key: override for override in self.fixed}
+        for path, value in assignments:
+            text = f"{'.'.join(path)}={format_value(value)}"
+            overrides[path] = Override(path, value, text)
+        return list(overrides.values())
 
     def launch(self, jobs: list[Job]) -> list[JobResult]:
         """Run a batch of jobs with the launcher that is selected."""
@@ -382,11 +388,8 @@ def _check_exact(
     A key under a group that is itself swept cannot be checked this way; for
     those, the check of `check_params` has to do.
     """
-    overrides = {override.key: override for override in run.fixed}
-    for path, value in fixed:
-        text = f"{'.'.join(path)}={format_value(value)}"
-        overrides[path] = Override(path, value, text)
-    root = run.composer.compose(run.config_name, list(overrides.values()), run.added)
+    overrides = run.overrides_with(fixed)
+    root = run.composer.compose(run.config_name, overrides, run.added)
     swept_groups: list[KeyPath] = []
     for path in sorted(keys, key=len):
         if any(path[: len(group)] == group for group in swept_groups):
