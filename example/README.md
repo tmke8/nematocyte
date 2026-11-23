@@ -159,6 +159,7 @@ Flags:
 --cfg, -c {job,all}      Print the composed config instead of running.
 --config-name, -cn NAME  Use the primary config called NAME.
 +NAME                    Apply the primary config called NAME on top.
+~KEY                     Leave out KEY, a NotRequired key of a TypedDict.
 --multirun, -m           Run one job per combination of the swept values.
 ```
 
@@ -239,6 +240,12 @@ Lists and dictionaries are written with brackets and braces:
 python main.py 'wandb.tags=[baseline,cnn]' 'opt.optimizer_kwargs={eps:1e-8,amsgrad:true}'
 ```
 A dictionary given like this replaces the previous value as a whole.
+
+`wandb` is a `TypedDict`, `WandbKwargs` in `src/logging.py`, and most of its keys are `NotRequired`: a key that is not set is not in the dictionary, so `wandb.init()` uses its own default. If a config file sets such a key, `~` leaves it out again:
+```bash
+python main.py wandb.name=run1 ~wandb.name
+```
+Here the last argument wins, so `wandb.name` is not set, and wandb picks a name for the run. `wandb.name=null` is different: it passes `name=None`. `~` works only for a `NotRequired` key of a `TypedDict`; anything else is an error.
 
 ### Logging
 The program uses Python's `logging` module instead of `print()`. Each module gets a logger named after it, as in `src/run.py`:

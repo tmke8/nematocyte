@@ -336,10 +336,10 @@ selects none. See [composition.md](design/composition.md).
 
 ## Command line
 
-### No `++` or `~`, and `+` takes no `=`
+### No `++`, `+` takes no `=`, and `~` only leaves out a TypedDict key
 
-Besides `key=value`, only `+NAME` remains. An unknown key under a dataclass
-is still an error. `+` is not needed where Hydra asks for it to add a key:
+Besides `key=value`, only `+NAME` and `~KEY` remain. An unknown key under a
+dataclass is still an error. `+` is not needed where Hydra asks for it to add a key:
 
 | Hydra | nematocyte |
 | --- | --- |
@@ -349,6 +349,14 @@ is still an error. `+` is not needed where Hydra asks for it to add a key:
 Whether `key=name` selects a config or sets a value follows from the type of
 the field: a dataclass or a group is a selection. See
 [cli.md](design/cli.md).
+
+In Hydra, `~key` deletes any key, and `~key=value` deletes it only if it
+has that value. In nematocyte, `~KEY` only leaves out a `NotRequired` key of
+a TypedDict, so that it is not in the dict, even if a default or a config
+file set it. `~key=value` is an error, and so is `~KEY` on a required key or
+on a field of a dataclass; such a field is set to `null` instead, if it
+takes `None`. Leaving out a key that nothing set is not an error. See
+[cli.md](design/cli.md#key-leaves-out-an-optional-key-of-a-typeddict).
 
 ### A preset for the whole config is `+presets/debug`
 

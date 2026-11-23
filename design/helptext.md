@@ -144,7 +144,7 @@ the docs as comments.
   option are among them, as `celeba/male_blond`. The presets of a plain
   subconfig are listed the same way, under `Presets:`.
 - `--help` also shows nematocyte's own settings and the flags (with
-  `+NAME`), after the
+  `+NAME` and `~KEY`), after the
   program's keys, as a block of their own, so that their keys do not widen
   the left column. The left column is at most 40 characters wide, and the
   text is wrapped at the width of the terminal, between 60 and 100 columns
@@ -156,9 +156,10 @@ the docs as comments.
 - A key of a `TypedDict` has no doc: there is no `field(doc=...)` for it,
   and no other way to attach one. Its type is still shown. The section of a
   TypedDict subconfig uses the class docstring, as for a dataclass.
-- A `NotRequired` key of a TypedDict that nothing set is shown as
-  `key=` with `(not set)` in `--help`, and as a comment `# key: not set` in
-  `--cfg`. In `--cfg`, a subconfig with nothing but such keys is `{}`.
+- A `NotRequired` key of a TypedDict that nothing set, or that `~KEY` left
+  out, is shown as `key=` with `(not set)` in `--help`, and as a comment
+  `# key: not set` in `--cfg`. In `--cfg`, a subconfig with nothing but such
+  keys is `{}`.
 - Python 3.15 generates dataclass docstrings lazily, through an object that
   is not a string. The check for generated docstrings handles both.
 

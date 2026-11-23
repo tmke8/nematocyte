@@ -2,7 +2,8 @@
 
 The grammar is Hydra's, less what nematocyte leaves out (`design/cli.md`)::
 
-    argument:  '+' NAME | override               '+' NAME adds a primary config
+    argument:  '+' NAME | '~' key | override     '+' NAME adds a primary config,
+                                               '~' key leaves out a TypedDict key
     override:  key '=' value?
     key:       ID ('.' ID)*
     value:     element (',' element)*          more than one is a choice sweep
@@ -95,13 +96,15 @@ type Sweep = ChoiceSweep | RangeSweep | IntervalSweep
 
 @dataclass(frozen=True)
 class Override:
-    """A parsed `key=value` argument."""
+    """A parsed `key=value` argument, or a `~key` argument."""
 
     key: tuple[str, ...]
     value: Any
-    """A plain value, or a sweep."""
+    """A plain value, or a sweep; `None` for `~key`."""
     text: str = field(compare=False)
     """The argument as it was written."""
+    unset: bool = False
+    """Whether this is `~key`, which leaves an optional TypedDict key out."""
 
     @property
     def key_text(self) -> str:
@@ -489,9 +492,7 @@ def parse_override(text: str) -> Override:
     key_text, equals, _ = text.partition("=")
     if not equals:
         if text.startswith("~"):
-            raise ConfigError(
-                f"Cannot parse {text!r}: deleting a key with '~' is not supported."
-            )
+            return _parse_unset(text)
         raise ConfigError(f"Cannot parse {text!r}: an override has the form key=value.")
     key_text = key_text.strip(_WHITESPACE)
     problem = None
@@ -511,20 +512,15 @@ def parse_override(text: str) -> Override:
             f"{bare}={value_text}"
         )
     elif key_text.startswith("~"):
-        problem = "deleting a key with '~' is not supported"
-    elif "@" in key_text:
-        problem = "'key@package' is not supported"
-    elif "/" in key_text:
-        dotted = key_text.replace("/", ".")
-        problem = f"a key is written with dots at every depth: {dotted!r}"
+        bare = key_text[1:].strip(_WHITESPACE)
+        value_text = text.partition("=")[2].strip(_WHITESPACE)
+        problem = (
+            f"'~' takes only a key, without '=': ~{bare} leaves the key out. "
+            f"To set it, no '~' is needed: {bare}={value_text}. Deleting a "
+            "key only if it has a given value is not supported"
+        )
     else:
-        segments = key_text.split(".")
-        if not all(_KEY_SEGMENT.fullmatch(segment) for segment in segments):
-            problem = (
-                "the key has to be a name, or several names joined by dots"
-                if key_text
-                else "the key is missing"
-            )
+        problem = _key_problem(key_text)
     if problem is not None:
         raise ConfigError(f"Cannot parse {text!r}: {problem}.")
     try:
@@ -532,6 +528,38 @@ def parse_override(text: str) -> Override:
     except _ParseError as exc:
         raise _fail(text, exc) from None
     return Override(tuple(key_text.split(".")), value, text)
+
+
+def _key_problem(key_text: str) -> str | None:
+    """What is wrong with the key of an override, or `None`."""
+    if "@" in key_text:
+        return "'key@package' is not supported"
+    if "/" in key_text:
+        dotted = key_text.replace("/", ".")
+        return f"a key is written with dots at every depth: {dotted!r}"
+    segments = key_text.split(".")
+    if not all(_KEY_SEGMENT.fullmatch(segment) for segment in segments):
+        return (
+            "the key has to be a name, or several names joined by dots"
+            if key_text
+            else "the key is missing"
+        )
+    return None
+
+
+def _parse_unset(text: str) -> Override:
+    """Parse one `~key` argument, which leaves an optional TypedDict key out.
+
+    `~key=value` goes to `parse_override`, which explains the error.
+    """
+    key_text = text.removeprefix("~").strip(_WHITESPACE)
+    if not key_text or key_text.startswith(("~", "+")):
+        problem = "'~' is followed by a key, as in ~wandb.name"
+    else:
+        problem = _key_problem(key_text)
+    if problem is not None:
+        raise ConfigError(f"Cannot parse {text!r}: {problem}.")
+    return Override(tuple(key_text.split(".")), None, text, unset=True)
 
 
 def parse_argument(text: str) -> Override | AddedConfig:
