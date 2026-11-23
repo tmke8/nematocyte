@@ -15,23 +15,15 @@ from decimal import Decimal
 import enum
 import math
 from pathlib import Path
-from typing import Annotated, Any, Literal, NamedTuple
+from typing import Annotated, Any, Literal, NamedTuple, TypedDict
 from typing_extensions import sentinel
 
-from pydantic import (
-    AfterValidator,
-    ConfigDict,
-    Discriminator,
-    Field,
-    StrictFloat,
-    StrictInt,
-    Tag,
-)
+from pydantic import AfterValidator, ConfigDict, Discriminator, Field, Tag, with_config
 import pytest
 
 import nematocyte
 from nematocyte import ConfigError, SchemaError
-from nematocyte._plain import is_plain
+from nematocyte._json_form import is_json_form
 
 from .helpers import Celeba, Cmnist, Config, Fcn
 
@@ -73,7 +65,7 @@ class Types:
 @pytest.mark.parametrize(
     ("override", "name", "expected"),
     [
-        # The table in design/cli.md, against pydantic's lax mode.
+        # The table in design/cli.md, against pydantic's strict mode on JSON.
         ("i=123", "i", 123),
         ("f=1e-3", "f", 0.001),
         ("f=1", "f", 1.0),
@@ -99,8 +91,9 @@ class Types:
         ("color=green", "color", Color.GREEN),
         ("pair=[1,a]", "pair", (1, "a")),
         ("prob=1", "prob", 1.0),
-        ("f='1e-3'", "f", 0.001),
-        ("b='false'", "b", False),
+        # The conversions that JSON needs (design/deserializer.md).
+        ("p='/srv/data'", "p", Path("/srv/data")),
+        ("color='green'", "color", Color.GREEN),
     ],
 )
 def test_accepted_values(override: str, name: str, expected: Any) -> None:
@@ -122,6 +115,18 @@ def test_accepted_values(override: str, name: str, expected: Any) -> None:
         ("prob=1.5", "less than or equal to 1"),
         ("ints=abc", "list"),
         ("opt_i=x", "integer"),
+        # Strict validation through JSON (design/deserializer.md).
+        ("i=true", "integer"),
+        ("f=false", "number"),
+        ("opt_i=true", "integer"),
+        ("ints=[1,true]", "integer"),
+        ("pair=[true,a]", "integer"),
+        ("int_map={1:true}", "integer"),
+        ("i='123'", "integer"),
+        ("i=1.0", "integer"),
+        ("b='false'", "boolean"),
+        ("b=0", "boolean"),
+        ("f='1e-3'", "number"),
     ],
 )
 def test_rejected_values(override: str, fragment: str) -> None:
@@ -371,51 +376,6 @@ def test_kw_only_marker(tmp_path: Path) -> None:
         assert cls in message
 
 
-@pytest.mark.parametrize(
-    ("override", "name", "expected"),
-    [
-        ("i=true", "i", 1),
-        ("f=false", "f", 0.0),
-        ("opt_i=true", "opt_i", 1),
-        ("ints=[1,true]", "ints", [1, 1]),
-        ("pair=[true,a]", "pair", (1, "a")),
-        ("int_map={1:true}", "int_map", {1: 1}),
-    ],
-)
-def test_bool_is_accepted_as_a_number(
-    override: str, name: str, expected: object
-) -> None:
-    # As in Python, where a bool is an int; pydantic's lax mode converts it.
-    config = nematocyte.compose(Types, overrides=[override])
-    assert getattr(config, name) == expected
-
-
-@pytest.mark.parametrize(
-    ("override", "accepted"),
-    [
-        ("seed=true", False),
-        ("seed=1.0", False),
-        ("seed=3", True),
-        ("lr=false", False),
-        ("lr=1", True),
-        ("seeds=[1,true]", False),
-    ],
-)
-def test_strict_types_reject_a_bool(override: str, *, accepted: bool) -> None:
-    # The workaround in DIFFERENCES.md.
-    @dataclass
-    class Root:
-        seed: StrictInt = 0
-        lr: StrictFloat = 1e-3
-        seeds: list[StrictInt] = field(default_factory=list)
-
-    if accepted:
-        nematocyte.compose(Root, overrides=[override])
-    else:
-        with pytest.raises(ConfigError, match=override.split("=", maxsplit=1)[0]):
-            nematocyte.compose(Root, overrides=[override])
-
-
 def test_bool_is_kept_where_the_type_allows_it() -> None:
     @dataclass
     class Root:
@@ -445,15 +405,21 @@ def test_value_changed_by_post_init_is_not_an_error() -> None:
     assert config.root == Path("data").resolve()
 
 
-def test_bool_default_for_a_number_is_accepted() -> None:
+def test_bool_default_for_a_number_is_rejected() -> None:
     @dataclass
     class Root:
         seed: int = True
 
-    assert nematocyte.compose(Root).seed == 1
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Root)
+    message = str(excinfo.value)
+    assert "seed: Input should be a valid integer" in message
+    assert "the default of Root.seed" in message
 
 
-def test_unknown_key_in_a_nested_dataclass_value() -> None:
+def test_unknown_key_in_a_dataclass_value_is_ignored() -> None:
+    # Composition checks the keys of the config classes; inside a value,
+    # the pydantic config of the class decides, and pydantic ignores them.
     @dataclass
     class Item:
         x: int = 0
@@ -464,8 +430,38 @@ def test_unknown_key_in_a_nested_dataclass_value() -> None:
 
     config = nematocyte.compose(Root, overrides=["items=[{x:1}]"])
     assert config.items == [Item(x=1)]
-    with pytest.raises(ConfigError, match="items"):
-        nematocyte.compose(Root, overrides=["items=[{y:1}]"])
+    assert nematocyte.compose(Root, overrides=["items=[{y:1}]"]).items == [Item()]
+
+
+@with_config(ConfigDict(extra="forbid"))
+@dataclass
+class StrictItem:
+    x: int = 0
+
+
+@with_config(ConfigDict(extra="forbid"))
+class StrictPoint(TypedDict):
+    x: int
+
+
+@dataclass
+class WithStrictItems:
+    items: list[StrictItem] = field(default_factory=list)
+    points: list[StrictPoint] = field(default_factory=list)
+
+
+@pytest.mark.parametrize(
+    ("override", "where"),
+    [("items=[{x:1},{y:1}]", "items: "), ("points=[{x:1,y:2}]", "points: ")],
+)
+def test_unknown_key_in_a_value_with_forbid(override: str, where: str) -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(WithStrictItems, overrides=[override])
+    message = str(excinfo.value)
+    assert where in message
+    assert "(at " in message
+    assert "WithStrictItems." in message
+    assert "the override" in message
 
 
 def test_default_values_are_validated_too() -> None:
@@ -479,7 +475,7 @@ def test_default_values_are_validated_too() -> None:
     assert "default" in message
 
 
-# -- defaults that lose their type in plain form ------------------------------
+# -- defaults that lose their type in JSON form -------------------------------
 
 
 class Level(enum.IntEnum):
@@ -503,14 +499,20 @@ TOKEN = object()
     ("annotation", "default", "where", "before", "after"),
     [
         (Any, Color.RED, "", "<Color.RED: 'red'>", "'red'"),
+        (Color | str, Color.RED, "", "<Color.RED: 'red'>", "'red'"),
         (Any, Path("/tmp"), "", "PosixPath('/tmp')", "'/tmp'"),
         (Any, Adam(), "", "Adam(lr=0.1)", "{'lr': 0.1}"),
         (object, Path("/tmp"), "", "PosixPath('/tmp')", "'/tmp'"),
         (list[Any], [Path("/tmp")], " (at 0)", "PosixPath('/tmp')", "'/tmp'"),
         (dict[str, Any], {"a": Adam()}, " (at a)", "Adam(lr=0.1)", "{'lr': 0.1}"),
         (Any, ((1, Color.RED),), " (at 0.1)", "<Color.RED: 'red'>", "'red'"),
-        (Path | Any, Path("/tmp"), "", "PosixPath('/tmp')", "'/tmp'"),
-        (Path | str, Path("/tmp"), "", "PosixPath('/tmp')", "'/tmp'"),
+        (
+            Any,
+            datetime.date(2026, 1, 1),
+            "",
+            "datetime.date(2026, 1, 1)",
+            "'2026-01-01'",
+        ),
         (Color | str, Color.RED, "", "<Color.RED: 'red'>", "'red'"),
         (Level | int, Level.LOW, "", "<Level.LOW: 1>", "1"),
     ],
@@ -547,9 +549,12 @@ def test_default_that_loses_its_type_is_rejected(
         # Conversions that pydantic makes of the default itself.
         (float, 1, 1.0),
         (Path, "/tmp", Path("/tmp")),
-        # Plain values, and objects that have no plain form.
+        # Values in JSON form.
         (Any, {"a": [1, None]}, {"a": [1, None]}),
-        (Any, TOKEN, TOKEN),
+        # In strict mode on JSON, the first member that takes the string wins.
+        (Path | str, Path("/tmp"), Path("/tmp")),
+        (Path | Any, Path("/tmp"), Path("/tmp")),
+        (datetime.date, datetime.date(2026, 1, 1), datetime.date(2026, 1, 1)),
     ],
 )
 def test_default_that_keeps_its_type_is_accepted(
@@ -563,7 +568,7 @@ def test_default_that_keeps_its_type_is_accepted(
     assert type(value) is type(expected)
 
 
-def test_plain_default_is_validated_once() -> None:
+def test_default_in_json_form_is_validated_once() -> None:
     # A default of plain values loses nothing, so it is not checked again.
     calls: list[object] = []
 
@@ -586,32 +591,6 @@ def test_plain_default_is_validated_once() -> None:
     assert len(calls) == 1
 
 
-def test_default_that_plain_form_keeps_is_validated_once() -> None:
-    # The conversion to plain form leaves a date and a Decimal as they are,
-    # so both forms of the default would be the same.
-    calls: list[object] = []
-
-    def count(value: object) -> object:
-        calls.append(value)
-        return value
-
-    default = {"when": (datetime.date(2026, 1, 1), Decimal("0.5"))}
-    root = make_dataclass(
-        "Root",
-        [
-            (
-                "value",
-                Annotated[Any, AfterValidator(count)],
-                field(default_factory=lambda: default),
-            )
-        ],
-    )
-    assert nematocyte.compose(root).value == {
-        "when": [datetime.date(2026, 1, 1), Decimal("0.5")]
-    }
-    assert len(calls) == 1
-
-
 class Pair(NamedTuple):
     first: int
     second: int
@@ -621,12 +600,13 @@ class Pair(NamedTuple):
     "value",
     [
         {"a": (1, {2.5, None}), "b": "x"},
-        [datetime.date(2026, 1, 1), Decimal("0.5")],
+        # No JSON form; the build reports it.
+        [Decimal("0.5"), TOKEN],
     ],
 )
-def test_value_that_plain_form_keeps_is_plain(value: object) -> None:
-    # `to_plain` changes only the kinds of its containers.
-    assert is_plain(value)
+def test_value_that_json_form_keeps_is_json_form(value: object) -> None:
+    # `to_json_form` changes only the kinds of its containers.
+    assert is_json_form(value)
 
 
 @pytest.mark.parametrize(
@@ -638,25 +618,27 @@ def test_value_that_plain_form_keeps_is_plain(value: object) -> None:
         OrderedDict(a=1),
         Pair(1, 2),
         [frozenset({Color.RED})],
+        datetime.date(2026, 1, 1),
+        {"at": datetime.time(12, 30)},
     ],
 )
-def test_value_that_plain_form_converts_is_not_plain(value: object) -> None:
-    # Mirrors the branches of `to_plain` that convert a value.
-    assert not is_plain(value)
+def test_value_that_json_form_converts_is_not_json_form(value: object) -> None:
+    # Mirrors the branches of `to_json_form` that convert a value.
+    assert not is_json_form(value)
 
 
-def test_plain_default_is_not_checked_even_where_the_union_differs() -> None:
-    # The price of not checking plain defaults (design/deserializer.md): the
-    # default itself would build a tuple of paths.
+def test_default_in_json_form_is_not_checked_even_where_the_union_differs() -> None:
+    # The price of not checking defaults in JSON form (design/deserializer.md):
+    # the default itself would stay a set of strings.
     root = make_dataclass(
         "Root",
-        [("value", tuple[Path, ...] | list[str], field(default=("x",)))],
+        [("value", list[Path] | set[str], field(default_factory=lambda: {"x"}))],
     )
-    assert nematocyte.compose(root).value == ["x"]
+    assert nematocyte.compose(root).value == [Path("x")]
 
 
-def test_plain_set_default_for_a_list_is_accepted() -> None:
-    # The plain form of a set is sorted; the order of a set means nothing.
+def test_set_default_in_json_form_for_a_list_is_accepted() -> None:
+    # The JSON form of a set is sorted; the order of a set means nothing.
     root = make_dataclass(
         "Root", [("value", list[str], field(default_factory=lambda: {"b", "a"}))]
     )
@@ -783,12 +765,53 @@ class ArbitraryTypes:
     seed: int = 0
 
 
-def test_pydantic_config_of_the_class_is_honoured() -> None:
-    config = nematocyte.compose(ArbitraryTypes, overrides=["seed=1"])
-    assert isinstance(config.device, Device)
+def test_default_without_json_form_is_an_error() -> None:
+    # Even where the pydantic config of the class lets the type through.
     with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(ArbitraryTypes, overrides=["device=cpu"])
+        nematocyte.compose(ArbitraryTypes, overrides=["seed=1"])
     message = str(excinfo.value)
-    assert "device:" in message
+    assert "device: JSON has no form for" in message
+    assert "(Device)" in message
+    assert "the default of ArbitraryTypes.device" in message
     assert "ArbitraryTypes.device (Device). Where to run." in message
-    assert "device=cpu" in message
+    assert "init=False" in message
+
+
+@pytest.mark.parametrize(
+    ("annotation", "default", "fragment"),
+    [
+        (Any, TOKEN, "(object)"),
+        (Any, Decimal("0.5"), "(Decimal)"),
+        (list[Any], [1, TOKEN], "(object) (at 1)"),
+        (dict[Any, int], {(1, 2): 3}, "(tuple)"),
+    ],
+)
+def test_value_without_json_form_is_an_error(
+    annotation: Any, default: object, fragment: str
+) -> None:
+    root = make_dataclass(
+        "Root", [("value", annotation, field(default_factory=lambda: default))]
+    )
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(root)
+    message = str(excinfo.value)
+    assert "value: JSON has no form for" in message
+    assert fragment in message
+    assert "Root.value" in message
+
+
+def test_value_from_a_file_without_json_form_is_an_error(tmp_path: Path) -> None:
+    @dataclass
+    class Root:
+        blob: Any = None
+        table: dict[Any, str] = field(default_factory=dict)
+
+    (tmp_path / "c.yaml").write_text("blob: !!binary aGVsbG8=\ntable: {? [1, 2] : x}\n")
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Root, tmp_path, config_name="c")
+    message = str(excinfo.value)
+    assert "blob: JSON has no form for b'hello' (bytes)" in message
+    assert "table: JSON has no form for (1, 2) (tuple)" in message
+    assert "c.yaml" in message
+    assert "Root.blob" in message
+    assert "Root.table" in message

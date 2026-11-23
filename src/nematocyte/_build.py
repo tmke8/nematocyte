@@ -1,26 +1,24 @@
 """Turning the composed tree into config instances, with one call to pydantic."""
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Iterable, Mapping
 import dataclasses
 from dataclasses import MISSING
+import json
 import math
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails
 
 from ._errors import ConfigError
+from ._json_form import is_json_form, to_json_form
 from ._overrides import format_value
-from ._plain import is_plain, to_plain
 from ._schema import (
-    OPTION_KEY,
     FieldInfo,
     Kind,
-    Selected,
     class_adapter,
     field_adapter,
     is_dict_or_frozendict,
-    is_typeddict_class,
 )
 from ._tree import Node, format_path, unknown_key_message
 from ._types import type_text
@@ -29,32 +27,81 @@ __all__ = ["build"]
 
 
 def _input(node: Node, skip: str | None) -> dict[str, Any]:
-    """The node as the input for pydantic.
+    """The node in JSON form, the input for pydantic.
 
-    The node of a group of dataclasses is a `Selected`, from which
-    `nematocyte.pick` reads the option. A value or a subconfig that is
-    missing is left out, and pydantic reports it.
+    The node of a group names its option under `_option_`, from which
+    `nematocyte.pick` reads it. A value or a subconfig that is missing is
+    left out, and pydantic reports it.
     """
-    data: dict[str, Any] = {}
-    if node.option is not None and is_typeddict_class(node.cls):
-        data[OPTION_KEY] = node.option
+    data = node.to_json_tree()
+    if skip is not None:
+        data.pop(skip, None)
+    return data
+
+
+_JSON_SCALARS = (str, int, float, bool, type(None))
+
+type _Part = tuple[str, Any]
+
+
+def _without_json_form(value: Any, seen: frozenset[int] = frozenset()) -> _Part | None:
+    """The first part of a value in JSON form that JSON has no form for.
+
+    The location is `""` for the value itself. A container that holds
+    itself has no JSON form either.
+    """
+    if isinstance(value, _JSON_SCALARS):
+        return None
+    if id(value) in seen or not isinstance(value, (dict, list)):
+        return "", value
+    inner = seen | {id(value)}
+    items: Iterable[tuple[Any, Any]] = (
+        cast("dict[Any, Any]", value).items()
+        if isinstance(value, dict)
+        else enumerate(cast("list[Any]", value))
+    )
+    for key, item in items:
+        if not isinstance(key, _JSON_SCALARS):
+            return "", key
+        found = _without_json_form(item, inner)
+        if found is not None:
+            location, part = found
+            return (f"{key}.{location}" if location else str(key)), part
+    return None
+
+
+def _json_problems(node: Node, skip: str | None, errors: list[str]) -> None:
+    """The errors for every value in the tree that JSON has no form for."""
     for info in node.fields.values():
         if info.name == skip:
             continue
-        if info.kind is Kind.VALUE:
-            value = node.value(info)
-            if value is not MISSING:
-                data[info.name] = value
+        if info.kind is not Kind.VALUE:
+            child = node.children.get(info.name)
+            if child is not None:
+                _json_problems(child, None, errors)
             continue
-        child = node.children.get(info.name)
-        if child is None:
+        value = node.value(info)
+        if value is MISSING:
             continue
-        fields = _input(child, None)
-        if child.option is not None and not is_typeddict_class(child.cls):
-            data[info.name] = Selected(child.option, fields)
+        found = _without_json_form(to_json_form(value))
+        if found is None:
+            continue
+        inner, part = found
+        location = f" (at {inner})" if inner else ""
+        if info.name in node.sources:
+            hint = "Write it as a string, a number, a bool, a list or a mapping."
         else:
-            data[info.name] = fields
-    return data
+            hint = (
+                "A value that a config file cannot hold belongs in a field "
+                "with init=False, set in __post_init__, or in a property."
+            )
+        path = format_path((*node.path, info.name))
+        errors.append(
+            f"{path}: JSON has no form for {part!r} "
+            f"({type(part).__name__}){location}, so it cannot be checked. "
+            f"{hint}\n    Value: {value!r} ({_origin(node, info)})"
+            f"{_field_line(node, info)}"
+        )
 
 
 type _Loc = tuple[int | str, ...]
@@ -197,32 +244,35 @@ def _check_defaults(
 
 
 def _default_problem(node: Node, info: FieldInfo) -> str | None:
-    """The error if a default that nothing set loses its type in plain form.
+    """The error if a default that nothing set loses its type in JSON form.
 
-    What pydantic makes of the plain form of the default is compared with
+    What pydantic makes of the JSON form of the default is compared with
     what it makes of the default itself, for this field on its own, before
     a constructor can change it. A conversion that pydantic does anyway,
     such as `1` to `1.0` for a float, does not count. Only a default that
-    `to_plain` changes in more than the kinds of its containers is checked:
+    `to_json_form` changes in more than the kinds of its containers is checked:
     only then can the two forms give different results.
     """
     default = node.default_value(info)
-    if default is MISSING or is_plain(default):
+    if default is MISSING or is_json_form(default):
         return None
     adapter = field_adapter(info)
     if adapter is None:
         # A type that only the class's own pydantic config lets through.
         return None
     try:
-        # The plain form is made from the same object that it is compared
+        # The JSON form is made from the same object that it is compared
         # with: a `default_factory` makes a new one each time.
-        result = adapter.validate_python(to_plain(default), extra="forbid")
-    except ValidationError:
+        text = json.dumps(to_json_form(default))
+        result = adapter.validate_json(text, strict=True)
+    except TypeError, ValueError:
+        # No JSON form, which the build reports, or a value that pydantic
+        # rejects (a `ValidationError` is a `ValueError`).
         return None
     try:
-        direct = adapter.validate_python(default, extra="forbid")
+        direct = adapter.validate_python(default)
     except ValidationError:
-        # Only the plain form is valid, as with `name: str = Path("x")`.
+        # Only the JSON form is valid, as with `name: str = Path("x")`.
         return None
     lost = _difference(direct, result)
     if lost is None:
@@ -332,8 +382,9 @@ def _equal(expected: Any, actual: Any) -> bool:
 def build(node: Node, *, skip: str | None = None) -> object:
     """Build the instance for `node`, and for everything under it.
 
-    The whole tree goes to pydantic in one call, which checks every value
-    and runs the constructors, and with them every `__post_init__`. A
+    The whole tree goes to pydantic in one call, as JSON and in strict mode,
+    which checks every value and runs the constructors, and with them every
+    `__post_init__`. A value that JSON has no form for is an error. A
     `TypedDict` node becomes a plain dict. All the errors in the tree are
     collected and reported together. `skip` names a field of `node` to
     leave out.
@@ -344,7 +395,14 @@ def build(node: Node, *, skip: str | None = None) -> object:
     failed: set[_FieldKey] = set()
     instance: object = None
     try:
-        instance = adapter.validate_python(_input(node, skip), extra="forbid")
+        text = json.dumps(_input(node, skip))
+    except (TypeError, ValueError) as exc:
+        _json_problems(node, skip, errors)
+        if not errors:
+            errors = [f"The config has no JSON form: {exc}"]
+        raise ConfigError("Error in the configuration:\n" + "\n".join(errors)) from None
+    try:
+        instance = adapter.validate_json(text, strict=True)
     except ValidationError as exc:
         errors, failed = _translate(node, exc)
     except Exception as exc:

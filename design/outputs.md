@@ -168,8 +168,8 @@ in Hydra, since a single run and a multirun can now meet as well.
   directory that was set with `nematocyte.output_dir`.
 - `config.json` is written from the resolved tree, which is what `to_dict`
   gives, plus the values of `InitVar` fields; `run_config()` returns the
-  same. A value that JSON does not have, such as a date, is written as its
-  text, and so is a dict key that is not a string.
+  same. A date is written as its ISO string, as the config was built from
+  it, and a dict key that is not a string is written as its text.
 
 ## Not in the first version
 

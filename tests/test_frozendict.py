@@ -12,7 +12,7 @@ import pytest
 
 import nematocyte
 from nematocyte import ConfigError, SchemaError
-from nematocyte._plain import to_plain
+from nematocyte._json_form import to_json_form
 
 from .test_typeddict import Opt, Optimizer, Sgd, _texts, compose_root
 
@@ -108,8 +108,8 @@ else:
         assert "  weights:\n    a: 1.0\n    b: 2.0\n" in cfg_text
         assert "  schedule:\n    # (int)\n    steps: 3\n" in cfg_text
 
-    def test_to_plain_turns_a_frozendict_into_a_dict() -> None:
-        plain = to_plain(frozendict(a=frozendict(b=(1, 2))))
+    def test_to_json_form_turns_a_frozendict_into_a_dict() -> None:
+        plain = to_json_form(frozendict(a=frozendict(b=(1, 2))))
         assert plain == {"a": {"b": [1, 2]}}
         assert type(plain) is dict
         assert type(plain["a"]) is dict

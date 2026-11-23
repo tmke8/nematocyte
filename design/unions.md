@@ -51,9 +51,11 @@ Things to get right:
 - `include_extras=True` is required. Without it `get_type_hints` strips
   `Annotated`, and the names are gone.
 - The union reaches pydantic as it is written. nematocyte hands over the node
-  of a group as a `Selected`, a `dict` that also carries the name of the
-  selected option, and `pick` returns that name (see
-  [deserializer.md](deserializer.md)).
+  of a group as a mapping that holds the name of the selected option under
+  the key `_option_`, next to the fields, as `to_dict` writes it. `pick`
+  returns that name, and the member ignores the key, so an option of a
+  group of dataclasses cannot forbid unknown keys in its pydantic config
+  (see [deserializer.md](deserializer.md#unknown-keys)).
 
 The names in the annotations are the built-in options. YAML files in the
 group's directory add further options on top, as before (see

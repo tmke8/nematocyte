@@ -12,7 +12,7 @@ from typing import Any, cast
 from ._build import build
 from ._errors import ConfigError
 from ._settings import LogLevel
-from ._tree import node_from_plain
+from ._tree import node_from_json_tree
 from ._types import JSONValue
 
 __all__ = [
@@ -241,7 +241,9 @@ def configure_logging(*, file: bool = True) -> None:
 def run_job(entry: Entry, job: Job, start: StartDir) -> Any:
     """Build the config object of a job and call the function with it."""
     global _current  # noqa: PLW0603
-    root = node_from_plain(entry.config_cls, job.config, source="the config of the job")
+    root = node_from_json_tree(
+        entry.config_cls, job.config, source="the config of the job"
+    )
     config = build(root)
     previous = _current
     _current = _Context(start, job)

@@ -147,9 +147,10 @@ def test_run_config_holds_json_values() -> None:
     assert saved["shape"] == [2, 3]
     assert saved["names"] == ["a", "b"]
     assert saved["color"] == "blue"
-    # JSON has no dates and only string keys; they are written as text.
+    # JSON has no dates, which are ISO strings, and only string keys, which
+    # are written as text.
     assert saved["day"] == "2026-11-16"
-    assert saved["moment"] == "2026-11-16 16:49:10"
+    assert saved["moment"] == "2026-11-16T16:49:10"
     assert saved["label_map"] == {"1": 2}
     # Unlike `to_dict`, it has the value of an `InitVar`, and not the
     # `init=False` field.

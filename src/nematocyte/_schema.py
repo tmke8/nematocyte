@@ -48,7 +48,6 @@ __all__ = [
     "RESERVED_KEY",
     "FieldInfo",
     "Kind",
-    "Selected",
     "class_adapter",
     "class_doc",
     "field_adapter",
@@ -76,19 +75,6 @@ DOC_KEY = "_doc_"
 _OPTION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 
 
-class Selected(dict[str, Any]):
-    """The fields of a node of a group, with the option that is selected.
-
-    nematocyte hands this to pydantic, where :func:`pick` reads the option.
-    """
-
-    __slots__ = ("option",)
-
-    def __init__(self, option: str, fields: Mapping[str, Any]) -> None:
-        super().__init__(fields)
-        self.option = option
-
-
 def pick(value: Any) -> str | None:
     """Pick the option of a group of dataclasses, for pydantic.
 
@@ -99,8 +85,15 @@ def pick(value: Any) -> str | None:
             Annotated[Fcn, Tag("fcn")] | Annotated[Cnn, Tag("cnn")],
             Discriminator(nematocyte.pick),
         ]
+
+    The option is the ``_option_`` key of the mapping for the group, as
+    nematocyte passes it to pydantic and as ``nematocyte.to_dict`` writes it.
     """
-    return value.option if isinstance(value, Selected) else None
+    if isinstance(value, Mapping):
+        option = cast("Mapping[str, Any]", value).get(OPTION_KEY)
+        if isinstance(option, str):
+            return option
+    return None
 
 
 def _check_option_name(name: object, where: str) -> str:
@@ -334,6 +327,23 @@ def _option_name(member: type, tags: list[Tag], where: str) -> str:
     return _check_option_name(tags[0].tag, where)
 
 
+def _check_member_extra(member: type, where: str) -> None:
+    """Refuse a dataclass option whose pydantic config handles unknown keys.
+
+    nematocyte passes the option of a group to pydantic as the key
+    `_option_` next to the fields, and pydantic drops it as an unknown key.
+    """
+    config = getattr(member, "__pydantic_config__", None) or {}
+    extra = config.get("extra")
+    if extra in ("forbid", "allow"):
+        raise SchemaError(
+            f"{where}: the option {member.__name__} of the group sets "
+            f"extra={extra!r} in its pydantic config. nematocyte passes the "
+            f"option of a group to pydantic under the key {OPTION_KEY!r}, which "
+            f"the class has to ignore, so it cannot set 'extra' for itself."
+        )
+
+
 def _check_discriminator(metadata: list[Any], *, typeddicts: bool, where: str) -> None:
     """Check that the union of a group has the discriminator that it needs."""
     found = [m for m in metadata if isinstance(m, Discriminator)]
@@ -416,6 +426,8 @@ def _analyse(
             raise SchemaError(
                 f"{where}: the class {member.__name__} is listed twice in the group."
             )
+        if not typeddicts:
+            _check_member_extra(member, where)
         options[name] = member
     if len(options) > 1:
         # pydantic needs no discriminator to pick the only option.

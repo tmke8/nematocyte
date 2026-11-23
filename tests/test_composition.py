@@ -908,8 +908,8 @@ class Dated:
 
 
 def test_dates_in_json5_and_yaml(tmp_path: Path) -> None:
-    # JSON5 has no dates: a `date` field gets the same value from both
-    # formats, an `Any` field does not.
+    # JSON has no dates, so a date from YAML reaches pydantic as an ISO
+    # string, as one from JSON5 does: both formats give the same values.
     write_files(
         tmp_path,
         {
@@ -920,22 +920,17 @@ def test_dates_in_json5_and_yaml(tmp_path: Path) -> None:
     from_yaml = nematocyte.compose(Dated, tmp_path, config_name="y")
     from_json5 = nematocyte.compose(Dated, tmp_path, config_name="j")
     assert from_yaml.day == from_json5.day == datetime.date(2026, 11, 16)
-    assert from_yaml.anything == datetime.date(2026, 11, 16)
-    assert from_json5.anything == "2026-11-16"
+    assert from_yaml.anything == from_json5.anything == "2026-11-16"
 
 
 def test_date_for_a_str_field(tmp_path: Path) -> None:
+    # In YAML, the unquoted date is a `date`; its JSON form is the string.
     write_files(
         tmp_path,
         {"j.json5": "{name: '2026-11-16'}", "y.yaml": "name: 2026-11-16\n"},
     )
     assert nematocyte.compose(Dated, tmp_path, config_name="j").name == "2026-11-16"
-    # In YAML, the unquoted date is a `date`, not a string.
-    with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(Dated, tmp_path, config_name="y")
-    message = str(excinfo.value)
-    assert "y.yaml" in message
-    assert "Dated.name" in message
+    assert nematocyte.compose(Dated, tmp_path, config_name="y").name == "2026-11-16"
 
 
 @pytest.mark.parametrize(

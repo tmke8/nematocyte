@@ -59,36 +59,21 @@ command line alike. OmegaConf converts it.
 The shell removes the quotes, so on the command line they have to be
 protected: `"wandb.name='123'"`. See [cli.md](design/cli.md).
 
-### A bool is a number
+### A string is not a number or a bool
 
-`true` and `false` are accepted for an `int` or a `float` field, as `1` and
-`0`, also inside a list, tuple or dict. OmegaConf rejects them.
+A quoted number is a string, and a string is rejected for an `int`, a
+`float` or a `bool` field, as is a number for a `bool`. OmegaConf 2.4
+converts them, with a warning that this is deprecated.
 
-| Written, for `seed: int` | Hydra (OmegaConf 2.4) | nematocyte |
+| Written | Hydra (OmegaConf 2.4) | nematocyte |
 | --- | --- | --- |
-| `seed=true` | Error | `1` |
-| `seeds=[1,true]`, for `list[int]` | Error | `[1, 1]` |
+| `seed='123'`, for `int` | `123`, with a `FutureWarning` | Error |
+| `lr='1e-3'`, for `float` | `0.001`, with a `FutureWarning` | Error |
+| `flag='false'` or `flag=0`, for `bool` | `False`, with a `FutureWarning` | Error |
 
-In Python, a `bool` is an `int`, and pydantic converts it. Where the type
-of the field allows a bool, such as `int | bool` or `Any`, it stays a bool.
-See [deserializer.md](design/deserializer.md#rejecting-a-bool-for-a-number).
-
-To reject a bool for a field, give it pydantic's strict type:
-
-```python
-from pydantic import StrictFloat, StrictInt
-
-
-@dataclass
-class Config:
-    seed: StrictInt = 0
-    lr: StrictFloat = 1e-3
-    seeds: list[StrictInt] = field(default_factory=list)
-```
-
-A type checker sees `int` and `float`. `StrictFloat` still accepts an int,
-so `lr=1` works, but `StrictInt` also rejects `1.0` and `'3'`, which lax
-mode converts.
+As in OmegaConf, `true` and `1.0` are rejected for an `int`. nematocyte
+validates in pydantic's strict mode on JSON input; see
+[deserializer.md](design/deserializer.md#strict-validation-through-json).
 
 ### Config files are read as YAML 1.2
 
@@ -133,7 +118,6 @@ error. This happens where the type of the field does not say what to build:
 | `color: Any = Color.RED` | `Color.RED` | Error |
 | `root: Any = Path("/data")` | `Path("/data")` | Error |
 | `opt: Any = field(default_factory=Adam)` | `Adam(lr=0.1)`, after `OmegaConf.to_object` | Error |
-| `root: Path \| str = Path("/data")` | `Path("/data")` | Error |
 | `sizes: Any = (1, 2)` | `(1, 2)` | `[1, 2]` |
 
 Give the field the type it holds (`color: Color`), or, for a choice between
@@ -155,6 +139,33 @@ If possible, use `TypedDict` instead. Then you can set
 `opt.optimizer_kwargs.eps=1e-6` on the commandline.
 
 See [cli.md](design/cli.md).
+
+### Unknown keys inside a value are ignored
+
+A config class inside a value, such as an item of `items: list[Point]`, is
+not a node of the config, and a key that is not one of its fields is
+dropped, so that the field takes its default:
+
+| Written | Hydra | nematocyte |
+| --- | --- | --- |
+| `items=[{x:1,yy:2}]` | Error | `[Point(x=1, y=0)]` |
+
+To make it an error, opt in through the pydantic config of the class:
+
+```python
+from pydantic import ConfigDict, with_config
+
+
+@with_config(ConfigDict(extra="forbid"))
+@dataclass
+class Point:
+    x: int = 0
+    y: int = 0
+```
+
+A key that is not a field of a subconfig or an option of a group is always
+an error, with the file or override that set it. See
+[deserializer.md](design/deserializer.md#unknown-keys).
 
 ### A subconfig cannot be set to a dict
 
