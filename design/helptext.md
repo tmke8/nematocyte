@@ -165,6 +165,10 @@ the docs as comments.
   any subconfig, `ema:` with its fields below. When it is off, `--help`
   shows `ema=null`, with its presets but no fields, and `--cfg` shows
   `ema: null`.
+- An optional group ([unions.md](unions.md#optional-groups)) that is off
+  is shown as `model=null` in `--help`, with its options and its configs
+  from files but no fields, and as `model: null` in `--cfg`, where the
+  comment says "Selected: null".
 - Python 3.15 generates dataclass docstrings lazily, through an object that
   is not a string. The check for generated docstrings handles both.
 

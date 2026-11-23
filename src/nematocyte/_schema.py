@@ -145,7 +145,7 @@ class FieldInfo:
     required: bool = True
     """False for a `NotRequired` key of a `TypedDict`, which may be left out."""
     optional: bool = False
-    """For a subconfig: whether its type is `X | None`, so it can be switched off."""
+    """Whether the type is `X | None`, so that the subconfig or group can be off."""
 
     def class_default(self) -> Any:
         """The default from the class definition, or ``MISSING``."""
@@ -330,7 +330,9 @@ def _check_member_extra(member: type, where: str) -> None:
         )
 
 
-def _check_discriminator(metadata: list[Any], *, typeddicts: bool, where: str) -> None:
+def _check_discriminator(
+    metadata: list[Any], *, typeddicts: bool, optional: bool, where: str
+) -> None:
     """Check that the union of a group has the discriminator that it needs."""
     found = [m for m in metadata if isinstance(m, Discriminator)]
     if len(found) == 1 and (
@@ -340,6 +342,8 @@ def _check_discriminator(metadata: list[Any], *, typeddicts: bool, where: str) -
     ):
         return
     spelling = _TYPEDDICT_GROUP_SPELLING if typeddicts else _GROUP_SPELLING
+    if optional:
+        spelling += " | None"
     raise SchemaError(
         f"{where}: the union of a group needs exactly one Discriminator, as in "
         f"{spelling}."
@@ -365,11 +369,54 @@ class _Analysis:
     optional: bool = False
 
 
+def _without_none(annotation: Any) -> tuple[Any, bool]:
+    """The annotation without a `None` in its outermost union, and whether it had one.
+
+    `X | None` is an optional subconfig, and `Annotated[A | B, Discriminator(...)]
+    | None` an optional group. A `None` inside the union that carries the
+    `Discriminator` is not taken off, and is an error later.
+    """
+    inner, outer = unwrap(annotation)
+    if get_origin(inner) not in (Union, types.UnionType) or any(
+        isinstance(m, Discriminator) for m in outer
+    ):
+        return annotation, False
+    args = get_args(inner)
+    rest = tuple(arg for arg in args if arg is not type(None))
+    if len(rest) == len(args):
+        return annotation, False
+    if len(rest) == 1:
+        return rest[0], True
+    return Union[rest], True  # noqa: UP007
+
+
 def _analyse(annotation: Any, where: str) -> _Analysis:
-    members, outer = _group_members(annotation)
+    members, _ = _group_members(annotation)
     if not any(is_config_class(member) for member, _ in members):
         return _Analysis(Kind.VALUE)
+    present, optional = _without_none(annotation)
+    analysis = _analyse_present(present, where, optional=optional)
+    if optional and analysis.kind is Kind.GROUP and len(analysis.options) == 1:
+        # A name that switches on the only class: a mapping does that for an
+        # optional subconfig.
+        (name, cls), *_ = analysis.options.items()
+        typeddict = (
+            f", where {cls.__name__} is a TypedDict without the key {OPTION_KEY!r}"
+            if is_typeddict_class(cls)
+            else ""
+        )
+        raise SchemaError(
+            f"{where}: None is not allowed next to a group with one option "
+            f"({name!r}). An optional group needs two or more options. For one "
+            f"class, an optional subconfig is typed {cls.__name__} | None"
+            f"{typeddict}, and a mapping switches it on."
+        )
+    return dataclasses.replace(analysis, optional=optional)
 
+
+def _analyse_present(annotation: Any, where: str, *, optional: bool) -> _Analysis:
+    """Analyse a subconfig or a group, without the `None` of an optional one."""
+    members, outer = _group_members(annotation)
     tags = [[m for m in metadata if isinstance(m, Tag)] for _, metadata in members]
     for (member, _), member_tags in zip(members, tags, strict=True):
         if is_typeddict_class(member) and member_tags:
@@ -379,19 +426,12 @@ def _analyse(annotation: Any, where: str) -> _Analysis:
                 f'key instead: {OPTION_KEY}: Literal["..."].'
             )
     discriminated = any(isinstance(m, Discriminator) for m in outer)
-    # `X | None` is an optional subconfig; `None` in a group is an error below.
-    present = [
-        (member, member_tags)
-        for (member, _), member_tags in zip(members, tags, strict=True)
-        if member is not type(None)
-    ]
-    optional = len(present) < len(members)
-    if len(present) == 1 and not present[0][1] and not discriminated:
-        config_cls = present[0][0]
+    if len(members) == 1 and not tags[0] and not discriminated:
+        config_cls = members[0][0]
         if is_config_class(config_cls) and (
             not is_typeddict_class(config_cls) or typeddict_option(config_cls) is None
         ):
-            return _Analysis(Kind.CONFIG, config_cls=config_cls, optional=optional)
+            return _Analysis(Kind.CONFIG, config_cls=config_cls)
 
     typeddicts = [m for m, _ in members if is_typeddict_class(m)]
     dataclasses_ = [
@@ -404,12 +444,14 @@ def _analyse(annotation: Any, where: str) -> _Analysis:
             f"{typeddicts[0].__name__} is a TypedDict."
         )
 
+    spelling = _TYPEDDICT_GROUP_SPELLING if typeddicts else _GROUP_SPELLING
     options: dict[str, type] = {}
     for (member, _), member_tags in zip(members, tags, strict=True):
         if member is type(None):
             raise SchemaError(
-                f"{where}: None is not allowed as a member of a group. Only a "
-                "subconfig of one class can be optional, as in X | None."
+                f"{where}: None is not allowed inside the union of a group. An "
+                f"optional group has None outside the union that carries the "
+                f"Discriminator: {spelling} | None."
             )
         if not is_config_class(member):
             raise SchemaError(
@@ -432,7 +474,9 @@ def _analyse(annotation: Any, where: str) -> _Analysis:
         options[name] = member
     if len(options) > 1:
         # pydantic needs no discriminator to pick the only option.
-        _check_discriminator(outer, typeddicts=bool(typeddicts), where=where)
+        _check_discriminator(
+            outer, typeddicts=bool(typeddicts), optional=optional, where=where
+        )
     return _Analysis(Kind.GROUP, options=options, tagged=discriminated)
 
 
@@ -523,8 +567,8 @@ def _typeddict_fields(
         if not required and analysis.kind is not Kind.VALUE:
             raise SchemaError(
                 f"{where}: a subconfig or a group cannot be NotRequired; only a "
-                "value can be left out. A subconfig that can be switched off is "
-                "typed X | None."
+                "value can be left out. A subconfig or a group that can be "
+                "switched off is typed X | None."
             )
         result[name] = FieldInfo(
             name=name,

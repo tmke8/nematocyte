@@ -111,12 +111,12 @@ def compose_with[T](cls: type[T], overrides: tuple[str, ...] = ()) -> T:
     return nematocyte.compose(cls, overrides=overrides)
 
 
-def test_none_in_a_group_is_still_an_error() -> None:
+def test_none_next_to_a_group_with_one_option_is_an_error() -> None:
     @dataclass
     class C:
         data: Annotated[A, Tag("a")] | None = None
 
-    with pytest.raises(SchemaError, match=r"C\.data.*None is not allowed"):
+    with pytest.raises(SchemaError, match=r"C\.data.*one option.*A \| None"):
         class_fields(C)
 
 
@@ -222,7 +222,7 @@ def test_null_for_a_group_is_an_error() -> None:
         compose(overrides=("group=null",))
     message = str(excinfo.value)
     assert "'group=null'" in message
-    assert "X | None" in message
+    assert "Discriminator(...)] | None" in message
     assert "Options: a, b" in message
 
 
@@ -232,7 +232,8 @@ def test_null_entry_in_defaults_points_to_the_values(tmp_path: Path) -> None:
         compose(config_dir, config_name="c")
     message = str(excinfo.value)
     assert "c.yaml" in message
-    assert "ema: null among the values" in message
+    assert "'ema' is an optional subconfig" in message
+    assert "among the values, outside '_defaults_': ema: null" in message
 
 
 # -- a mapping switches it on ---------------------------------------------------

@@ -123,15 +123,17 @@ has `decay: float = 0.99` and `every: int = 1`:
 
 - **The type.** The field is `X | None` (or `Optional[X]`), with one
   dataclass or TypedDict `X` that carries no `Tag`. Its default is `None`
-  (off), an instance of `X` (on), or there is none. `None` is still not
-  allowed in a group, and a subconfig still cannot be a `NotRequired` key
-  of a TypedDict ([deserializer.md](deserializer.md#typeddict-configs)).
+  (off), an instance of `X` (on), or there is none. A group can be optional
+  too ([below](#optional-groups)), and a subconfig still cannot be a
+  `NotRequired` key of a TypedDict
+  ([deserializer.md](deserializer.md#typeddict-configs)).
 - **`null` switches it off**: `ema: null` in a file, `ema=null` on the
   command line. In a file, a key with nothing under it (`ema:` and then
   only comments) is the same value to YAML, and switches it off too. For a
   subconfig that is not optional, and for a group, null is an error, in a
   file as on the command line, as in Hydra
-  ([composition.md](composition.md)). What lower layers set under
+  ([composition.md](composition.md)). For an optional group, null switches
+  it off ([below](#optional-groups)). What lower layers set under
   the field is dropped, without a `DroppedValueWarning`: that is what
   `null` asks for.
 - **A mapping switches it on**: `ema: {decay: 0.5}` in a file,
@@ -179,9 +181,19 @@ has `decay: float = 0.99` and `every: int = 1`:
 
 ### Optional groups
 
-A group cannot be optional: `None` is not allowed as a member of its
-union, and `model: null` in a file and `model=null` on the command line are
-errors. `hydra-example` has no optional group.
+A group can be switched off as well: `None` goes outside the union that
+carries the `Discriminator`.
+
+```python
+@dataclass
+class Config:
+    model: Model | None = None
+    """Off unless a config selects an option."""
+    decoder: Model | None = field(default_factory=Cnn)
+    """On unless a config switches it off."""
+```
+
+#### How Hydra does it
 
 What Hydra does with null for a group, tested with hydra-core:
 
@@ -192,19 +204,94 @@ What Hydra does with null for a group, tested with hydra-core:
 | Body of a file, field typed `Any` | `None` |
 | Command line, `model=null` | Crashes: "Config group override must be a string or a list" |
 
-The points to settle if optional groups are added:
+With the field typed `Optional[ModelCfg]`, and its default either `None` or
+`Fcn(width=5)`:
 
-- **Switching the group off.** `model=null` and `model: null` would match
-  how `ema=null` switches an optional subconfig off, and how
-  `wandb.name=null` gives `None`. Null is free for this: Hydra's command
-  line crashes on it, a typed field rejects it in a file, and the one use
-  with another meaning, `- model: null` in a defaults list, is an error in
-  nematocyte ([composition.md](composition.md)). Since null for a group is
-  an error now, giving it this meaning later changes nothing that works.
-- **Setting a field while the group is off.** With `model` off,
-  `model.num_hidden=2` names no class. Under the rule for optional
-  subconfigs, where a dotted key does not switch it on, it would be an
-  error, pointing to `model=NAME`.
+| Written | Default `None` | Default `Fcn(width=5)` |
+| --- | --- | --- |
+| Defaults list, `- model: null` | `None` | `Fcn(width=5)` |
+| `- override model: null`, after a config that selected `fcn` | `None` | `Fcn(width=5)` |
+| Body of a file, `model: null`, after `fcn` was selected | `None` | `None` |
+
+So `- model: null` in Hydra does not switch the group off: it selects
+nothing, and the field keeps the default of the dataclass, which is `None`
+only if the default is. `hydra-example` uses it for that, in
+`- opt: null`, so that `opt=NAME` works on the command line without `+`
+([cli.md](cli.md)). Only null in the body of a file switches the group off.
+
+#### How pydantic reads it
+
+Tested with pydantic 2.14, with `Model` the alias from
+[Declaring a group](#declaring-a-group):
+
+| Type | pydantic |
+| --- | --- |
+| `Model \| None`, or `Annotated[A \| B, Discriminator(pick)] \| None` | `None` gives `None`; the rest goes to the tagged union, as without `None` |
+| `None` as an untagged member inside the union of `Discriminator(pick)` | Refused when the schema is built: "`Tag` not provided for choice" |
+| `Annotated[None, Tag("none")]` inside it | `pick` would have to return `"none"` for `None`, which looks like an option |
+| `None` inside a union of TypedDicts with `Discriminator("_option_")` | Accepted: pydantic takes `None` out of a union with a field discriminator |
+
+With `None` outside, pydantic checks for `None` before the discriminator,
+so `pick` never sees it, and the location of an error inside the group is
+the same as without `None`.
+
+#### Decided
+
+- **The type.** `Model | None` (or `Optional[Model]`), where `Model` is a
+  group of two or more options, of dataclasses or of TypedDicts, as an
+  alias or inline: `Annotated[A | B, Discriminator(...)] | None`. Its
+  default is `None` (off), an instance of an option (on), or there is
+  none.
+- **`None` inside the union is an error**, also for TypedDicts, where
+  pydantic would accept it, so that there is one spelling. The error shows
+  the spelling with `| None` outside.
+- **One option is not enough.** `Annotated[A, Tag("a")] | None`, or a
+  TypedDict with the key `_option_` and `| None`, is an error that points
+  to the optional subconfig `A | None`: a name that switches on the only
+  class is the [rejected idea](#rejected-ideas) of a name for "on".
+- **`null` switches it off**: `model=null` on the command line, and
+  `model: null` under `_defaults_` in a file. Being off is one of the
+  choices for the group, so it is written where the options are selected,
+  next to `model: cnn`. A dotted entry such as `outer.model: null` works
+  too. What lower layers selected or set under the group is dropped,
+  without a `DroppedValueWarning`. This is not what `- model: null` means
+  in Hydra, where it selects nothing and keeps the default of the field
+  ([above](#how-hydra-does-it-1)); nematocyte has no use for that, since a
+  field is a group by its type, without an entry in the defaults list.
+- **Among the values of a file, null is an error** for an optional group:
+  `model: null` outside `_defaults_`, and a key with nothing under it, which
+  YAML reads as null. Among the values, `model` holds the fields of the
+  option that is selected, and the class of that option does not allow
+  null. Hydra takes null there. The error shows the entry under
+  `_defaults_`, with the path from the node of the file. So commenting out
+  every line under `model:` does not switch the group off, and a selection
+  and switching off are in one place. A dict on the command line stands for its dotted
+  keys, so `outer={model:null}` is `outer.model=null`, and switches it off.
+- **Null for anything else.** For a group that is not optional, null stays
+  an error that shows the spelling with `| None`. An optional subconfig is
+  still switched off among the values, `ema: null`, and `ema: null` under
+  `_defaults_` is an error that points there.
+- **Selecting an option switches it on**: `model=cnn` on the command line,
+  `model: cnn` under `_defaults_`, or a config in the group's directory.
+  The node starts from the class defaults of the option, as for any
+  selection ([Defaults](#defaults)). `model=null model=cnn` are the same
+  key, and the last one wins.
+- **A mapping does not switch it on.** With `model` off, a mapping names
+  no class: `model.kernel=2`, `model={kernel:2}` on the command line,
+  `model: {kernel: 2}` in a file, and a dotted entry under `_defaults_`
+  such as `model.norm: small` are errors. The error names the key and the
+  options, and shows `model=fcn`. While the group is on, a mapping goes into
+  the selected option, as for any group.
+- **No default, nothing selected.** As for any group, it is an error that
+  lists the options. It also says that `model=null` switches the group off.
+- **Nothing else changes for the node**, as for an optional subconfig. An
+  interpolation that refers to a key under a group that is off is an error.
+  `nematocyte.to_dict` writes `null`, and `from_run_config` reads it back.
+  `--help` shows `model=null` with the options, and `--cfg` shows
+  `model: null` with "Selected: null" ([helptext.md](helptext.md)).
+  `-m model=null,fcn,cnn` sweeps over the three. The validator checks the
+  configs in the group's directory by selecting their options, as for any
+  group that has no option selected.
 
 ## Defaults
 

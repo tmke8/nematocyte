@@ -8,7 +8,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from ._errors import ConfigError
-from ._schema import DEFAULTS_KEY, DOC_KEY
+from ._schema import DEFAULTS_KEY, DOC_KEY, SELF_KEY
 
 __all__ = [
     "SUFFIXES",
@@ -32,7 +32,8 @@ class ConfigFile:
     path: Path
     label: str
     """The path of the file as it is shown in messages."""
-    defaults: dict[str, str]
+    defaults: dict[str, str | None]
+    """The entries of `_defaults_`; `None` switches off an optional group."""
     values: dict[str, Any]
     doc: str = ""
     """What the file says about itself, in its `_doc_`; empty if nothing."""
@@ -80,17 +81,11 @@ def load_file(path: Path) -> ConfigFile:
     if not isinstance(defaults, dict):
         raise ConfigError(f"{label}: '_defaults_' has to be a mapping.")
     for key, name in defaults.items():
-        if not isinstance(name, str):
-            hint = (
-                " An entry with null is not needed in nematocyte; remove it. "
-                f"To switch off an optional subconfig, write {key}: null among "
-                "the values, outside '_defaults_'."
-                if name is None
-                else ""
-            )
+        # Null is checked against the field when the file is applied.
+        if not isinstance(name, str) and (name is not None or key == SELF_KEY):
             raise ConfigError(
                 f"{label}: the entry {key!r} in '_defaults_' has to name a config, "
-                f"but is {name!r}.{hint}"
+                f"but is {name!r}."
             )
     return ConfigFile(
         path=path, label=label, defaults=defaults, values=content, doc=doc

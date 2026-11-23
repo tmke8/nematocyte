@@ -200,14 +200,33 @@ Python code, and `_target_` is an unknown key like any other. A program that
 wants to name a class in its config keeps the import path in a `str` field
 and imports it itself. See [unions.md](design/unions.md).
 
-### A group cannot be optional
+### A group is switched off with `null`, under `_defaults_` in a file
 
-In Hydra, a group field typed `Optional[ModelCfg]` takes `model: null` in a
-config file. In nematocyte, `None` is not allowed in the union of a group.
-Only a subconfig of one class can be optional, as in `ema: EmaCfg | None`;
-it is switched off with `ema: null` in a file or `ema=null` on the command
-line, and switched on with a mapping, as in Hydra. See
-[unions.md](design/unions.md#optional-groups).
+A group is optional when its type is `Model | None`, with `None` outside
+the union of the group. In a file, it is switched off under `_defaults_`,
+next to the selections:
+
+```yaml
+_defaults_:
+  model: null
+```
+
+In Hydra, `- model: null` in the defaults list means something else: it
+selects nothing, and the field keeps the default of the dataclass, so a
+default of `Fcn()` stays on. Hydra switches the group off with
+`model: null` in the body of a file, for a field typed
+`Optional[ModelCfg]`. In nematocyte, that is an error that points to
+`_defaults_`, since among the values `model` holds the fields of the
+selected option, whose class does not allow null; so is a key with nothing
+under it. On the command line, `model=null` switches it off, where
+Hydra crashes ("Config group override must be a string or a list"). It is
+switched on by selecting an option, as in `model=cnn`. A mapping does not
+switch it on: `model.kernel=2` while the group is off is an error that
+points to `model=NAME`.
+
+An optional subconfig of one class, `ema: EmaCfg | None`, is switched off
+among the values instead, `ema: null`, and switched on with a mapping, as
+in Hydra. See [unions.md](design/unions.md#optional-groups).
 
 ### A hand-written `__init__` is not called
 
@@ -270,7 +289,10 @@ _defaults_:
   in the file. Hydra applies the list in order.
 - There is no `override` keyword.
 - A key can be a dotted path: `model.norm: my_batchnorm`.
-- `- opt: null` is not needed, and is an error.
+- `- opt: null`, which Hydra needs so that `opt=NAME` works without `+`, is
+  not needed, and is an error. Under `_defaults_`, null only switches off
+  an optional group, `model: null`, which is not what it means in Hydra
+  ([above](#a-group-is-switched-off-with-null-under-_defaults_-in-a-file)).
 - A key `defaults`, as in Hydra, is an error that suggests `_defaults_`,
   unless the node has a field of that name. A list is an error that shows
   the mapping form.

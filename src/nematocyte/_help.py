@@ -100,6 +100,8 @@ class _Help:
             self.gap()
             if info.kind is Kind.GROUP:
                 selected = child.option if child is not None else None
+                if node.is_off(info):
+                    selected = "null"
                 width = max(6, *(len(name) for name in info.options)) + 3
                 options = []
                 for name, cls in info.options.items():
@@ -189,10 +191,13 @@ def _comment(text: str, indent: str, width: int) -> list[str]:
     return [f"{indent}# {line}" for line in textwrap.wrap(text, room)]
 
 
-def _cfg_node_doc(info: FieldInfo, child: Node | None) -> str:
+def _cfg_node_doc(node: Node, info: FieldInfo) -> str:
     """The comment above a subconfig or a group in `--cfg`; empty if none."""
     if info.kind is Kind.GROUP:
+        child = node.children.get(info.name)
         selected = child.option if child is not None else "none"
+        if node.is_off(info):
+            selected = "null"
         note = f"Options: {', '.join(info.options)}. Selected: {selected}."
         return f"{info.doc} {note}".strip()
     assert info.config_cls is not None
@@ -225,8 +230,8 @@ def _cfg_node(
                 lines += [indent + line for line in _dump_yaml(info.name, value)]
             continue
         child = node.children.get(info.name)
-        lines += _comment(_cfg_node_doc(info, child), indent, width)
-        if child is None and info.optional:
+        lines += _comment(_cfg_node_doc(node, info), indent, width)
+        if node.is_off(info):
             lines.append(f"{indent}{info.name}: null")
             continue
         if child is None:

@@ -91,6 +91,11 @@ class Node:
         """For a node of a group: the name of the option that its class is."""
         self.fields = class_fields(cls) if fields is None else fields
         self.children: dict[str, Node] = {}
+        self.off: set[str] = set()
+        """The optional subconfigs and groups that are switched off (null).
+
+        A field is off only while it has no node in `children`.
+        """
         self.values: dict[str, Any] = {}
         """The values that were set, as they came from a file or an override.
 
@@ -113,11 +118,12 @@ class Node:
         default = self.default_value(info)
         where = f"{self.class_name}.{info.name}"
         path = (*self.path, info.name)
+        if default is None and info.optional:
+            # An optional subconfig or group that is off by default has no node.
+            self.off.add(info.name)
+            return
         if info.kind is Kind.CONFIG:
             assert info.config_cls is not None
-            if default is None and info.optional:
-                # An optional subconfig that is off by default has no node.
-                return
             if is_typeddict_class(info.config_cls):
                 fits = is_dict_or_frozendict(default)
             else:
@@ -173,9 +179,13 @@ class Node:
         return f"{self.class_name} (at {where!r})"
 
     def switch_off(self, info: FieldInfo) -> None:
-        """Switch off the optional subconfig `info`; what was set under it is gone."""
+        """Switch off the optional subconfig or group `info`.
+
+        What was set or selected under it is gone.
+        """
         assert info.optional
         self.children.pop(info.name, None)
+        self.off.add(info.name)
         self.touched = True
 
     def switch_on(self, info: FieldInfo) -> Node:
@@ -183,18 +193,22 @@ class Node:
 
         A subconfig that is switched on starts from the defaults of its class.
         """
+        assert info.kind is Kind.CONFIG
         child = self.children.get(info.name)
         if child is None:
             assert info.optional
             assert info.config_cls is not None
             child = Node(info.config_cls, (*self.path, info.name))
             self.children[info.name] = child
+        self.off.discard(info.name)
         child.touched = True
         return child
 
     def is_off(self, info: FieldInfo) -> bool:
-        """Whether `info` is an optional subconfig that is switched off."""
-        return info.optional and info.name not in self.children
+        """Whether `info` is an optional subconfig or group that is switched off."""
+        return (
+            info.optional and info.name in self.off and info.name not in self.children
+        )
 
     def default_value(self, info: FieldInfo) -> Any:
         """The value of a field that nothing has set, or ``MISSING``."""
@@ -242,7 +256,7 @@ class Node:
                     result[info.name] = to_json_form(value)
             elif info.name in self.children:
                 result[info.name] = self.children[info.name].to_json_tree()
-            elif info.optional:
+            elif self.is_off(info):
                 result[info.name] = None
         return result
 
@@ -274,7 +288,8 @@ def _from_json_tree(
             node.set_value(info.name, value, rebuild.source)
             continue
         if value is None and info.optional:
-            # An optional subconfig that is off: it has no node.
+            # An optional subconfig or group that is off: it has no node.
+            node.off.add(info.name)
             continue
         what = "a group" if info.kind is Kind.GROUP else "a subconfig"
         if not isinstance(value, Mapping):
@@ -366,25 +381,35 @@ def make_root(config_cls: type, settings_cls: type) -> Node:
 def switched_off_message(
     node: Node, info: FieldInfo, rest: Path = (), value: Any = MISSING
 ) -> str:
-    """The error for a key under an optional subconfig that is switched off.
+    """The error for a key under an optional subconfig or group that is off.
 
     `rest` is the path below the subconfig that was to be set, and `value`
     the value for it, if they are known; the error then shows the mapping
-    that switches the subconfig on with that value.
+    that switches the subconfig on with that value. A group is switched on
+    by selecting an option, and the error lists them.
     """
-    assert info.config_cls is not None
     path = format_path((*node.path, info.name))
+    what = (
+        f"{format_path((*node.path, info.name, *rest))!r} cannot be set"
+        if rest
+        else "its fields cannot be set"
+    )
+    if info.kind is Kind.GROUP:
+        first = next(iter(info.options))
+        return (
+            f"{path!r} is an optional group of {node.describe()}, and it is "
+            f"switched off (null), so {what}. Selecting an option switches "
+            f"it on: {path}={first} on the command line, or {path}: {first} "
+            f"under '_defaults_' in a config file. "
+            f"Options: {', '.join(info.options)}."
+        )
+    assert info.config_cls is not None
     example = f"{path}={{}}"
     if rest and value is not MISSING:
         nested = value
         for segment in reversed(rest):
             nested = {segment: nested}
         example = f"{path}={format_value(nested)}"
-    what = (
-        f"{format_path((*node.path, info.name, *rest))!r} cannot be set"
-        if rest
-        else "its fields cannot be set"
-    )
     return (
         f"{path!r} is an optional subconfig of {node.describe()} "
         f"({info.config_cls.__name__} | None), and it is switched off (null), "
@@ -411,15 +436,17 @@ def unknown_key_message(node: Node, name: str) -> str:
 def require_child(node: Node, info: FieldInfo) -> Node:
     """The node of a subconfig or group field.
 
-    An error if no option is selected, or if an optional subconfig is off.
+    An error if no option is selected, or if an optional subconfig or group
+    is off.
     """
     child = node.children.get(info.name)
     if child is None:
         path = format_path((*node.path, info.name))
-        if info.optional:
+        if node.is_off(info):
             raise ConfigError(switched_off_message(node, info))
+        hint = f" To switch it off: {path}=null." if info.optional else ""
         raise ConfigError(
             f"No option is selected for the group {path!r}. "
-            f"Options: {', '.join(info.options)}."
+            f"Options: {', '.join(info.options)}.{hint}"
         )
     return child
