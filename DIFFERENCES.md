@@ -200,17 +200,14 @@ Python code, and `_target_` is an unknown key like any other. A program that
 wants to name a class in its config keeps the import path in a `str` field
 and imports it itself. See [unions.md](design/unions.md).
 
-### Optional subconfigs are switched off with `null`, not `~`
+### A group cannot be optional
 
-A subconfig typed `EmaCfg | None` is switched off with `ema: null` in a
-file or `ema=null` on the command line, and switched on with a mapping, as
-in Hydra. The difference is `~`:
-
-| Written | Hydra | nematocyte |
-| --- | --- | --- |
-| `~ema`, where the default is `EmaCfg()` | Deletes the key, and the default comes back: still on | Error, which points to `ema=null` |
-
-A group cannot have `None` as an option. See [unions.md](design/unions.md#optional-subconfigs).
+In Hydra, a group field typed `Optional[ModelCfg]` takes `model: null` in a
+config file. In nematocyte, `None` is not allowed in the union of a group.
+Only a subconfig of one class can be optional, as in `ema: EmaCfg | None`;
+it is switched off with `ema: null` in a file or `ema=null` on the command
+line, and switched on with a mapping, as in Hydra. See
+[unions.md](design/unions.md#optional-groups).
 
 ### A hand-written `__init__` is not called
 
@@ -338,10 +335,10 @@ selects none. See [composition.md](design/composition.md).
 
 ## Command line
 
-### No `++`, `+` takes no `=`, and `~` only leaves out a TypedDict key
+### `+` only adds a primary config
 
-Besides `key=value`, only `+NAME` and `~KEY` remain. An unknown key under a
-dataclass is still an error. `+` is not needed where Hydra asks for it to add a key:
+In Hydra, `+` adds a key, or a config group that is not in the defaults
+list. In nematocyte that is not needed:
 
 | Hydra | nematocyte |
 | --- | --- |
@@ -349,16 +346,40 @@ dataclass is still an error. `+` is not needed where Hydra asks for it to add a 
 | `+opt.optimizer_kwargs={eps:1e-6}` | `opt.optimizer_kwargs={eps:1e-6}` |
 
 Whether `key=name` selects a config or sets a value follows from the type of
-the field: a dataclass or a group is a selection. See
-[cli.md](design/cli.md).
+the field: a dataclass or a group is a selection. The one use of `+` that
+is left is `+NAME`, without `=`, which applies a primary config on top of
+the tree ([below](#a-preset-for-the-whole-config-is-presetsdebug)).
+`+key=value` is an error that shows both forms that may have been meant.
+See [cli.md](design/cli.md).
+
+### `~` only leaves out a TypedDict key
 
 In Hydra, `~key` deletes any key, and `~key=value` deletes it only if it
 has that value. In nematocyte, `~KEY` only leaves out a `NotRequired` key of
 a TypedDict, so that it is not in the dict, even if a default or a config
-file set it. `~key=value` is an error, and so is `~KEY` on a required key or
-on a field of a dataclass; such a field is set to `null` instead, if it
-takes `None`. Leaving out a key that nothing set is not an error. See
-[cli.md](design/cli.md#key-leaves-out-an-optional-key-of-a-typeddict).
+file set it. Leaving out a key that nothing set is not an error.
+
+`~key=value` is an error, and so is `~KEY` on a required key, on a field of
+a dataclass, and on a subconfig or a group. Such a field is set to `null`
+instead, if it takes `None`, and the error says so. This includes an
+optional subconfig: `~ema` does not switch it off, but is an error that
+points to `ema=null`. It does not switch it off in Hydra either, where the
+key is deleted and the default of the dataclass comes back, without a
+warning:
+
+| Written, where the default is `EmaCfg()` | Hydra | nematocyte |
+| --- | --- | --- |
+| `~ema` | Still on | Error, which points to `ema=null` |
+| `ema=null` | Off | Off |
+
+See [cli.md](design/cli.md#key-leaves-out-an-optional-key-of-a-typeddict).
+
+### No `++`
+
+In Hydra, `++key=value` sets a key whether or not it is in the config. In
+nematocyte, `key=value` sets any key that the schema has, and an unknown
+key is an error, with or without a prefix. `++key=value` is an error that
+says to write `key=value`.
 
 ### A preset for the whole config is `+presets/debug`
 
