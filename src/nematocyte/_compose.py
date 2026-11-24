@@ -44,8 +44,8 @@ from ._tree import (
     Selection,
     format_path,
     make_root,
+    nest,
     next_step,
-    require_child,
     switched_off_message,
     unknown_key_message,
 )
@@ -204,7 +204,9 @@ class Composer:
         a value; it is not merged as a mapping in a file is.
         """
         overrides = last_wins(overrides)
-        values: list[Override] = []
+        # A value's node stays in the tree: what comes after it in this order
+        # replaces only nodes at least as deep as the value itself.
+        values: list[tuple[Override, Node, FieldInfo]] = []
         for override in sorted(overrides, key=lambda o: len(o.key)):
             source = repr(override.text)
             _check_no_replace(override)
@@ -212,7 +214,7 @@ class Composer:
                 root, override.key, source, _plain_value(override)
             )
             if info.kind is Kind.VALUE:
-                values.append(override)
+                values.append((override, parent, info))
                 continue
             if override.unset:
                 what = "a group" if info.kind is Kind.GROUP else "a subconfig"
@@ -232,7 +234,7 @@ class Composer:
                     raise _error(source, self._null_message(parent, info))
                 parent.switch_off(info)
                 continue
-            if _is_some(override.value):
+            if override.value == SOME:
                 self._switch_on(parent, info, source)
                 continue
             if isinstance(override.value, dict):
@@ -240,11 +242,8 @@ class Composer:
                 continue
             name = self._selection_name(override, info)
             self._select(parent, info, name, source, f"the override {source}")
-        for override in values:
+        for override, parent, info in values:
             source = repr(override.text)
-            parent, info = self._locate(
-                root, override.key, source, _plain_value(override)
-            )
             if override.unset:
                 _check_unset(override, parent, info)
                 parent.unset_value(info.name, f"the override {source}")
@@ -274,13 +273,7 @@ class Composer:
             raise _error(
                 source, self._dataclass_dict_message(parent, info, override.value)
             )
-        if _switches_on(info):
-            child = parent.switch_on(info)
-        else:
-            try:
-                child = require_child(parent, info)
-            except ConfigError as exc:
-                raise _error(source, str(exc)) from None
+        child = self._mapping_child(parent, info, source)
         step = next_step()
         child.replace(step)
         # What the dict replaces is not warned about: it says so.
@@ -655,9 +648,16 @@ class Composer:
                     switched_off, (*prefix, info.name), path, value, label
                 )
             if value is None:
-                self._apply_null(
-                    node, info, label, command_line=command_line, prefix=prefix
-                )
+                # On the command line, null switches an optional subconfig or
+                # group off. In a file, it is an error: they are switched off
+                # under `_defaults_`, and a key with nothing under it, which
+                # YAML reads as null, may have been meant to leave them alone.
+                if not command_line:
+                    message = self._file_null_message(node, info, prefix)
+                    raise _error(label, message)
+                if not info.optional:
+                    raise _error(label, self._null_message(node, info))
+                node.switch_off(info)
                 continue
             if not isinstance(value, dict):
                 raise _error(
@@ -672,16 +672,8 @@ class Composer:
                 raise _error(
                     label, self._file_mapping_off_message(node, info, value, prefix)
                 )
-            if _switches_on(info):
-                child = node.switch_on(info)
-            else:
-                try:
-                    child = require_child(node, info)
-                except ConfigError as exc:
-                    raise _error(label, str(exc)) from None
-            child.touched = True
             self._apply_values(
-                child,
+                self._mapping_child(node, info, label),
                 value,
                 label,
                 since=since,
@@ -689,29 +681,6 @@ class Composer:
                 switched_off=switched_off,
                 prefix=(*prefix, info.name),
             )
-
-    def _apply_null(
-        self,
-        node: Node,
-        info: FieldInfo,
-        label: str,
-        *,
-        command_line: bool,
-        prefix: KeyPath,
-    ) -> None:
-        """Apply null for a subconfig or a group, from a file or a dict.
-
-        On the command line, null switches an optional subconfig or group
-        off. In a file, it is an error: they are switched off under
-        `_defaults_`, and a key with nothing under it, which YAML reads as
-        null, may have been meant to leave them as they are.
-        """
-        if command_line and info.optional:
-            node.switch_off(info)
-            return
-        if command_line:
-            raise _error(label, self._null_message(node, info))
-        raise _error(label, self._file_null_message(node, info, prefix))
 
     def _file_null_message(self, node: Node, info: FieldInfo, prefix: KeyPath) -> str:
         """The error for null among the values of a file, for a subconfig or group."""
@@ -819,10 +788,7 @@ class Composer:
                 rest = path[index + 1 :]
                 example = "{...}"
                 if value is not MISSING:
-                    nested = value
-                    for key in reversed(rest):
-                        nested = {key: nested}
-                    example = format_value(nested)
+                    example = format_value(nest(rest, value))
                 raise _error(
                     source,
                     f"{here!r} is a value, not a subconfig, so it has no key "
@@ -833,11 +799,39 @@ class Composer:
             if node.is_off(info):
                 rest = path[index + 1 :]
                 raise _error(source, switched_off_message(node, info, rest, value))
-            try:
-                node = require_child(node, info)
-            except ConfigError as exc:
-                raise _error(source, str(exc)) from None
+            node = self._child(node, info, source)
         raise AssertionError("an empty path")
+
+    def _child(self, parent: Node, info: FieldInfo, source: str) -> Node:
+        """The node of a subconfig or group field.
+
+        An error if no option is selected, or if an optional subconfig or
+        group is off.
+        """
+        child = parent.children.get(info.name)
+        if child is not None:
+            return child
+        if parent.is_off(info):
+            raise _error(source, switched_off_message(parent, info))
+        path = format_path((*parent.path, info.name))
+        hint = f" To switch it off: {path}=null." if info.optional else ""
+        raise _error(
+            source,
+            f"No option is selected for the group {path!r}. "
+            f"Options: {', '.join(info.options)}.{hint}",
+        )
+
+    def _mapping_child(self, parent: Node, info: FieldInfo, source: str) -> Node:
+        """The node that a mapping, or a preset, for the field `info` goes into.
+
+        It switches an optional subconfig on; an optional group is switched
+        on only by selecting an option.
+        """
+        if info.optional and info.kind is Kind.CONFIG:
+            return parent.switch_on(info)
+        child = self._child(parent, info, source)
+        child.touched = True
+        return child
 
     def _selection_name(self, override: Override, info: FieldInfo) -> str:
         source = repr(override.text)
@@ -961,10 +955,7 @@ class Composer:
                 f"{self._available(path, info)}"
                 f"{_hydra_defaults_hint(file, _option_fields(info))}",
             )
-        # A preset switches an optional subconfig on.
-        node = (
-            parent.switch_on(info) if _switches_on(info) else parent.children[info.name]
-        )
+        node = self._mapping_child(parent, info, source)
         if option is not None and node.option != option:
             raise _error(
                 file.label,
@@ -974,7 +965,6 @@ class Composer:
                 f"the file, or let its '_self_' name {option!r} or a config "
                 f"that extends it.",
             )
-        node.touched = True
         self._apply_body(node, file)
 
     def _split_name(
@@ -1153,20 +1143,6 @@ def _check_not_switched_off(
             f"and the same file gives it a value among the values ({shown}). "
             f"Remove one of the two.",
         )
-
-
-def _switches_on(info: FieldInfo) -> bool:
-    """Whether a preset, or a dict on the command line, switches on the field.
-
-    That is an optional subconfig. An optional group is switched on only by
-    selecting an option.
-    """
-    return info.optional and info.kind is Kind.CONFIG
-
-
-def _is_some(value: Any) -> bool:
-    """Whether an override's value is `_some_`, which switches a subconfig on."""
-    return isinstance(value, str) and value == SOME
 
 
 def _holds_typeddicts(info: FieldInfo) -> bool:
