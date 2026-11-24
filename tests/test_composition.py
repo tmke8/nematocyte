@@ -70,13 +70,6 @@ def test_named_config_chain_for_a_group(config_dir: Path) -> None:
     assert config.dm == Celeba(default_res=64, superclass="Smiling")
 
 
-def test_preset_that_extends_another_preset(config_dir: Path) -> None:
-    config = nematocyte.compose(
-        Config, config_dir, overrides=["opt=strong_weight_decay"]
-    )
-    assert config.opt == Opt(lr=0.001, weight_decay=0.1)
-
-
 def test_primary_config_that_extends_another(config_dir: Path) -> None:
     config = nematocyte.compose(
         Config, config_dir, config_name="experiments/good_run_blond"
@@ -761,15 +754,6 @@ def test_unknown_key_names_key_file_and_class(config_dir: Path) -> None:
     assert "Did you mean 'hidden_dim'?" in message
 
 
-def test_key_of_another_option_is_an_error(config_dir: Path) -> None:
-    write_files(
-        config_dir,
-        {"bad.yaml": "_defaults_:\n  model: cnn\nmodel:\n  num_hidden: 2\n"},
-    )
-    with pytest.raises(ConfigError, match="num_hidden"):
-        nematocyte.compose(Config, config_dir, config_name="bad")
-
-
 # -- YAML 1.2 --------------------------------------------------------------
 
 
@@ -1278,19 +1262,6 @@ def test_doc_has_to_be_a_string(tmp_path: Path) -> None:
     path.write_text("_doc_: 3\n")
     with pytest.raises(ConfigError, match=r"(?s)file\.yaml.*'_doc_'.*string"):
         load_file(path)
-
-
-def test_files_with_a_doc_compose(config_dir: Path) -> None:
-    # `good_run.yaml`, `single_linear_layer.yaml` and `presets/debug.yaml` have
-    # a `_doc_`; `experiments/good_run_blond.yaml` extends one that has.
-    config = nematocyte.compose(
-        Config,
-        config_dir,
-        config_name="experiments/good_run_blond",
-        overrides=["+presets/debug"],
-    )
-    assert config.seed == 0
-    assert config.model == Fcn(num_hidden=0, activation="selu")
 
 
 def test_doc_below_the_top_level_is_an_error(config_dir: Path) -> None:

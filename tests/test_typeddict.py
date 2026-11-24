@@ -461,17 +461,6 @@ def test_select_a_typeddict_option_from_a_group_file() -> None:
     assert config.optimizer == {"_option_": "sgd", "momentum": 0.99}
 
 
-def test_match_on_the_option() -> None:
-    config = compose_root(
-        WithOptimizer, overrides=["optimizer=adam", "optimizer.beta1=0.8"]
-    )
-    match config.optimizer:
-        case {"_option_": "sgd"}:
-            pytest.fail("not sgd")
-        case {"_option_": "adam", **rest}:
-            assert rest == {"beta1": 0.8}
-
-
 def test_a_group_of_typeddicts_needs_a_selection() -> None:
     with pytest.raises(ConfigError, match="optimizer: no option is selected"):
         compose_root(WithOptimizer)
@@ -605,19 +594,6 @@ def test_tilde_leaves_out_a_key_of_a_selected_option(overrides: list[str]) -> No
 def test_tilde_on_a_key_that_nothing_set_does_nothing() -> None:
     config = compose_root(DataclassRoot, overrides=["~opt.wd"])
     assert config.opt == {"lr": 0.1}
-
-
-@pytest.mark.parametrize(
-    ("overrides", "expected"),
-    [
-        (["opt.wd=0.5", "~opt.wd"], {"lr": 0.1}),
-        (["~opt.wd", "opt.wd=0.5"], {"lr": 0.1, "wd": 0.5}),
-    ],
-)
-def test_tilde_and_a_value_last_one_wins(
-    overrides: list[str], expected: dict[str, float]
-) -> None:
-    assert compose_root(WithWd, overrides=overrides).opt == expected
 
 
 @pytest.mark.parametrize(

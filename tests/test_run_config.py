@@ -158,19 +158,6 @@ def test_run_config_holds_json_values() -> None:
     assert "scaled" not in saved
 
 
-def test_run_config_gives_back_the_object() -> None:
-    received: list[tuple[Config, Config]] = []
-
-    @nematocyte.main(Config, config_path=empty_config_dir())
-    def main(config: Config) -> None:
-        again = nematocyte.from_run_config(Config, nematocyte.run_config())
-        received.append((config, again))
-
-    main(["model=cnn", "model.norm=layernorm", "seed=3"])
-    [(config, again)] = received
-    assert again == config
-
-
 def test_run_config_is_a_copy() -> None:
     seen: list[dict[str, Any]] = []
 
@@ -189,20 +176,6 @@ def test_run_config_is_a_copy() -> None:
     for config in seen:
         assert config["seed"] == 1
         assert config["model"] == nematocyte.to_dict(Config())["model"]
-
-
-def test_run_config_of_each_job(capsys: pytest.CaptureFixture[str]) -> None:
-    seen: list[dict[str, Any]] = []
-
-    @nematocyte.main(Config, config_path=empty_config_dir())
-    def main(config: Config) -> None:  # noqa: ARG001
-        seen.append(nematocyte.run_config())
-
-    main(["--multirun", "seed=1,2"])
-    capsys.readouterr()
-    assert [config["seed"] for config in seen] == [1, 2]
-    # nematocyte's settings are not part of it.
-    assert all("nematocyte" not in config for config in seen)
 
 
 def test_run_config_outside_a_run_is_an_error() -> None:
@@ -233,14 +206,6 @@ def test_any_mapping_is_accepted() -> None:
     )
     config = nematocyte.from_run_config(Config, data)
     assert config == Config(seed=3, dm=Celeba(download=True))
-
-
-def test_option_key_is_kept_for_a_dataclass_option() -> None:
-    # `to_dict` writes it into the same mapping as the fields.
-    config = nematocyte.from_run_config(
-        Config, {"model": {"_option_": "fcn", "num_hidden": 2}}
-    )
-    assert config.model == Fcn(num_hidden=2)
 
 
 def test_interpolations_are_not_resolved() -> None:

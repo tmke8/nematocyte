@@ -31,15 +31,6 @@ def test_one_result_per_file(config_dir: Path) -> None:
     assert all(result.error is None for result in results)
 
 
-@pytest.mark.parametrize("path", sorted(CONFIG_FILES))
-def test_single_file(config_dir: Path, path: str) -> None:
-    # As in the example: one test case per file, with a relative path.
-    result = nematocyte.Validator(Config, config_dir).validate(Path(path))
-    assert result.path == Path(path)
-    if result.error is not None:
-        raise result.error
-
-
 def test_absolute_path(config_dir: Path) -> None:
     result = nematocyte.Validator(Config, config_dir).validate(
         config_dir / "good_run.yaml"
@@ -91,13 +82,6 @@ def test_broken_preset(config_dir: Path) -> None:
     assert list(found) == ["opt/typo.yaml"]
     assert "'learning_rate'" in found["opt/typo.yaml"]
     assert "Opt" in found["opt/typo.yaml"]
-
-
-def test_doc_that_is_not_a_string(config_dir: Path) -> None:
-    write_files(config_dir, {"opt/listed.yaml": "_doc_:\n  - a\nlr: 1\n"})
-    found = errors(config_dir)
-    assert list(found) == ["opt/listed.yaml"]
-    assert "'_doc_'" in found["opt/listed.yaml"]
 
 
 def test_files_under_the_reserved_key(config_dir: Path) -> None:

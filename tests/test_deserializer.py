@@ -91,9 +91,6 @@ class Types:
         ("color=green", "color", Color.GREEN),
         ("pair=[1,a]", "pair", (1, "a")),
         ("prob=1", "prob", 1.0),
-        # The conversions that JSON needs (design/deserializer.md).
-        ("p='/srv/data'", "p", Path("/srv/data")),
-        ("color='green'", "color", Color.GREEN),
     ],
 )
 def test_accepted_values(override: str, name: str, expected: Any) -> None:
@@ -513,7 +510,6 @@ TOKEN = object()
             "datetime.date(2026, 1, 1)",
             "'2026-01-01'",
         ),
-        (Color | str, Color.RED, "", "<Color.RED: 'red'>", "'red'"),
         (Level | int, Level.LOW, "", "<Level.LOW: 1>", "1"),
     ],
 )

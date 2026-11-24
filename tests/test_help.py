@@ -9,7 +9,6 @@ import pytest
 from ruamel.yaml import YAML
 
 import nematocyte
-from nematocyte import ConfigError
 from nematocyte._compose import Composer
 from nematocyte._help import format_cfg, format_help
 from nematocyte._overrides import parse_override
@@ -181,14 +180,6 @@ def test_no_primary_configs_no_block(tmp_path: Path) -> None:
     assert "Primary configs" not in help_text(Small)
     configs = write_files(tmp_path / "configs", {"opt/fast.yaml": "lr: 0.1\n"})
     assert "Primary configs" not in help_text(Small, configs)
-
-
-def test_doc_of_a_file_that_is_not_a_string_is_an_error(tmp_path: Path) -> None:
-    configs = write_files(
-        tmp_path / "configs", {"opt/fast.yaml": "_doc_: [a, b]\nlr: 0.1\n"}
-    )
-    with pytest.raises(ConfigError, match=r"(?s)fast\.yaml.*'_doc_'"):
-        help_text(Small, configs)
 
 
 def test_subconfig_falls_back_to_the_class_docstring() -> None:

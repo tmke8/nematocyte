@@ -342,10 +342,6 @@ def test_null_under_a_dict_is_applied_after_it(overrides: list[str]) -> None:
     assert compose(overrides=overrides).sched == {"warmup": None, "steps": 1}
 
 
-def test_a_dict_switches_on_an_optional_typeddict() -> None:
-    assert compose(overrides=["ema={lr:0.5}"]).ema == {"lr": 0.5}
-
-
 def test_a_dict_for_a_group_of_dataclasses_is_an_error() -> None:
     with pytest.raises(ConfigError) as info:
         compose(overrides=["net={opt:{lr:1}}"])

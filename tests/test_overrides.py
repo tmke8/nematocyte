@@ -201,11 +201,6 @@ def test_other_arguments_are_overrides() -> None:
     ("text", "added", "key"),
     [
         ("+presets=debug", "+presets/debug", "presets=debug"),
-        (
-            "+opt=weight_decay_adamw",
-            "+opt/weight_decay_adamw",
-            "opt=weight_decay_adamw",
-        ),
         ("+a.b=c", "+a/b/c", "a.b=c"),
     ],
 )

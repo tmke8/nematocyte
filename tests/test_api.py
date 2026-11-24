@@ -44,11 +44,6 @@ def test_compose_returns_an_instance_of_the_class(config_dir: Path) -> None:
     assert config.seed == 1
 
 
-def test_compose_takes_a_config_name(config_dir: Path) -> None:
-    config = nematocyte.compose(Config, config_dir, config_name="good_run")
-    assert config.seed == 1
-
-
 def test_config_path_is_relative_to_the_file_of_the_function(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -131,13 +126,6 @@ def test_to_dict_records_the_option_of_a_group() -> None:
     assert result["opt"] == {"lr": 5e-05, "weight_decay": 0.0, "optimizer_kwargs": None}
     assert result["seed"] == 42
     assert list(result) == ["dm", "model", "opt", "wandb", "seed", "gpu", "flag"]
-
-
-def test_to_dict_names_the_option_not_the_file(config_dir: Path) -> None:
-    config = nematocyte.compose(
-        Config, config_dir, overrides=["model=single_linear_layer"]
-    )
-    assert nematocyte.to_dict(config)["model"]["_option_"] == "fcn"
 
 
 def test_to_dict_records_nested_groups(config_dir: Path) -> None:

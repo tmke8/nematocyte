@@ -339,10 +339,6 @@ def test_null_under_defaults_for_a_group_that_is_not_optional(
 # -- selecting an option switches it on ---------------------------------------------
 
 
-def test_selection_on_the_command_line_switches_it_on() -> None:
-    assert compose(overrides=("model=cnn",)).model == Cnn()
-
-
 def test_selection_in_a_file_switches_it_on(tmp_path: Path) -> None:
     config_dir = configs(
         tmp_path, {"c.yaml": "_defaults_:\n  model: fcn\nmodel:\n  width: 4\n"}

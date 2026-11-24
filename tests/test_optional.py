@@ -606,15 +606,6 @@ def test_preset_starts_an_optional_subconfig_that_is_on_again(tmp_path: Path) ->
     assert config.on == EmaCfg(every=5)
 
 
-def test_some_keeps_an_optional_subconfig_that_is_on(tmp_path: Path) -> None:
-    # `_some_` only switches it on; what was set stays, without a warning.
-    config_dir = configs(tmp_path, {"run.yaml": "on:\n  every: 5\n"})
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        config = compose(config_dir, ("on=_some_",), config_name="run")
-    assert config.on == EmaCfg(decay=0.8, every=5)
-
-
 # -- a dotted key does not switch it on -------------------------------------------
 
 

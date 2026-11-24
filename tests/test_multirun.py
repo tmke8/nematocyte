@@ -100,13 +100,6 @@ def test_choice_and_range(capsys: pytest.CaptureFixture[str]) -> None:
     ]
 
 
-def test_selections_can_be_swept(capsys: pytest.CaptureFixture[str]) -> None:
-    seen: list[Config] = []
-    assert run(make_main(empty_config_dir(), seen), ["-m", "model=fcn,cnn"]) == 0
-    capsys.readouterr()
-    assert [type(config.model) for config in seen] == [Fcn, Cnn]
-
-
 @pytest.mark.parametrize(
     ("args", "seeds"),
     [

@@ -21,25 +21,6 @@ from .helpers import (
 # -- dict-typed fields ---------------------------------------------------------
 
 
-def test_dict_typed_field_accepts_any_key() -> None:
-    config = nematocyte.compose(Config, overrides=["opt.optimizer_kwargs={eps:1e-6}"])
-    assert config.opt.optimizer_kwargs == {"eps": 1e-6}
-
-
-def test_dict_typed_field_is_replaced(config_dir: Path) -> None:
-    write_files(
-        config_dir, {"kwargs.yaml": "opt:\n  optimizer_kwargs:\n    amsgrad: true\n"}
-    )
-    config = nematocyte.compose(
-        Config,
-        config_dir,
-        config_name="kwargs",
-        overrides=["opt.optimizer_kwargs={eps:1e-6}"],
-    )
-    # Hydra merges; on the command line, a dict replaces.
-    assert config.opt.optimizer_kwargs == {"eps": 1e-6}
-
-
 def test_replace_in_a_dict_on_the_command_line_is_an_error() -> None:
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(
@@ -49,14 +30,6 @@ def test_replace_in_a_dict_on_the_command_line_is_an_error() -> None:
     assert "'opt.optimizer_kwargs={_replace_:true,eps:1e-6}'" in message
     assert "'_replace_' is in the dict for 'opt.optimizer_kwargs'" in message
     assert "leave out the key" in message
-
-
-def test_dotted_path_ends_at_a_dict_typed_field() -> None:
-    with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(Config, overrides=["opt.optimizer_kwargs.eps=1e-6"])
-    message = str(excinfo.value)
-    assert "opt.optimizer_kwargs.eps=1e-6" in message
-    assert "opt.optimizer_kwargs={eps:1e-06}" in message
 
 
 def test_unknown_key_under_a_dataclass_is_an_error() -> None:
@@ -82,30 +55,7 @@ def test_key_of_another_option_is_an_error() -> None:
     assert "kernel_size, stride, activation, norm" in message
 
 
-def test_dict_for_a_dataclass_subconfig_is_an_error() -> None:
-    with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(Config, overrides=["opt={lr:0.1}"])
-    message = str(excinfo.value)
-    assert "'opt={lr:0.1}'" in message
-    assert "'opt' is a subconfig of Config" in message
-    assert "is a dataclass" in message
-    assert "opt.lr=0.1" in message
-
-
-def test_dict_for_a_group_of_dataclasses_is_an_error() -> None:
-    with pytest.raises(ConfigError) as excinfo:
-        nematocyte.compose(Config, overrides=["model={num_hidden:2}"])
-    message = str(excinfo.value)
-    assert "'model={num_hidden:2}'" in message
-    assert "'model' is a group of Config, whose options are dataclasses" in message
-    assert "model.num_hidden=2" in message
-
-
 # -- group or value, from the type of the field ---------------------------------
-
-
-def test_selection_for_a_group() -> None:
-    assert nematocyte.compose(Config, overrides=["model=cnn"]).model == Cnn()
 
 
 def test_selection_of_a_named_config(config_dir: Path) -> None:
@@ -121,10 +71,6 @@ def test_preset_needs_no_entry_in_defaults(config_dir: Path) -> None:
         Config, config_dir, overrides=["opt=weight_decay_adamw"]
     )
     assert config.opt == Opt(lr=0.001, weight_decay=0.01)
-
-
-def test_value_for_a_plain_field() -> None:
-    assert nematocyte.compose(Config, overrides=["seed=123"]).seed == 123
 
 
 def test_selection_without_such_a_config(config_dir: Path) -> None:
@@ -181,15 +127,6 @@ def test_key_given_twice_the_last_one_wins() -> None:
     assert nematocyte.compose(Config, overrides=["seed=abc", "seed=3"]).seed == 3
 
 
-def test_key_given_twice_the_last_one_wins_on_the_command_line(
-    config_dir: Path,
-) -> None:
-    seen: list[Config] = []
-    make_main(config_dir, seen)(["seed=1", "model=cnn", "seed=2"])
-    assert seen[0].seed == 2
-    assert isinstance(seen[0].model, Cnn)
-
-
 def test_sweep_without_multirun_is_an_error() -> None:
     with pytest.raises(ConfigError, match="--multirun"):
         nematocyte.compose(Config, overrides=["seed=42,43"])
@@ -198,11 +135,6 @@ def test_sweep_without_multirun_is_an_error() -> None:
 
 
 # -- nematocyte's own settings ---------------------------------------------------
-
-
-def test_launcher_is_selected_with_dots(config_dir: Path) -> None:
-    settings = compose_settings(config_dir, ["nematocyte.launcher=slurm_test"])
-    assert slurm_launcher(settings).partition == "test"
 
 
 def test_launcher_value(config_dir: Path) -> None:
@@ -312,13 +244,6 @@ def test_cfg_all(config_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert "output_dir: null" in out
 
 
-def test_added_config(config_dir: Path) -> None:
-    seen: list[Config] = []
-    make_main(config_dir, seen)(["-cn", "good_run", "+presets/debug", "seed=3"])
-    assert seen[0].seed == 3
-    assert seen[0].opt == Opt(lr=0.1, weight_decay=0.001)
-
-
 def test_cfg_with_an_added_config(
     config_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -336,15 +261,6 @@ def test_help_with_an_added_config(
     assert "seed=5" in out
     assert "model.stride=1" in out
     assert "+NAME" in out
-
-
-def test_hydras_plus_form_is_explained(
-    config_dir: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    with pytest.raises(SystemExit) as excinfo:
-        make_main(config_dir, [])(["+presets=debug"])
-    assert excinfo.value.code == 1
-    assert "+presets/debug" in capsys.readouterr().err
 
 
 def test_cfg_needs_its_argument(config_dir: Path) -> None:

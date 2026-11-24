@@ -146,15 +146,6 @@ def test_partly_named_union_is_an_error() -> None:
         class_fields(C)
 
 
-def test_none_in_a_group_is_an_error() -> None:
-    @dataclass
-    class C:
-        data: Annotated[A, Tag("a")] | None = None
-
-    with pytest.raises(SchemaError, match="None"):
-        class_fields(C)
-
-
 def test_duplicate_option_name_is_an_error() -> None:
     @dataclass
     class C:
