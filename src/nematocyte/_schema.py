@@ -73,6 +73,11 @@ DOC_KEY = "_doc_"
 """The top-level key of a config file that describes the file."""
 REPLACE_KEY = "_replace_"
 """The key of a mapping for a `TypedDict` that replaces what was set before."""
+SOME = "_some_"
+"""The name that switches an optional subconfig on, as a config name is given.
+
+It is not the name of a config: no option and no config file can have it.
+"""
 
 _OPTION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 
@@ -103,6 +108,12 @@ def _check_option_name(name: object, where: str) -> str:
         raise SchemaError(
             f"{where}: {name!r} is not a valid name for an option. A name starts "
             "with a letter or an underscore, followed by letters, digits, '_' or '-'."
+        )
+    if name == SOME:
+        raise SchemaError(
+            f"{where}: {name!r} is not a valid name for an option: {SOME} "
+            "switches an optional subconfig on, so it is never the name of a "
+            "config."
         )
     return name
 
@@ -399,7 +410,7 @@ def _analyse(annotation: Any, where: str) -> _Analysis:
     present, optional = _without_none(annotation)
     analysis = _analyse_present(present, where, optional=optional)
     if optional and analysis.kind is Kind.GROUP and len(analysis.options) == 1:
-        # A name that switches on the only class: a mapping does that for an
+        # A name that switches on the only class: `_some_` does that for an
         # optional subconfig.
         (name, cls), *_ = analysis.options.items()
         typeddict = (
@@ -411,7 +422,7 @@ def _analyse(annotation: Any, where: str) -> _Analysis:
             f"{where}: None is not allowed next to a group with one option "
             f"({name!r}). An optional group needs two or more options. For one "
             f"class, an optional subconfig is typed {cls.__name__} | None"
-            f"{typeddict}, and a mapping switches it on."
+            f"{typeddict}, and {SOME} switches it on."
         )
     return dataclasses.replace(analysis, optional=optional)
 

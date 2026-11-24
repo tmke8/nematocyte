@@ -13,8 +13,8 @@ from ._errors import ConfigError
 from ._files import SUFFIXES
 from ._interpolation import resolve
 from ._multirun import check_params, parse_params
-from ._overrides import SWITCH_ON, Override
-from ._schema import RESERVED_KEY, Kind, class_fields, config_class
+from ._overrides import Override
+from ._schema import RESERVED_KEY, SOME, Kind, class_fields, config_class
 from ._settings import Settings
 from ._tree import Path as KeyPath
 from ._tree import root_fields
@@ -87,6 +87,12 @@ def _classify(composer: Composer, relative: Path) -> tuple[KeyPath, str] | None:
             for cls in (info.options.values() if info.options else [info.config_cls])
             if cls is not None
         ]
+    if path and relative.stem == SOME:
+        raise ConfigError(
+            f"{relative.as_posix()} cannot be selected: {SOME} switches an "
+            f"optional subconfig on, so it is never the name of a config. "
+            f"Rename the file."
+        )
     return (tuple(path), relative.stem) if path else None
 
 
@@ -121,8 +127,7 @@ def _selections(
         # An optional subconfig that is off is switched on with its defaults;
         # an optional group that is off, by selecting each option below.
         key = path[:depth]
-        text = f"{'.'.join(key)} (switched on)"
-        choices.append((*overrides, Override(key, SWITCH_ON, text)))
+        choices.append((*overrides, Override(key, SOME, f"{'.'.join(key)}={SOME}")))
     for option_name, option_cls in info.options.items():
         if child is not None and option_cls is child.cls:
             continue

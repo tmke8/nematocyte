@@ -92,6 +92,9 @@ superclass: Smiling
   follows from the keys; see [Layers](#layers).
 - A place cannot be given twice: the parser reports a repeated key, in
   YAML and in JSON5 files.
+- Besides the name of a config, a value can be `null`, which switches off
+  an optional subconfig or group, or `_some_`, which switches on an
+  optional subconfig ([unions.md](unions.md#optional-subconfigs)).
 - A primary config describes the root, so `dm: cmnist` means the field `dm`
   of the root dataclass. There is no leading slash, and a primary config
   reads the same whichever directory it is in.
@@ -400,7 +403,10 @@ The rules:
   ([cli.md](cli.md#a-dict-for-a-typeddict-replaces-it)), so `_replace_` in
   it is an error, and so is `opt._replace_=true`.
 - A TypedDict replaced in this way can be a subconfig, the selected option
-  of a group of TypedDicts, or an optional subconfig, which it switches on.
+  of a group of TypedDicts, or an optional subconfig that is on. A mapping
+  does not switch an optional subconfig on, with `_replace_` or without:
+  `_some_` under `_defaults_` does
+  ([unions.md](unions.md#optional-subconfigs)).
   The option of a group stays selected, and only what was set in it is
   dropped. `_replace_` is also allowed at the top level of a named config
   for such a field, where it drops what was set for the field before the
@@ -670,6 +676,10 @@ Python version. Reading config files does not need to be fast (see above).
 - In the file that switches an optional subconfig or group off under
   `_defaults_`, a value for it among the values is an error that names the
   file, the key and the entry.
+- Among the values, a mapping for an optional subconfig that is off is an
+  error that names the file, the key and the class, and shows the entry
+  with `_some_` under `_defaults_`
+  ([unions.md](unions.md#optional-subconfigs)).
 - A selection written among the values (`model: cnn` outside `_defaults_`)
   is an error that points to `_defaults_`.
 - A key `defaults`, as in Hydra, is an error that suggests `_defaults_`,

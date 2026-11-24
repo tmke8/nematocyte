@@ -23,7 +23,6 @@ from decimal import Decimal
 import math
 import re
 from typing import Any
-from typing_extensions import sentinel
 
 from ._errors import ConfigError
 
@@ -32,7 +31,6 @@ __all__ = [
     "ChoiceSweep",
     "IntervalSweep",
     "Override",
-    "SWITCH_ON",
     "RangeSweep",
     "Sweep",
     "format_value",
@@ -94,14 +92,6 @@ class IntervalSweep:
 
 
 type Sweep = ChoiceSweep | RangeSweep | IntervalSweep
-
-
-SWITCH_ON = sentinel("SWITCH_ON")
-"""The value of an override that switches an optional subconfig on.
-
-It starts from the defaults of the class, as a named config that sets
-nothing would. The validator uses it; it cannot be written as an argument.
-"""
 
 
 @dataclass(frozen=True)

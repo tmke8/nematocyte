@@ -13,6 +13,7 @@ from ._overrides import format_value
 from ._schema import (
     OPTION_KEY,
     RESERVED_KEY,
+    SOME,
     FieldInfo,
     Kind,
     class_fields,
@@ -26,9 +27,9 @@ __all__ = [
     "Selection",
     "format_path",
     "make_root",
+    "nest",
     "next_step",
     "node_from_json_tree",
-    "require_child",
     "root_fields",
     "switched_off_message",
     "unknown_key_message",
@@ -39,6 +40,13 @@ type Path = tuple[str, ...]
 
 def format_path(path: Path) -> str:
     return ".".join(path)
+
+
+def nest(path: Path, value: Any) -> Any:
+    """`value` inside a dict for each key of `path`: `{a: {b: value}}` for `a.b`."""
+    for key in reversed(path):
+        value = {key: value}
+    return value
 
 
 _steps = itertools.count()
@@ -273,9 +281,13 @@ class Node:
         return (
             any(value >= step for value in self.steps.values())
             or any(value >= step for value in self.off.values())
-            or (self.selection is not None and self.selection.start >= step)
+            or self.selected_since(step)
             or any(child.changed_since(step) for child in self.children.values())
         )
+
+    def selected_since(self, step: int) -> bool:
+        """Whether the node was made by a selection at `step` or later."""
+        return self.selection is not None and self.selection.start >= step
 
     def replace(self, since: int) -> None:
         """Drop what was set or selected under the node before `since`.
@@ -299,17 +311,14 @@ class Node:
             if info.kind is Kind.VALUE:
                 continue
             child = self.children.get(info.name)
-            if child is None and self.off.get(info.name, -1) >= since:
+            if child is None:
+                if self.off.get(info.name, -1) >= since:
+                    continue
+            elif info.kind is Kind.GROUP and child.selected_since(since):
                 continue
-            if child is not None:
-                selected = (
-                    child.selection is not None and child.selection.start >= since
-                )
-                if info.kind is Kind.GROUP and selected:
-                    continue
-                if child.changed_since(since):
-                    child.replace(since)
-                    continue
+            elif child.changed_since(since):
+                child.replace(since)
+                continue
             self.children.pop(info.name, None)
             self.off.pop(info.name, None)
             self.expand_field(info)
@@ -459,9 +468,9 @@ def switched_off_message(
 
     `rest` is the path below the subconfig that was to be set, and `value`
     the value for it, if they are known; for a TypedDict, the error then
-    shows the dict that switches it on with that value. A dataclass is
-    switched on by a named config, and a group by selecting an option, which
-    the error lists.
+    shows the dict that switches it on with that value. A subconfig is
+    switched on by `_some_`, and a group by selecting an option, which the
+    error lists.
     """
     path = format_path((*node.path, info.name))
     what = (
@@ -484,23 +493,29 @@ def switched_off_message(
         f"{path!r} is an optional subconfig of {node.describe()} "
         f"({name} | None), and it is switched off (null), so {what}."
     )
+    switch = (
+        f"{path}={SOME} on the command line, or {path}: {SOME} under "
+        f"'_defaults_' in a config file"
+    )
     if not is_typeddict_class(info.config_cls):
+        then = ""
+        if rest and value is not MISSING:
+            dotted = format_path((*node.path, info.name, *rest))
+            then = (
+                f" Its fields can then be set: {path}={SOME} "
+                f"{dotted}={format_value(value)}."
+            )
         return (
-            f"{start} A named config for it switches it on: {path}=NAME on the "
-            f"command line, or {path}: NAME under '_defaults_' in a config "
-            f"file; so does a mapping in a config file, {path}: {{...}}. On "
-            f"the command line, {name} is a dataclass, which is not given as "
-            f"a dict."
+            f"{start} {SOME} switches it on, with the defaults of {name}: "
+            f"{switch}.{then} A named config for it switches it on too: "
+            f"{path}=NAME."
         )
     example = f"{path}={{}}"
     if rest and value is not MISSING:
-        nested = value
-        for segment in reversed(rest):
-            nested = {segment: nested}
-        example = f"{path}={format_value(nested)}"
+        example = f"{path}={format_value(nest(rest, value))}"
     return (
-        f"{start} A mapping switches it on: {example} on the command line, "
-        f"or {path}: {{...}} in a config file."
+        f"{start} On the command line, a dict switches it on: {example}. "
+        f"{SOME} switches it on with nothing set: {switch}."
     )
 
 
@@ -516,22 +531,3 @@ def unknown_key_message(node: Node, name: str) -> str:
     else:
         message += f"\n{node.class_name} has no fields."
     return message
-
-
-def require_child(node: Node, info: FieldInfo) -> Node:
-    """The node of a subconfig or group field.
-
-    An error if no option is selected, or if an optional subconfig or group
-    is off.
-    """
-    child = node.children.get(info.name)
-    if child is None:
-        path = format_path((*node.path, info.name))
-        if node.is_off(info):
-            raise ConfigError(switched_off_message(node, info))
-        hint = f" To switch it off: {path}=null." if info.optional else ""
-        raise ConfigError(
-            f"No option is selected for the group {path!r}. "
-            f"Options: {', '.join(info.options)}.{hint}"
-        )
-    return child

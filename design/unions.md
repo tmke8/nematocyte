@@ -147,36 +147,56 @@ has `decay: float = 0.99` and `every: int = 1`:
   ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)).
 - **In the file that switches the field off** under `_defaults_`, any value
   for it among the values is an error: the file says two things about the
-  field. A file above it can switch it on again with a mapping or a
-  preset.
-- **A mapping or a preset switches it on**: `ema: {decay: 0.5}` in a
-  file, or a preset (`ema=fast`, or `ema: fast` under `_defaults_`). If the
-  field is off, the node starts from the class defaults of `X`, as when an
-  option of a group is selected, not from the default instance of the
-  field, and the mapping or preset is applied on top. If it is on, the
-  mapping is merged into it, as for any subconfig. `ema: {}` switches it on
-  with the class defaults, and leaves it as it is if it is on.
-- **On the command line, a dataclass is switched on by a preset**,
-  `ema=fast`: a dataclass is not given a dict there
-  ([cli.md](cli.md#a-dataclass-is-not-given-a-dict)). To switch it on with
-  values of one's own, a config file in `configs/ema/` sets at least one of
-  them, and is selected; the error for `ema={decay:0.5}` says so. A
-  TypedDict is switched on by a dict, which replaces it
+  field. A file above it can switch it on again with `_some_` or a preset.
+- **`_some_` switches it on**: `ema: _some_` under `_defaults_` in a file,
+  next to where it is switched off, and `ema=_some_` on the command line. A
+  dotted entry such as `outer.ema: _some_` works too. If the field is off,
+  the node starts from the class defaults of `X`, as when an option of a
+  group is selected, not from the default instance of the field. If it is
+  on, it stays as it is: what lower layers set under it is kept. So
+  `_some_` behaves like a preset that sets nothing. The values of the same
+  file, and the dotted keys on the command line, apply on top:
+  `ema=_some_ ema.decay=0.5`, in either order.
+- **`_some_` is no config's name.** It is spelled like the reserved keys,
+  so that it does not look like a preset. An option cannot be called
+  `_some_`, which is an error in the config class. A file
+  `configs/ema/_some_.yaml` cannot be selected: `--help` leaves it out, and
+  the validator reports it. For a subconfig that is not optional,
+  `_some_` is an error that says it is always on; for a group, optional or
+  not, an error that shows how an option is selected; and as the `_self_`
+  of a preset, an error that shows the entry for the field.
+- **A preset switches it on**: `ema=fast`, or `ema: fast` under
+  `_defaults_`. If the field is off, the preset applies on top of the class
+  defaults of `X`, as for `_some_`.
+- **A mapping among the values of a file does not switch it on.** While
+  `ema` is off, `ema: {decay: 0.5}`, `ema: {}` and `ema: {_replace_: true}`
+  are errors that name the file, the key and the class, and show the entry
+  `ema: _some_` under `_defaults_`, with the path from the node of the
+  file. As for an optional group ([below](#optional-groups)), being on or
+  off is said under `_defaults_`, and the values only set fields. Hydra
+  switches it on there. While it is on, a mapping is merged into it, as
+  for any subconfig.
+- **On the command line, a dataclass is not given a dict**
+  ([cli.md](cli.md#a-dataclass-is-not-given-a-dict)); it is switched on by
+  `_some_` or a preset, and its fields are set one by one. The error for
+  `ema={decay:0.5}` shows `ema=_some_ ema.decay=0.5`. A TypedDict is also
+  switched on by a dict, which replaces it
   ([cli.md](cli.md#a-dict-for-a-typeddict-replaces-it)): `ema={decay:0.5}`
   sets only `decay`, also if it was on, and `ema={}` switches it on with
-  nothing set.
+  nothing set. A dict on the command line names the whole node, so it is
+  not the same as a mapping in a file, which is merged.
 - **A dotted key does not switch it on.** `ema.decay=0.5` while `ema` is off
-  is an error that names the key and the class. For a dataclass, it shows
-  `ema=NAME`; for a TypedDict, `ema={decay:0.5}`.
+  is an error that names the key and the class. It shows `ema=_some_
+  ema.decay=0.5` and `ema=NAME`, and, for a TypedDict, `ema={decay:0.5}`.
   Setting one value should not bring back all the others. The same holds
   for a dotted entry under `_defaults_`, such as `ema.inner: fast`.
 - **The order on the command line**
-  ([cli.md](cli.md#group-or-value-from-the-fields-type)). `ema=null` is
-  applied with the selections, so `ema=null ema.decay=0.5` is an error in
-  either order, and `ema=null`, `ema=fast` and, for a TypedDict,
-  `ema={decay:0.5}` are the same key: the last one wins. The dotted keys
-  apply after them, so `ema.every=4 ema={decay:0.5}` sets both, in either
-  order.
+  ([cli.md](cli.md#group-or-value-from-the-fields-type)). `ema=null` and
+  `ema=_some_` are applied with the selections, so `ema=null ema.decay=0.5`
+  is an error in either order, and `ema=null`, `ema=_some_`, `ema=fast`
+  and, for a TypedDict, `ema={decay:0.5}` are the same key: the last one
+  wins. The dotted keys apply after them, so `ema.every=4 ema={decay:0.5}`
+  sets both, in either order. `-m ema=null,_some_` sweeps over off and on.
 - **Nothing else changes for the node.** An interpolation that refers to a
   key under a subconfig that is off is an error, as for a key that has no
   value ([interpolation.md](interpolation.md)). `nematocyte.to_dict` writes
@@ -190,9 +210,14 @@ has `decay: float = 0.99` and `every: int = 1`:
   is `None`. In nematocyte, `~` leaves out a key of a TypedDict
   ([cli.md](cli.md#key-leaves-out-an-optional-key-of-a-typeddict)); on a
   field of a dataclass it is an error, which points to `ema=null`.
-- **A name for "on"**, as in `Annotated[EmaCfg, Tag("on")] | None` with
-  `ema=on`, under the rule that every member of a union needs a name. A
-  mapping switches it on without a name, and `on` would look like a preset.
+- **A name for "on" in the type**, as in `Annotated[EmaCfg, Tag("on")] |
+  None` with `ema=on`, under the rule that every member of a union needs a
+  name. Each program would pick its own name, and `on` would look like a
+  preset. The name that was chosen instead, `_some_`, is the same for every
+  optional subconfig, and is spelled like a reserved name.
+- **A mapping in a file switches it on**, as in Hydra, and as nematocyte
+  did first. It has no form on the command line for a dataclass, and it
+  is not where an optional group is switched on.
 - **A dotted key switches it on**, as a mapping does. It would make
   `ema.decay=0.5` bring back every other value of `EmaCfg` from its class
   defaults, which is too surprising for a change to one value.
@@ -265,8 +290,9 @@ the same as without `None`.
   the spelling with `| None` outside.
 - **One option is not enough.** `Annotated[A, Tag("a")] | None`, or a
   TypedDict with the key `_option_` and `| None`, is an error that points
-  to the optional subconfig `A | None`: a name that switches on the only
-  class is the [rejected idea](#rejected-ideas) of a name for "on".
+  to the optional subconfig `A | None`, which `_some_` switches on: a name
+  of its own for the only class is the [rejected idea](#rejected-ideas) of
+  a name for "on".
 - **`null` switches it off**: `model=null` on the command line, and
   `model: null` under `_defaults_` in a file. Being off is one of the
   choices for the group, so it is written where the options are selected,
@@ -287,6 +313,7 @@ the same as without `None`.
   with `| None`.
 - **Selecting an option switches it on**: `model=cnn` on the command line,
   `model: cnn` under `_defaults_`, or a config in the group's directory.
+  `model=_some_` is an error: a group has no one class to switch on.
   The node starts from the class defaults of the option, as for any
   selection ([Defaults](#defaults)). `model=null model=cnn` are the same
   key, and the last one wins.

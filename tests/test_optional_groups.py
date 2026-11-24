@@ -437,6 +437,20 @@ def test_null_and_a_dict_are_the_same_key() -> None:
     assert compose(overrides=("norm={eps:2}", "norm=null")).norm is None
 
 
+def test_some_does_not_switch_on_a_group(tmp_path: Path) -> None:
+    # `_some_` is for an optional subconfig, which has one class.
+    config_dir = configs(tmp_path, {"c.yaml": "_defaults_:\n  model: _some_\n"})
+    messages = [error_of("model=_some_")]
+    with pytest.raises(ConfigError) as excinfo:
+        compose(config_dir, config_name="c")
+    messages.append(str(excinfo.value))
+    for message in messages:
+        assert "'model' is a group of Config" in message
+        assert "selected by its name" in message
+        assert "model=fcn" in message
+    assert "c.yaml" in messages[1]
+
+
 def test_mapping_in_a_file_does_not_switch_on_a_group(tmp_path: Path) -> None:
     config_dir = configs(tmp_path, {"c.yaml": "model:\n  kernel: 2\n"})
     with pytest.raises(ConfigError) as excinfo:

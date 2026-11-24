@@ -194,8 +194,12 @@ def test_replace_in_the_option_of_a_group_keeps_the_option() -> None:
     assert config.optimizer == {"_option_": "adam", "beta1": 0.5}
 
 
-def test_replace_switches_on_an_optional_subconfig() -> None:
-    files = {"presets/ema.yaml": "ema:\n  _replace_: true\n  lr: 0.5\n"}
+def test_replace_in_an_optional_subconfig_switched_on_by_some() -> None:
+    files = {
+        "presets/ema.yaml": (
+            "_defaults_:\n  ema: _some_\nema:\n  _replace_: true\n  lr: 0.5\n"
+        )
+    }
     assert compose(files, overrides=["+presets/ema"]).ema == {"lr": 0.5}
 
 

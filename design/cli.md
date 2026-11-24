@@ -231,8 +231,9 @@ set under it. To change one key and keep the others, use a dotted key:
   or a selection, applies after it, in either order:
   `wandb.project=x wandb={name:foo}` sets both.
 - For an optional TypedDict that is off, the dict switches it on; `wandb={}`
-  switches it on with nothing set
-  ([unions.md](unions.md#optional-subconfigs)).
+  switches it on with nothing set, as `wandb=_some_` does
+  ([unions.md](unions.md#optional-subconfigs)). A mapping in a file does
+  not switch it on: it is merged, and does not say the whole node.
 - For a group of TypedDicts, the dict replaces what is set in the option
   that is selected, and the option stays selected:
   `optimizer={beta1:0.5}` gives `{_option_: adam, beta1: 0.5}` if `adam` was
@@ -262,10 +263,10 @@ named configs for the field. A mapping for a dataclass inside a dict for a
 TypedDict is an error in the same way: `wandb={inner:{x:1}}` points to
 `wandb.inner.x=1`. Hydra merges the dict into the dataclass.
 
-- An optional dataclass that is off is switched on by a named config,
-  `ema=NAME` ([unions.md](unions.md#optional-subconfigs)). To switch it on
-  with values of one's own, a config file in its directory sets them, and is
-  selected. The error says so.
+- An optional dataclass that is off is switched on by `_some_`, with the
+  defaults of its class, or by a named config, `ema=NAME`
+  ([unions.md](unions.md#optional-subconfigs)). Its fields are then set one
+  by one: `ema=_some_ ema.decay=0.5`. The error shows this.
 
 ### A hand-written parser
 
@@ -343,6 +344,11 @@ The question is only how to read `key=name`: as "select the config called
 `Config.model` is a group, so `model=cnn` is a selection. `Config.opt` is a
 dataclass, so `opt=weight_decay_adamw` is one too. `Config.seed` is an `int`,
 so `seed=123` is a value.
+
+For an optional subconfig or group, `null` switches it off, and for an
+optional subconfig, `_some_` switches it on: `ema=_some_`
+([unions.md](unions.md#optional-subconfigs)). Both are applied with the
+selections.
 
 The order of the arguments has no meaning: `model.kernel_size=3 model=cnn`
 is the same as `model=cnn model.kernel_size=3`. Selections are applied
