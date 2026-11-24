@@ -93,8 +93,9 @@ def test_named_config_ends_at_an_option_and_its_class_defaults(tmp_path: Path) -
     assert config.model == Cnn(kernel_size=5, stride=1)
 
 
-# The table "Class defaults are requested by naming an option", for a plain
-# subconfig: a preset never requests the class defaults.
+# The table "Class defaults are requested by selecting a config", for a plain
+# subconfig: values apply on top of the default instance, and a preset starts
+# from the class defaults.
 
 
 def test_subconfig_default_instance() -> None:
@@ -113,12 +114,12 @@ def test_subconfig_value_in_primary_config_keeps_the_default_instance(
     assert config.opt == Opt(lr=0.1, wd=0.5)
 
 
-def test_preset_applies_on_top_of_the_default_instance(tmp_path: Path) -> None:
+def test_preset_starts_from_the_class_defaults(tmp_path: Path) -> None:
+    # In Hydra, `lr` stays at 0.1, from the default instance.
     directory = configs(tmp_path)
     config = nematocyte.compose(Config, directory, overrides=["opt=preset"])
-    assert config.opt == Opt(lr=0.1, wd=0.1)
-    # The same result as setting the value directly.
-    assert config == nematocyte.compose(Config, directory, overrides=["opt.wd=0.1"])
+    assert config.opt == Opt(wd=0.1)
+    assert config.opt.lr != 0.1
 
 
 def test_same_group_at_two_paths_with_different_choices() -> None:

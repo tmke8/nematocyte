@@ -153,8 +153,8 @@ has `decay: float = 0.99` and `every: int = 1`:
   dotted entry such as `outer.ema: _some_` works too. If the field is off,
   the node starts from the class defaults of `X`, as when an option of a
   group is selected, not from the default instance of the field. If it is
-  on, it stays as it is: what lower layers set under it is kept. So
-  `_some_` behaves like a preset that sets nothing. The values of the same
+  on, it stays as it is: what lower layers set under it is kept. Unlike a
+  preset, it does not start the node again. The values of the same
   file, and the dotted keys on the command line, apply on top:
   `ema=_some_ ema.decay=0.5`, in either order.
 - **`_some_` is no config's name.** It is spelled like the reserved keys,
@@ -166,8 +166,9 @@ has `decay: float = 0.99` and `every: int = 1`:
   not, an error that shows how an option is selected; and as the `_self_`
   of a preset, an error that shows the entry for the field.
 - **A preset switches it on**: `ema=fast`, or `ema: fast` under
-  `_defaults_`. If the field is off, the preset applies on top of the class
-  defaults of `X`, as for `_some_`.
+  `_defaults_`. The preset applies on top of the class defaults of `X`,
+  whether the field was off or on, as for any preset
+  ([Defaults](#defaults)).
 - **A mapping among the values of a file does not switch it on.** While
   `ema` is off, `ema: {decay: 0.5}`, `ema: {}` and `ema: {_replace_: true}`
   are errors that name the file, the key and the class, and show the entry
@@ -373,14 +374,15 @@ Observed with Hydra 1.4.0rc3, where the class default is `kernel_size=5`:
 The last row is the only difference, and it is why `hydra-example` gives its
 group fields no default: in Hydra a default instance fixes the class.
 
-### Class defaults are requested by naming an option
+### Class defaults are requested by selecting a config
 
 The rule behind the two cases above: a node starts from the class defaults
-only when an option of a group is named. Everything else applies on top of
-the field's default.
+when a config is selected for it, an option or named config of a group, or
+a preset of a plain subconfig. Values set without a selection apply on top
+of the field's default.
 
-Naming an option also drops whatever lower layers selected or set under the
-node; see [composition.md](composition.md#layers).
+Selecting a config also drops whatever lower layers selected or set under
+the node; see [composition.md](composition.md#layers).
 
 An option is named either directly (`decoder=cnn`) or by `_self_` in a
 file's `_defaults_` ([composition.md](composition.md)). A file in a group's
@@ -398,26 +400,35 @@ stride: 1
 `decoder=small_cnn` therefore gives `kernel_size=5`, the class default.
 
 A preset for a plain subconfig names no option, because there is only one
-class. Its `_self_`, if it has one, can only name another preset. So a
-preset never requests the class defaults: the chain of presets applies on
-top of the field's default. `opt=preset` with a file containing `wd: 0.1`
-gives the same result as `opt.wd=0.1`.
+class. Its `_self_`, if it has one, can only name another preset, and the
+chain of presets ends at the class defaults of the subconfig, as a file in
+`configs/dm/celeba/` ends at the option `celeba` without `_self_`
+([composition.md](composition.md#the-configs-of-a-group-can-be-grouped-by-option)).
+So `opt=preset` means the same whether `opt` is a group or a plain
+subconfig: the default instance of the field, and what lower layers set
+under it, are dropped.
 
-This matches Hydra. Observed with
-`opt: Opt = field(default_factory=lambda: Opt(lr=0.1))` and a class default
-of `lr=5e-05`:
+Observed with Hydra 1.4.0rc3, with
+`opt: Opt = field(default_factory=lambda: Opt(lr=0.1))` and class defaults
+of `lr=5e-05` and `wd=0.0`, and a preset `opt/preset.yaml` that sets only
+`wd: 0.1`:
 
 | Case | Hydra | nematocyte |
 | --- | --- | --- |
 | Nothing else | `lr=0.1` | same |
 | `opt.wd=0.5` on the command line | `lr=0.1` | same |
 | The primary config sets `opt.wd` | `lr=0.1` | same |
-| `opt=preset`, a file that sets only `wd` | `lr=0.1` | same |
+| `opt=preset` or `+opt=preset`, or `- opt: preset` after the structured config in the defaults list | `lr=0.1`, `wd=0.1` | `lr=5e-05`, the class default, and `wd=0.1` |
+| `- opt: preset` before the structured config in the defaults list | `lr=0.1`, `wd=0.0`: the structured config is merged on top, and the preset is lost | `opt: preset` under `_defaults_`, whose order has no meaning: `lr=5e-05`, `wd=0.1` |
+
+The last two rows are differences. In Hydra a preset is a mapping merged
+into what is there, in the order of the defaults list, and the structured
+config holds every field of `opt`, from the default instance.
 
 For the deserializer this means that a node is not always built from the
-class alone. Unless an option is named for the field, a key missing from the
-config takes its value from the field's default instance, not from the class
-definition.
+class alone. Unless a config is selected for the field, a key missing from
+the config takes its value from the field's default instance, not from the
+class definition.
 
 ## Decided
 

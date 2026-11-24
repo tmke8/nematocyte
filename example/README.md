@@ -327,7 +327,7 @@ There is no `_defaults_` entry, because there is no option to choose. You select
 ```bash
 python main.py opt=weight_decay_adamw
 ```
-This has the same effect as setting the three values on the command line.
+It also behaves like selecting an option: `opt` starts again from the defaults in `OptimisationCfg`, and the preset's three values are applied on top. What a config file set for `opt` before is dropped, and nematocyte warns about it; to keep such a value, set it again after the selection, e.g. `opt=weight_decay_adamw opt.lr=3e-3`.
 
 A preset can also be based on another preset. The file `configs/opt/strong_weight_decay.yaml` takes the values of `weight_decay_adamw` and changes one of them:
 ```yaml

@@ -271,24 +271,29 @@ pydantic builds the config objects: it sets the fields and calls
 `to_object` calls the constructor. Put that work in `__post_init__`. See
 [deserializer.md](design/deserializer.md#details-of-building).
 
-### Selecting an option starts the node again
+### Selecting an option or a preset starts the node again
 
-When an option of a group is selected, by a config file or on the command
-line, the node starts from that option's class defaults. Whatever lower
-layers set under it is dropped.
+When an option of a group, or a preset of a plain subconfig, is selected,
+by a config file or on the command line, the node starts from the class
+defaults: of the option, or of the subconfig's class. Whatever lower layers
+set under it is dropped, and so is the default instance of the field.
 
-With a primary config `good_run.yaml` that sets `model.activation: selu`:
+With a primary config `good_run.yaml` that sets `model.activation: selu` and
+`opt.weight_decay: 0.001`:
 
 | Command | Hydra | nematocyte |
 | --- | --- | --- |
 | `--config-name good_run model=fcn` | An FCN with `activation: selu` | An FCN with its class defaults (`activation: gelu`) |
 | `--config-name good_run model=cnn`, where `good_run` also sets `model.num_hidden`, which the CNN lacks | Error | A CNN with its class defaults |
+| `--config-name good_run opt=only_lr`, a preset that sets only `lr` | `weight_decay: 0.001` | `weight_decay` at its class default |
+| `opt=only_lr`, where the field is `opt: Opt = field(default_factory=lambda: Opt(wd=0.1))` | `wd: 0.1` | `wd` at its class default |
 
+`opt=NAME` means the same whether `opt` is a group or a plain subconfig.
 To keep a value, set it again after the selection. nematocyte warns, with a
 `nematocyte.DroppedValueWarning`, when a selection drops a value that a
-lower layer set and nothing sets it again. A preset for a plain
-subconfig, such as `opt=weight_decay_adamw`, is applied on top and keeps the
-other values. See [composition.md](design/composition.md#layers).
+lower layer set and nothing sets it again. `opt=_some_`, which switches on
+an optional subconfig, is not a selection, and keeps what was set. See
+[composition.md](design/composition.md#layers).
 
 ## Config files
 
@@ -397,7 +402,8 @@ See [composition.md](design/composition.md).
   nematocyte, a primary config such as `configs/counts_heavy.yaml`, which
   writes `counts:` at the top, can be applied with `+counts_heavy`; it is
   merged into the dict, as in Hydra. For presets that go straight into the
-  field, use a `TypedDict` instead.
+  field, use a `TypedDict` instead; such a preset replaces what the field
+  held ([above](#selecting-an-option-or-a-preset-starts-the-node-again)).
 - In a group's directory, a subdirectory named after an option, such as
   `configs/dm/celeba/`, holds further configs for the group, selected as
   `dm=celeba/male_blond`. Each of them extends that option, without

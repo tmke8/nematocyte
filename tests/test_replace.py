@@ -273,7 +273,8 @@ def test_a_dict_is_applied_before_the_dotted_keys(overrides: list[str]) -> None:
     ("overrides", "expected"),
     [
         (["opt=fast", "opt={lr:0.5}"], {"lr": 0.5}),
-        (["opt={lr:0.5}", "opt=fast"], {"lr": 1.0, "wd": 0.01}),
+        # The preset starts from the class: the default `wd` is gone.
+        (["opt={lr:0.5}", "opt=fast"], {"lr": 1.0}),
         (["opt={lr:1}", "opt={lr:2,wd:3}"], {"lr": 2, "wd": 3}),
         (["opt={lr:2,wd:3}", "opt={lr:1}"], {"lr": 1}),
     ],

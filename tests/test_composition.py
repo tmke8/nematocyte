@@ -261,20 +261,69 @@ def test_preset_wins_over_the_extended_config(config_dir: Path) -> None:
         config_dir,
         {"child.yaml": "_defaults_:\n  _self_: good_run\n  opt: weight_decay_adamw\n"},
     )
-    in_file = nematocyte.compose(Config, config_dir, config_name="child")
-    on_cli = nematocyte.compose(
-        Config, config_dir, config_name="good_run", overrides=["opt=weight_decay_adamw"]
-    )
+    # `good_run`'s `weight_decay: 0.001` is dropped, and warned about; its
+    # `lr: 0.001` is dropped too, but the preset gives the same value.
+    with pytest.warns(DroppedValueWarning, match="opt.weight_decay=0.001") as record:
+        in_file = nematocyte.compose(Config, config_dir, config_name="child")
+    assert "opt.lr" not in str(record[0].message)
+    with pytest.warns(DroppedValueWarning, match="opt.weight_decay=0.001"):
+        on_cli = nematocyte.compose(
+            Config,
+            config_dir,
+            config_name="good_run",
+            overrides=["opt=weight_decay_adamw"],
+        )
     assert in_file.opt.weight_decay == 0.01
     assert on_cli.opt.weight_decay == 0.01
 
 
-def test_preset_keeps_the_other_values_of_lower_layers(config_dir: Path) -> None:
-    write_files(config_dir, {"opt/only_wd.yaml": "weight_decay: 0.5\n"})
-    config = nematocyte.compose(
-        Config, config_dir, config_name="good_run", overrides=["opt=only_wd"]
+def test_preset_replaces_the_node(config_dir: Path) -> None:
+    # As for an option of a group: the node starts again from the class
+    # defaults, and `lr: 0.001` from `good_run` is dropped.
+    write_files(
+        config_dir,
+        {
+            "opt/only_wd.yaml": "weight_decay: 0.5\n",
+            "child.yaml": "_defaults_:\n  _self_: good_run\n  opt: only_wd\n",
+        },
     )
-    assert config.opt == Opt(lr=0.001, weight_decay=0.5)
+    match = r"'opt.lr=0.001', set in `configs/good_run.yaml`"
+    with pytest.warns(DroppedValueWarning, match=match):
+        in_file = nematocyte.compose(Config, config_dir, config_name="child")
+    with pytest.warns(DroppedValueWarning, match=match):
+        on_cli = nematocyte.compose(
+            Config, config_dir, config_name="good_run", overrides=["opt=only_wd"]
+        )
+    assert in_file.opt == Opt(weight_decay=0.5)
+    assert on_cli.opt == Opt(weight_decay=0.5)
+
+
+def test_chain_of_presets_starts_from_the_class_defaults(config_dir: Path) -> None:
+    # Only the end of the chain starts the node again; what the presets in
+    # the chain bring goes along with the selection, and is not warned about.
+    config = nematocyte.compose(
+        Config, config_dir, config_name="", overrides=["opt=strong_weight_decay"]
+    )
+    assert config.opt == Opt(lr=1e-3, weight_decay=0.1)
+    assert _dropped(config_dir, "", ["opt=strong_weight_decay"]) == []
+
+
+def test_no_drop_warning_when_set_again_after_a_preset(config_dir: Path) -> None:
+    # `good_run` sets `opt.lr` and `opt.weight_decay`; both are set again.
+    overrides = ["opt=kwargs", "opt.lr=0.001", "opt.weight_decay=0.001"]
+    write_files(config_dir, {"opt/kwargs.yaml": "optimizer_kwargs:\n  eps: 1\n"})
+    assert _dropped(config_dir, "good_run", overrides) == []
+    config = nematocyte.compose(
+        Config, config_dir, config_name="good_run", overrides=overrides
+    )
+    assert config.opt == Opt(lr=0.001, weight_decay=0.001, optimizer_kwargs={"eps": 1})
+
+
+def test_preset_for_the_settings_replaces_them(config_dir: Path) -> None:
+    write_files(config_dir, {"nematocyte/quiet.yaml": "output_dir: out\n"})
+    with pytest.warns(DroppedValueWarning, match="nematocyte.log=debug"):
+        settings = compose_settings(config_dir, ["+presets/debug", "nematocyte=quiet"])
+    assert settings.log == "info"
 
 
 @pytest.mark.parametrize(("option", "model"), [("fcn", Fcn()), ("cnn", Cnn())])

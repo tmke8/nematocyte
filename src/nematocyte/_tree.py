@@ -59,7 +59,7 @@ def next_step() -> int:
 
 @dataclass(frozen=True)
 class Selection:
-    """The selection that made a node, or the last preset applied to it."""
+    """The selection that made a node: an option, or a named config or preset."""
 
     name: str
     """The option or the named config that was selected."""

@@ -594,6 +594,27 @@ def test_preset_that_extends_a_preset_switches_it_on(tmp_path: Path) -> None:
     assert config.ema == EmaCfg(decay=0.5, every=2)
 
 
+def test_preset_starts_an_optional_subconfig_that_is_on_again(tmp_path: Path) -> None:
+    # `on` is on, with the default instance `EmaCfg(decay=0.8)`, and `run`
+    # sets `decay` again. A preset starts from the class defaults, as an
+    # option of a group does, and warns about the value that it drops.
+    config_dir = configs(
+        tmp_path, {"on/fast.yaml": "every: 5\n", "run.yaml": "on:\n  decay: 0.5\n"}
+    )
+    with pytest.warns(nematocyte.DroppedValueWarning, match="on.decay=0.5"):
+        config = compose(config_dir, ("on=fast",), config_name="run")
+    assert config.on == EmaCfg(every=5)
+
+
+def test_some_keeps_an_optional_subconfig_that_is_on(tmp_path: Path) -> None:
+    # `_some_` only switches it on; what was set stays, without a warning.
+    config_dir = configs(tmp_path, {"run.yaml": "on:\n  every: 5\n"})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        config = compose(config_dir, ("on=_some_",), config_name="run")
+    assert config.on == EmaCfg(decay=0.8, every=5)
+
+
 # -- a dotted key does not switch it on -------------------------------------------
 
 

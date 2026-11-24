@@ -113,7 +113,7 @@ first, and the `_defaults_` and values of this file apply on top.
 | File | What `_self_` can name | Required |
 | --- | --- | --- |
 | A named config for a group | An option of the group, or another named config in the same directory | Yes, except in the directory of an option; the chain has to end at an option ([unions.md](unions.md#defaults)) |
-| A preset for a plain subconfig | Another preset in the same directory | No |
+| A preset for a plain subconfig | Another preset in the same directory | No; without it, the chain ends at the class defaults of the subconfig |
 | A primary config | Another primary config, by the name that `--config-name` takes | No |
 
 A chain that comes back to itself is an error.
@@ -194,21 +194,26 @@ wins over what `configs/model/my_cnn.yaml` selects for `norm`, and
 `momentum: 0.2` is then set on it. Two paths of which neither contains the
 other cannot conflict.
 
-**What a selection does to the node** depends on what is selected:
+**What a selection does to the node.** Selecting a config replaces the
+node: an option of a group, a named config for one, and a preset for a
+plain subconfig alike. The node starts again from the class defaults: of
+the option, for a group, and of the subconfig's class, for a preset
+([unions.md](unions.md#defaults)). Everything that lower layers selected or
+set under it is dropped, the default instance of the field included. A
+chain of presets ends at the class defaults, as a chain of named configs
+for a group ends at an option, so `opt=p` means the same whether `opt` is a
+group or a plain subconfig.
 
-- An option of a group, or a named config for one, replaces the node. It
-  starts again from the class defaults of the option
-  ([unions.md](unions.md#defaults)), and everything that lower layers
-  selected or set under it is dropped.
-- A preset for a plain subconfig sets its values on top. The other values
-  that lower layers set at that node stay.
+`_some_` is not a selection: it switches an optional subconfig on, and
+leaves one that is on as it is
+([unions.md](unions.md#optional-subconfigs)).
 
 With `good_run.yaml`, which sets `model.activation: selu`,
-`dm.download: false` and `opt.weight_decay: 0.001`:
+`dm.download: false`, `opt.lr: 0.001` and `opt.weight_decay: 0.001`:
 
 | Applied on top of `good_run` | Result |
 | --- | --- |
-| `opt: weight_decay_adamw`, in a file that extends it or as `opt=weight_decay_adamw` | `opt.weight_decay` is `0.01`, from the preset |
+| `opt: weight_decay_adamw`, in a file that extends it or as `opt=weight_decay_adamw` | `opt` starts from the class defaults. `weight_decay` is `0.01`, from the preset; `0.001` is dropped |
 | `model: fcn`, or `model=fcn` | An FCN with its class defaults. `activation: selu` is dropped, and `activation` is `gelu` |
 | `dm: celeba/male_blond` | `download` is back at its default. To keep `false`, it is set again |
 
@@ -233,11 +238,12 @@ Hydra has no such rule. Tested on a copy of `hydra-example`, with the same
 
 ### A value that a selection drops is warned about
 
-Selecting an option drops values without a word. `+good_run model=fcn`
+Selecting a config drops values without a word. `+good_run model=fcn`
 gives `activation: gelu`, where `good_run.yaml` says `selu`, and
 `+good_run model=single_linear_layer` changes the result although it selects
 what `good_run` already selects. So a selection that drops such a value
-gives a warning:
+gives a warning, for an option or named config of a group and for a preset
+of a plain subconfig alike:
 
 ```
 The override 'model=fcn' resets the config values in 'model' to the values given by 'fcn'. This drops a value that was set for 'model' before:

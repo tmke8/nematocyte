@@ -1,7 +1,9 @@
 ---
 _doc_: AdamW with a weight decay of 0.01.
 # A preset for the `opt` subconfig. `opt` is not a config group, so there is no option
-# to extend and no `_defaults_` entry: the values are applied on top of the defaults.
+# to extend and no `_defaults_` entry: the values are applied on top of the defaults in
+# `OptimisationCfg`. As when an option is selected, what was set for `opt` before is
+# dropped.
 lr: 1.0e-3
 weight_decay: 1.e-2
 optimizer_cls: "torch.optim.AdamW"

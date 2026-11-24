@@ -875,8 +875,8 @@ class Composer:
         is the file that makes it, or the override. What the selection drops
         is recorded, for the warning at the end.
         """
-        # A group's node is replaced; a preset is applied to the node in place.
-        old = parent.children.get(info.name) if info.kind is Kind.GROUP else None
+        # The node is replaced, for an option of a group and for a preset alike.
+        old = parent.children.get(info.name)
         start = next_step()
         self._select_config(parent, info, name, source, ())
         node = parent.children[info.name]
@@ -945,7 +945,13 @@ class Composer:
                 f"{file.label}, in the entry '_self_' of '_defaults_'",
                 (*chain, file_path),
             )
-        elif info.kind is Kind.GROUP:
+        elif info.kind is Kind.CONFIG:
+            # A chain of presets ends at the class defaults, as a chain of
+            # named configs for a group ends at an option.
+            assert info.config_cls is not None
+            parent.children[info.name] = Node(info.config_cls, path)
+            parent.off.pop(info.name, None)
+        else:
             raise _error(
                 file.label,
                 f"A config for the group {format_path(path)!r} has to say which "
