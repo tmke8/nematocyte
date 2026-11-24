@@ -23,13 +23,14 @@ from ._files import (
     load_file,
 )
 from ._merge import replace_paths
-from ._overrides import SWITCH_ON, AddedConfig, Override, format_value, last_wins
+from ._overrides import AddedConfig, Override, format_value, last_wins
 from ._schema import (
     DEFAULTS_KEY,
     DOC_KEY,
     REPLACE_KEY,
     RESERVED_KEY,
     SELF_KEY,
+    SOME,
     FieldInfo,
     Kind,
     class_fields,
@@ -194,8 +195,9 @@ class Composer:
 
         Apart from a key that is given more than once, where the last one
         wins, the order of the overrides has no meaning. Selections, `null`
-        for an optional subconfig or group, and the dicts for a TypedDict are
-        applied shortest path first, so that `model=cnn` is in place before
+        for an optional subconfig or group, `_some_` for an optional
+        subconfig, and the dicts for a TypedDict are applied shortest path
+        first, so that `model=cnn` is in place before
         `model.norm=batchnorm` is looked at. The values come after.
 
         A dict replaces what was set before at its key, for a TypedDict as for
@@ -230,8 +232,8 @@ class Composer:
                     raise _error(source, self._null_message(parent, info))
                 parent.switch_off(info)
                 continue
-            if override.value is SWITCH_ON:
-                parent.switch_on(info)
+            if _is_some(override.value):
+                self._switch_on(parent, info, source)
                 continue
             if isinstance(override.value, dict):
                 self._apply_mapping(parent, info, override)
@@ -299,9 +301,13 @@ class Composer:
                 f"a subconfig of {parent.describe()}, and "
                 f"{info.config_cls.__name__} is a dataclass"
             )
+        child = parent.children.get(info.name)
+        if child is None and info.config_cls is not None:
+            # Off: the fields are those of the class, which `_some_` switches on.
+            child = Node(info.config_cls, path)
         dotted = " ".join(
             f"{format_path(keys)}={format_value(inner)}"
-            for keys, inner in _dotted(parent.children.get(info.name), value, path)
+            for keys, inner in _dotted(child, value, path)
         )
         lines = [
             f"{key!r} is {what}. On the command line, a dict replaces what was "
@@ -314,13 +320,12 @@ class Composer:
                 f"it on: {key}=NAME; its fields can then be set one by one."
             )
         elif parent.is_off(info):
-            directory = self.directory(path)
-            where = f" in {directory}" if directory is not None else ""
+            example = f"{key}={SOME} {dotted}".rstrip()
             lines.append(
-                f"{key!r} is switched off (null). A named config for it "
-                f"switches it on: {key}=NAME. To switch it on with values of "
-                f"your own, write a config file{where} that sets them, and "
-                f"select it."
+                f"{key!r} is switched off (null). {key}={SOME} switches it on "
+                f"with the defaults of its class, and a named config for it, "
+                f"{key}=NAME, switches it on too; its fields can then be set "
+                f"one by one: {example}"
             )
         else:
             if dotted:
@@ -420,12 +425,13 @@ class Composer:
             *((directory / option, f"{option}/") for option in info.options),
         ]
         # A file that no name can select is left out; the validator reports it.
+        # `_some_` is no config's name, but `option/_some_` is.
         return dict(
             sorted(
                 (prefix + name, file)
                 for place, prefix in places
                 for name, file in list_files(place).items()
-                if _is_file_name(name)
+                if _is_file_name(name) and (prefix or name != SOME)
             )
         )
 
@@ -592,6 +598,9 @@ class Composer:
                 parent.switch_off(info)
                 switched_off[path] = key
                 continue
+            if name == SOME:
+                self._switch_on(parent, info, source)
+                continue
             self._select(parent, info, name, source, file.label)
         self._apply_values(
             node, file.values, file.label, since=since, switched_off=switched_off
@@ -610,14 +619,15 @@ class Composer:
     ) -> None:
         """Apply the values of a file, or of a dict on the command line.
 
-        A mapping goes into a subconfig or a group, and switches an optional
-        subconfig on. In a file, null for a subconfig or a group is nothing:
-        they are switched off under `_defaults_`. `switched_off` maps what the
+        A mapping goes into a subconfig or a group. In a file, an optional
+        subconfig or group that is off takes no mapping and no null: they are
+        switched on and off under `_defaults_`. `switched_off` maps what the
         file switched off there, by its path below the node of the file, to
         the entry; the file cannot give it a value as well. On the command
-        line, null switches an optional subconfig or group off, and is an
-        error for any other. A dict on the command line holds no mapping for
-        a dataclass. `prefix` is the path of `node` below the node of the file.
+        line, a dict switches an optional subconfig on, null switches an
+        optional subconfig or group off, and null is an error for any other.
+        A dict on the command line holds no mapping for a dataclass. `prefix`
+        is the path of `node` below the node of the file.
 
         A value is merged into what was set before. `since` is when the layer
         started: a `_replace_` drops what was set before it.
@@ -658,6 +668,10 @@ class Composer:
                 )
             if command_line and not _holds_typeddicts(info):
                 raise _error(label, self._dataclass_dict_message(node, info, value))
+            if node.is_off(info) and info.kind is Kind.CONFIG and not command_line:
+                raise _error(
+                    label, self._file_mapping_off_message(node, info, value, prefix)
+                )
             if _switches_on(info):
                 child = node.switch_on(info)
             else:
@@ -725,6 +739,53 @@ class Composer:
                 f"{{{REPLACE_KEY}: true}}"
             )
         return "\n".join(lines)
+
+    def _file_mapping_off_message(
+        self, node: Node, info: FieldInfo, value: dict[Any, Any], prefix: KeyPath
+    ) -> str:
+        """The error for a mapping in a file, for an optional subconfig that is off."""
+        assert info.config_cls is not None
+        name = info.config_cls.__name__
+        key = format_path((*node.path, info.name))
+        entry = format_path((*prefix, info.name))
+        return (
+            f"{key!r} is an optional subconfig of {node.describe()} "
+            f"({name} | None), and it is switched off (null), so a mapping "
+            f"cannot set its fields ({format_value(value)}). (In Hydra, the "
+            f"mapping switches it on.)\n"
+            f"To switch it on, with the defaults of {name}, write the entry "
+            f"under '_defaults_' of the same file, and the mapping applies "
+            f"on top:\n    _defaults_:\n      {entry}: {SOME}"
+        )
+
+    def _switch_on(self, parent: Node, info: FieldInfo, source: str) -> None:
+        """Switch on the optional subconfig `info`, for `_some_`.
+
+        If it is off, it starts from the defaults of its class; if it is on,
+        it stays as it is.
+        """
+        key = format_path((*parent.path, info.name))
+        if info.kind is Kind.GROUP:
+            first = next(iter(info.options))
+            raise _error(
+                source,
+                f"{key!r} is a group of {parent.describe()}, and {SOME} "
+                f"switches on an optional subconfig, which has one class. An "
+                f"option of a group is selected by its name, which also "
+                f"switches on an optional group: {key}={first} on the command "
+                f"line, or {key}: {first} under '_defaults_' in a config "
+                f"file.{self._available((*parent.path, info.name), info)}",
+            )
+        if not info.optional:
+            assert info.config_cls is not None
+            name = info.config_cls.__name__
+            raise _error(
+                source,
+                f"{key!r} is a subconfig of {parent.describe()}, and its type "
+                f"is {name}, not {name} | None, so it is always on. {SOME} "
+                f"switches on an optional subconfig; remove it.",
+            )
+        parent.switch_on(info)
 
     # -- selections --------------------------------------------------------
 
@@ -842,6 +903,17 @@ class Composer:
     ) -> None:
         """Apply the config called `name` for the field `info` of `parent`."""
         path = (*parent.path, info.name)
+        if name == SOME:
+            # A direct entry or override is handled before; this is `_self_`.
+            raise _error(
+                source,
+                f"{SOME} is not the name of a config, so '_self_' cannot name "
+                f"it. It switches an optional subconfig on, as an entry under "
+                f"'_defaults_' of the file that holds the subconfig, as in "
+                f"{info.name}: {SOME}, or on the command line, as in "
+                f"{format_path(path)}={SOME}. A config for "
+                f"{format_path(path)!r} switches it on anyway.",
+            )
         if info.kind is Kind.GROUP and name in info.options:
             # Naming an option starts the node again from the class defaults.
             node = Node(info.options[name], path, option=name)
@@ -1084,11 +1156,17 @@ def _check_not_switched_off(
 
 
 def _switches_on(info: FieldInfo) -> bool:
-    """Whether a mapping switches on the field: an optional subconfig.
+    """Whether a preset, or a dict on the command line, switches on the field.
 
-    An optional group is switched on only by selecting an option.
+    That is an optional subconfig. An optional group is switched on only by
+    selecting an option.
     """
     return info.optional and info.kind is Kind.CONFIG
+
+
+def _is_some(value: Any) -> bool:
+    """Whether an override's value is `_some_`, which switches a subconfig on."""
+    return isinstance(value, str) and value == SOME
 
 
 def _holds_typeddicts(info: FieldInfo) -> bool:

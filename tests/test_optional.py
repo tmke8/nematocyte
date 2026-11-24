@@ -319,7 +319,9 @@ def test_null_under_defaults_for_a_field_that_is_not_optional_is_an_error(
     assert "cannot be null" in message
 
 
-@pytest.mark.parametrize("body", ["ema:\n  decay: 0.5\n", "ema: null\n", "ema:\n"])
+@pytest.mark.parametrize(
+    "body", ["ema:\n  decay: 0.5\n", "ema: {}\n", "ema: null\n", "ema:\n"]
+)
 def test_values_after_null_under_defaults_are_an_error(
     tmp_path: Path, body: str
 ) -> None:
@@ -329,6 +331,7 @@ def test_values_after_null_under_defaults_are_an_error(
     message = str(excinfo.value)
     assert "c.yaml" in message
     assert "'ema' is switched off in the entry 'ema' of '_defaults_'" in message
+    assert "Remove one of the two" in message
 
 
 def test_a_higher_file_switches_on_what_a_lower_one_switched_off(
@@ -338,13 +341,151 @@ def test_a_higher_file_switches_on_what_a_lower_one_switched_off(
         tmp_path,
         {
             "off.yaml": "_defaults_:\n  ema: null\n",
-            "on_again.yaml": "_defaults_:\n  _self_: off\nema:\n  every: 3\n",
+            "on_again.yaml": (
+                "_defaults_:\n  _self_: off\n  ema: _some_\nema:\n  every: 3\n"
+            ),
         },
     )
     assert compose(config_dir, config_name="on_again").ema == EmaCfg(every=3)
 
 
-# -- a mapping switches it on ---------------------------------------------------
+# -- _some_ switches it on ------------------------------------------------------
+
+
+def test_some_under_defaults_switches_it_on(tmp_path: Path) -> None:
+    config_dir = configs(
+        tmp_path,
+        {
+            "switch_on.yaml": "_defaults_:\n  ema: _some_\n",
+            "with_values.yaml": "_defaults_:\n  ema: _some_\nema:\n  decay: 0.5\n",
+        },
+    )
+    assert compose(config_dir, config_name="switch_on").ema == EmaCfg()
+    config = compose(config_dir, config_name="with_values")
+    assert config.ema == EmaCfg(decay=0.5)
+
+
+def test_some_on_the_command_line_switches_it_on() -> None:
+    assert compose(overrides=("ema=_some_",)).ema == EmaCfg()
+    assert compose_td(("ema=_some_",)).ema == {"inner": {}}
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [("ema=_some_", "ema.decay=0.5"), ("ema.decay=0.5", "ema=_some_")],
+)
+def test_some_applies_before_the_dotted_keys(overrides: tuple[str, ...]) -> None:
+    assert compose(overrides=overrides).ema == EmaCfg(decay=0.5)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [(("ema=null", "ema=_some_"), EmaCfg()), (("ema=_some_", "ema=null"), None)],
+)
+def test_null_and_some_are_the_same_key(
+    overrides: tuple[str, ...], expected: EmaCfg | None
+) -> None:
+    assert compose(overrides=overrides).ema == expected
+
+
+def test_some_starts_from_the_class_defaults(tmp_path: Path) -> None:
+    # Not from the default instance of the field, `EmaCfg(decay=0.8)`.
+    config_dir = configs(tmp_path, {"off.yaml": "_defaults_:\n  on: null\n"})
+    assert compose(config_dir, ("on=_some_",), config_name="off").on == EmaCfg()
+
+
+def test_some_leaves_it_as_it_is_when_on(tmp_path: Path) -> None:
+    config_dir = configs(
+        tmp_path,
+        {
+            "low.yaml": "_defaults_:\n  ema: _some_\nema:\n  every: 4\n",
+            "high.yaml": "_defaults_:\n  ema: _some_\n",
+        },
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        config = compose(config_dir, ("+high",), config_name="low")
+        assert config.ema == EmaCfg(every=4)
+        assert compose(overrides=("on=_some_",)).on == EmaCfg(decay=0.8)
+
+
+def test_dotted_some_entry_switches_on_a_nested_subconfig(tmp_path: Path) -> None:
+    @dataclass
+    class Outer:
+        ema: EmaCfg | None = None
+
+    @dataclass
+    class Nested:
+        outer: Outer = field(default_factory=Outer)
+
+    config_dir = configs(tmp_path, {"c.yaml": "_defaults_:\n  outer.ema: _some_\n"})
+    config = nematocyte.compose(Nested, config_dir, config_name="c")
+    assert config.outer.ema == EmaCfg()
+
+
+def test_some_for_a_subconfig_that_is_not_optional_is_an_error(
+    tmp_path: Path,
+) -> None:
+    config_dir = configs(tmp_path, {"c.yaml": "_defaults_:\n  plain: _some_\n"})
+    for overrides, config_name in [(("plain=_some_",), None), ((), "c")]:
+        with pytest.raises(ConfigError) as excinfo:
+            compose(config_dir, overrides, config_name=config_name)
+        message = str(excinfo.value)
+        assert "'plain' is a subconfig of Config" in message
+        assert "Plain, not Plain | None" in message
+    assert "c.yaml" in message
+
+
+def test_some_for_a_group_is_an_error(tmp_path: Path) -> None:
+    config_dir = configs(tmp_path, {"c.yaml": "_defaults_:\n  group: _some_\n"})
+    for overrides, config_name in [(("group=_some_",), None), ((), "c")]:
+        with pytest.raises(ConfigError) as excinfo:
+            compose(config_dir, overrides, config_name=config_name)
+        message = str(excinfo.value)
+        assert "'group' is a group of Config" in message
+        assert "group=a" in message
+        assert "Options: a, b" in message
+
+
+def test_some_as_self_of_a_preset_is_an_error(tmp_path: Path) -> None:
+    config_dir = configs(tmp_path, {"ema/fast.yaml": "_defaults_:\n  _self_: _some_\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        compose(config_dir, ("ema=fast",))
+    message = str(excinfo.value)
+    assert "fast.yaml" in message
+    assert "'_self_' cannot name it" in message
+    assert "ema: _some_" in message
+
+
+def test_some_cannot_be_the_name_of_an_option() -> None:
+    @dataclass
+    class C:
+        group: Annotated[
+            Annotated[A, Tag("_some_")] | Annotated[B, Tag("b")],
+            Discriminator(nematocyte.pick),
+        ] = field(default_factory=A)
+
+    with pytest.raises(SchemaError, match="'_some_' is not a valid name"):
+        nematocyte.compose(C)
+
+
+def test_a_config_file_called_some_is_not_a_preset(tmp_path: Path) -> None:
+    config_dir = configs(
+        tmp_path, {"ema/_some_.yaml": "decay: 0.5\n", "ema/fast.yaml": "every: 2\n"}
+    )
+    # `_some_` switches it on; the file is not read.
+    assert compose(config_dir, ("ema=_some_",)).ema == EmaCfg()
+    assert "_some_" not in help_text(Config, config_dir)
+    results = {
+        r.path.as_posix(): r.error
+        for r in nematocyte.validate_configs(Config, config_dir)
+    }
+    assert results["ema/fast.yaml"] is None
+    error = str(results["ema/_some_.yaml"])
+    assert "ema/_some_.yaml cannot be selected" in error
+
+
+# -- a preset or a dict switches it on --------------------------------------------
 
 
 def test_dict_for_an_optional_dataclass_is_an_error(tmp_path: Path) -> None:
@@ -355,8 +496,8 @@ def test_dict_for_an_optional_dataclass_is_an_error(tmp_path: Path) -> None:
     assert "'ema={decay:0.5}'" in message
     assert "'ema' is a subconfig of Config, and EmaCfg is a dataclass" in message
     assert "switched off" in message
+    assert "ema=_some_ ema.decay=0.5" in message
     assert "ema=NAME" in message
-    assert str(config_dir / "ema") in message
     assert "Presets: fast" in message
 
 
@@ -370,9 +511,42 @@ def test_nested_dict_goes_into_the_nested_subconfig() -> None:
     assert config.ema == {"inner": {"size": 4}}
 
 
-def test_mapping_in_a_file_switches_it_on(tmp_path: Path) -> None:
-    config_dir = configs(tmp_path, {"switch_on.yaml": "ema:\n  decay: 0.5\n"})
-    assert compose(config_dir, config_name="switch_on").ema == EmaCfg(decay=0.5)
+@pytest.mark.parametrize(
+    "text", ["ema:\n  decay: 0.5\n", "ema: {}\n", "ema:\n  _replace_: true\n"]
+)
+def test_mapping_in_a_file_does_not_switch_it_on(tmp_path: Path, text: str) -> None:
+    # Hydra switches it on; nematocyte switches it on under `_defaults_`.
+    config_dir = configs(tmp_path, {"c.yaml": text})
+    with pytest.raises(ConfigError) as excinfo:
+        compose(config_dir, config_name="c")
+    message = str(excinfo.value)
+    assert "c.yaml" in message
+    assert "'ema' is an optional subconfig of Config (EmaCfg | None)" in message
+    assert "switched off" in message
+    assert "_defaults_:\n      ema: _some_" in message
+
+
+def test_mapping_in_a_preset_shows_the_path_from_the_preset(tmp_path: Path) -> None:
+    @dataclass
+    class Outer:
+        ema: EmaCfg | None = None
+
+    @dataclass
+    class Nested:
+        outer: Outer = field(default_factory=Outer)
+
+    config_dir = configs(tmp_path, {"outer/fast.yaml": "ema:\n  decay: 0.5\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Nested, config_dir, overrides=("outer=fast",))
+    message = str(excinfo.value)
+    assert "fast.yaml" in message
+    assert "'outer.ema' is an optional subconfig of Outer" in message
+    assert "_defaults_:\n      ema: _some_" in message
+
+
+def test_mapping_in_a_file_merges_when_it_is_on(tmp_path: Path) -> None:
+    config_dir = configs(tmp_path, {"c.yaml": "on:\n  every: 3\n"})
+    assert compose(config_dir, config_name="c").on == EmaCfg(decay=0.8, every=3)
 
 
 def test_switching_on_starts_from_the_class_defaults(tmp_path: Path) -> None:
@@ -381,7 +555,9 @@ def test_switching_on_starts_from_the_class_defaults(tmp_path: Path) -> None:
         tmp_path,
         {
             "off.yaml": "_defaults_:\n  on: null\n",
-            "on_again.yaml": "_defaults_:\n  _self_: off\non:\n  every: 3\n",
+            "on_again.yaml": (
+                "_defaults_:\n  _self_: off\n  on: _some_\non:\n  every: 3\n"
+            ),
             "on/three.yaml": "every: 3\n",
         },
     )
@@ -435,7 +611,9 @@ def test_dotted_key_under_a_subconfig_that_is_off_is_an_error(
     assert "'ema.decay' cannot be set" in message
     assert "EmaCfg" in message
     assert "Config" in message
-    # A dataclass is switched on by a named config, not a dict.
+    # A dataclass is switched on by `_some_` or a named config, not a dict.
+    assert "ema=_some_ ema.decay=0.5" in message
+    assert "ema: _some_ under '_defaults_'" in message
     assert "ema=NAME" in message
     assert "ema={" not in message
 
@@ -447,6 +625,7 @@ def test_dotted_key_under_a_typeddict_that_is_off_points_to_a_dict() -> None:
     assert "'ema.decay' cannot be set" in message
     assert "EmaTd | None" in message
     assert "ema={decay:0.5}" in message
+    assert "ema=_some_" in message
 
 
 def test_dotted_selection_under_a_subconfig_that_is_off_is_an_error(
@@ -723,6 +902,13 @@ def test_sweep_over_null_and_presets(
     capsys.readouterr()
     assert code == 0
     assert [c.ema for c in seen] == [None, EmaCfg(decay=0.5), EmaCfg(every=7)]
+
+
+def test_sweep_over_null_and_some(capsys: pytest.CaptureFixture[str]) -> None:
+    code, seen = run_main(empty_config_dir(), ["-m", "ema=null,_some_"])
+    capsys.readouterr()
+    assert code == 0
+    assert [c.ema for c in seen] == [None, EmaCfg()]
 
 
 def test_sweep_under_a_subconfig_that_is_off_is_an_error(

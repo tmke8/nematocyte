@@ -205,7 +205,7 @@ Python code, and `_target_` is an unknown key like any other. A program that
 wants to name a class in its config keeps the import path in a `str` field
 and imports it itself. See [unions.md](design/unions.md).
 
-### Switched off with `null` under `_defaults_` in a file
+### Switched off and on under `_defaults_` in a file
 
 An optional subconfig, `ema: EmaCfg | None`, and an optional group,
 `model: Model | None` with `None` outside the union of the group, are
@@ -214,6 +214,19 @@ switched off under `_defaults_` in a file, next to the selections:
 ```yaml
 _defaults_:
   model: null
+```
+
+An optional subconfig is switched on in the same place, with `_some_`,
+which Hydra does not have. On the command line it is `ema=_some_`. If the
+subconfig is off, it starts from the defaults of its class; if it is on, it
+stays as it is:
+
+```yaml
+_defaults_:
+  ema: _some_
+
+ema:
+  decay: 0.5
 ```
 
 In Hydra, `- model: null` in the defaults list means something else: it
@@ -236,16 +249,18 @@ under `_defaults_`, leaving out the key, or, for a TypedDict or a dict,
 | `plain: null`, for `plain: Plain` | Error | Error |
 | `counts: null`, for `counts: dict[str, int]` | Error | Error, which shows `counts: {_replace_: true}` |
 | `maybe: null`, for `maybe: dict[str, int] \| None` | `None` | `None` |
+| `ema: {decay: 0.5}` or `ema: {}`, with `ema` off | Switches it on | Error, which shows `ema: _some_` under `_defaults_` |
 
 The Hydra column was tested by merging into the structured config with
 OmegaConf, as Hydra does.
 
 On the command line, `model=null` switches it off, where Hydra crashes
 ("Config group override must be a string or a list"). A group is switched
-on by selecting an option, as in `model=cnn`, and a subconfig by a mapping
-in a file or a named config. A dotted key does not switch either on:
-`model.kernel=2` while the group is off is an error that points to
-`model=NAME`. On the command line, a dataclass is not given a dict
+on by selecting an option, as in `model=cnn`, and a subconfig by `_some_`
+or a named config. A mapping among the values does not switch either on,
+and neither does a dotted key: `model.kernel=2` while the group is off is
+an error that points to `model=NAME`, and `ema.decay=0.5` while `ema` is
+off one that points to `ema=_some_ ema.decay=0.5`. On the command line, a dataclass is not given a dict
 ([below](#a-dict-replaces-and-a-dataclass-takes-none)). See
 [unions.md](design/unions.md#optional-subconfigs).
 
@@ -336,8 +351,8 @@ _defaults_:
 - `- opt: null`, which Hydra needs so that `opt=NAME` works without `+`, is
   not needed, and is an error. Under `_defaults_`, null only switches off
   an optional subconfig or group, `model: null`, which is not what it
-  means in Hydra
-  ([above](#switched-off-with-null-under-_defaults_-in-a-file)).
+  means in Hydra, and `_some_` switches on an optional subconfig
+  ([above](#switched-off-and-on-under-_defaults_-in-a-file)).
 - A key `defaults`, as in Hydra, is an error that suggests `_defaults_`,
   unless the node has a field of that name. A list is an error that shows
   the mapping form.
@@ -432,14 +447,13 @@ it, and is only for a TypedDict and for a value:
 | `optimizer={beta1:0.5}`, for a group of TypedDicts | Merges into the selected option | Replaces what is set in the selected option, which stays selected |
 | `opt={lr:0.1}`, for a dataclass `opt` | Merges into it | Error, which shows `opt.lr=0.1` |
 | `model={num_hidden:2}`, for a group of dataclasses | Merges into the selected option | Error, which shows `model.num_hidden=2` |
-| `ema={decay:0.5}`, for `ema: EmaCfg \| None = None`, a dataclass | Switches it on | Error; switch it on with a named config, `ema=NAME` |
+| `ema={decay:0.5}`, for `ema: EmaCfg \| None = None`, a dataclass | Switches it on | Error, which shows `ema=_some_ ema.decay=0.5` |
 
 To change one key of a TypedDict and keep the others, use a dotted key,
 `wandb.name=foo`, as for a dataclass. A dict is the same key as `wandb=NAME`
 and `wandb=null`, so the last one wins, and dotted keys under it are applied
 after it, in either order. To switch on an optional dataclass with values
-of your own, write a config file for it, such as `configs/ema/mine.yaml`,
-and select it. See [cli.md](design/cli.md#a-dict-for-a-typeddict-replaces-it).
+of your own, use `_some_` and dotted keys: `ema=_some_ ema.decay=0.5`. See [cli.md](design/cli.md#a-dict-for-a-typeddict-replaces-it).
 
 ### `~` only leaves out a TypedDict key
 
