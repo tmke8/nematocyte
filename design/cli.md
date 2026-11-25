@@ -201,7 +201,9 @@ the schema instead:
 `opt.optimizer_kwargs={eps:1e-6}` replaces the dict that the field holds:
 only `eps` is left, whatever the default or a config file set in it. A
 mapping for a dict in a config file replaces it in the same way
-([composition.md](composition.md#a-declared-key-is-merged-any-other-key-is-replaced)).
+([composition.md](composition.md#a-declared-key-is-merged-any-other-key-is-replaced)),
+unless it has `_replace_: false`, which merges it one level
+([composition.md](composition.md#_replace_-false-merges-a-dict-one-level)).
 Hydra merges, but `=` reads as "set to this", and a single key of the dict
 has no other spelling on the command line.
 
@@ -326,8 +328,11 @@ set under it. To change one key and keep the others, use a dotted key:
   options; it is selected with a dotted key, `training.optimizer=adam`, which
   applies after the dict. A string for a subconfig or a group is an error
   that points to `KEY=NAME`.
-- `_replace_` in the dict is an error, since the dict replaces anyway, and
-  so is `wandb._replace_=true`, which points to the dict.
+- `_replace_` in the dict is an error, true or false, since a dict on the
+  command line always replaces, and so is `wandb._replace_=true`, which
+  points to the dict. The error shows how to set one key on its own:
+  `wandb.KEY=VALUE` for a TypedDict, `+KEY.KEY=VALUE` for a dict
+  ([above](#keyvalue-sets-a-key-inside-a-dict)).
 - With `--multirun`, the dicts can be swept: `-m wandb={name:a},{name:b}`.
 
 Hydra merges a dict into a TypedDict, as into any subconfig.

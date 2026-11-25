@@ -203,6 +203,47 @@ def test_replace_in_an_optional_subconfig_switched_on_by_some() -> None:
     assert compose(files, overrides=["+presets/ema"]).ema == {"lr": 0.5}
 
 
+@pytest.mark.parametrize(
+    ("name", "text", "without", "override", "expected"),
+    [
+        (
+            "presets/x.yaml",
+            "opt:\n  _replace_: false\n  lr: 0.5\n",
+            "opt:\n  lr: 0.5\n",
+            "+presets/x",
+            {"lr": 0.5, "wd": 0.01},
+        ),
+        (
+            "presets/x.json5",
+            "{opt: {_replace_: false, lr: 0.5}}",
+            "{opt: {lr: 0.5}}",
+            "+presets/x",
+            {"lr": 0.5, "wd": 0.01},
+        ),
+        # Selecting the named config starts from the class, which has no `wd`.
+        (
+            "opt/x.yaml",
+            "_replace_: false\nlr: 0.5\n",
+            "lr: 0.5\n",
+            "opt=x",
+            {"lr": 0.5},
+        ),
+    ],
+)
+def test_replace_false_in_a_typeddict_merges_as_without_it(
+    name: str, text: str, without: str, override: str, expected: Opt
+) -> None:
+    # A mapping for a TypedDict is merged anyway.
+    assert compose({name: text}, overrides=[override]).opt == expected
+    assert compose({name: without}, overrides=[override]).opt == expected
+
+
+def test_replace_false_in_a_group_of_typeddicts() -> None:
+    files = {"presets/x.yaml": "optimizer:\n  _replace_: false\n  beta1: 0.5\n"}
+    config = compose(files, overrides=["+presets/x"])
+    assert config.optimizer == {"_option_": "adam", "beta1": 0.5, "eps": 1e-8}
+
+
 def test_replace_in_a_nested_mapping() -> None:
     files = {
         "run.yaml": "training:\n  optimizer:\n    momentum: 0.5\n",
@@ -440,9 +481,24 @@ def test_validate_configs_with_replace(tmp_path: Path) -> None:
             ["'_replace_'", "top level", "Config", "presets/top.yaml"],
         ),
         (
-            {"presets/false.yaml": "opt:\n  _replace_: false\n"},
-            ["+presets/false"],
-            ["'_replace_'", "'opt'", "false", "Opt", "leave out the key"],
+            {"presets/model.yaml": "model:\n  _replace_: false\n  width: 1\n"},
+            ["+presets/model"],
+            ["'_replace_'", "'model'", "Model", "dataclass", "presets/model.yaml"],
+        ),
+        (
+            {"presets/top.yaml": "_replace_: false\nseed: 1\n"},
+            ["+presets/top"],
+            ["'_replace_'", "top level", "Config", "presets/top.yaml"],
+        ),
+        (
+            {},
+            ["opt={_replace_:false,lr:1}"],
+            ["'_replace_'", "'opt'", "leave out the key", "opt.KEY=VALUE"],
+        ),
+        (
+            {"presets/one.yaml": "opt:\n  _replace_: 1\n"},
+            ["+presets/one"],
+            ["'_replace_'", "'opt'", "true", "false", "Opt", "presets/one.yaml"],
         ),
         (
             {"presets/string.yaml": "opt:\n  _replace_: yes\n"},

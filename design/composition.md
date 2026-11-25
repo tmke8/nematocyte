@@ -337,10 +337,12 @@ or replaces it, is decided per key:
    ([below](#_replace_-true-replaces-instead-of-merging)).
 2. A key that is not declared, such as any key of a field typed `dict[...]`,
    is replaced: when a higher layer writes a mapping for the dict, what a
-   lower layer set in it is gone.
+   lower layer set in it is gone. `_replace_: false` makes a mapping in a
+   dict merge one level instead
+   ([below](#_replace_-false-merges-a-dict-one-level)).
 
 So a dataclass or a TypedDict is merged, and a dict is replaced as a whole,
-deeply: nothing inside it is merged.
+deeply: nothing inside it is merged, unless a mapping says so.
 
 ```python
 @dataclass
@@ -427,7 +429,8 @@ Only `~opt.wd` on the command line takes the key out.
 A dict is replaced anyway
 ([above](#a-declared-key-is-merged-any-other-key-is-replaced)), so in a
 value, `_replace_: true` is allowed in any mapping, at any depth, and
-changes nothing.
+changes nothing. `_replace_: false` merges a mapping in a value instead
+([below](#_replace_-false-merges-a-dict-one-level)).
 
 The rules:
 
@@ -447,7 +450,7 @@ The rules:
 - `_replace_` exists only in config files. On the command line, a dict
   for a TypedDict or a value replaces anyway
   ([cli.md](cli.md#a-dict-for-a-typeddict-replaces-it)), so `_replace_` in
-  it is an error, and so is `opt._replace_=true`.
+  it is an error, true or false, and so is `opt._replace_=true`.
 - A TypedDict replaced in this way can be a subconfig, the selected option
   of a group of TypedDicts, or an optional subconfig that is on. A mapping
   does not switch an optional subconfig on, with `_replace_` or without:
@@ -459,13 +462,14 @@ The rules:
   file, including what the file's chain of `_self_` set.
 - In a value, `_replace_` is allowed in any mapping, but not in the items
   of a list; there it is a key of the item.
-- For a dataclass, `_replace_` is an error that names the class. Every
-  field of a dataclass that has a default can be set back to it, so a
-  dataclass needs it less; it may be allowed later. At the top level of a
-  primary config, where it would replace the whole config, it is an error
-  too.
-- The value is `true`. Anything else is an error; a mapping that is to be
-  merged leaves out the key.
+- For a dataclass, `_replace_` is an error that names the class, true or
+  false. Every field of a dataclass that has a default can be set back to
+  it, so a dataclass needs it less; it may be allowed later. At the top
+  level of a primary config, where it would replace the whole config, it is
+  an error too.
+- The value is `true` or `false`. Anything else is an error. For a
+  TypedDict, `false` is allowed and changes nothing, since its mapping is
+  merged anyway: a mapping that is to be merged can leave out the key.
 - An empty mapping for a TypedDict, `opt: {}`, is merged, and so changes
   nothing; `opt: {_replace_: true}` makes it empty. A dict is made empty
   with `kwargs: {}`. Null is not an empty dict: for a dict that does not
@@ -478,6 +482,58 @@ The rules:
 - What `_replace_` drops is not warned about: the file says that it is to
   be dropped. A warning that a selection below recorded for values under
   the node is dropped with them.
+
+### `_replace_: false` merges a dict one level
+
+A mapping in a dict replaces what was there
+([above](#a-declared-key-is-merged-any-other-key-is-replaced)). With
+`_replace_: false`, it is merged into it instead, one level: the keys that
+it gives are set, the others stay, and the value under a key that it gives
+replaces what was under that key, a mapping included. With `Opt` from
+[above](#a-declared-key-is-merged-any-other-key-is-replaced):
+
+| Written in a config file on top | `opt.kwargs` |
+| --- | --- |
+| `opt: {kwargs: {_replace_: false, extra: 1}}` | `{sched: {gamma: 0.1, step: 5}, milestones: [1, 2], extra: 1}` |
+| `opt: {kwargs: {_replace_: false, sched: {gamma: 0.5}}}` | `{sched: {gamma: 0.5}, milestones: [1, 2]}` |
+| `opt: {kwargs: {_replace_: false, sched: {_replace_: false, gamma: 0.5}}}` | `{sched: {gamma: 0.5, step: 5}, milestones: [1, 2]}` |
+| `opt: {kwargs: {sched: {_replace_: false, gamma: 0.5}}}` | `{sched: {gamma: 0.5}}` |
+| `opt: {kwargs: {_replace_: false, sched: null}}` | `{sched: null, milestones: [1, 2]}` |
+| `opt: {kwargs: {_replace_: false}}` | Unchanged |
+
+A file that wants to add a keyword argument to those that a lower layer
+gave writes it this way, without repeating them. The merge is shallow, so
+that the file still says the whole of what it gives under each key; a deeper
+mapping is merged only if it says so too.
+
+The rules:
+
+- `_replace_: false` is allowed in any mapping inside a value, at any depth:
+  a field typed `dict[...]`, a field typed `Any` that holds a mapping, a dict
+  inside a TypedDict, and the items of `dict[str, Point]`.
+- Each mapping is merged into what is at its place once the mapping around
+  it has been applied. A mapping inside one that replaces has nothing to be
+  merged into, so the fourth row of the table gives the same as without
+  `_replace_`.
+- What is there is what the layers below set, in the order of the
+  [layers](#layers): the default of the field, the files below, the file's
+  own chain of `_self_`, and what the file selects under `_defaults_`,
+  which is applied before its values. If a `_replace_: true` around the
+  dict dropped it, nothing is there.
+- Over a value that is not a mapping, such as `None`, a string or a list, or
+  a key that is not set, the mapping replaces it, as without `_replace_`.
+- Over an interpolation (`${...}`), it is an error that names the key, the
+  file, the class and the interpolation. The interpolation is resolved
+  after composition ([interpolation.md](interpolation.md)), so there is no
+  dict to merge into yet, and replacing it silently would drop what the file
+  meant to keep.
+- The items of a list are not looked into: there `_replace_` is a key of
+  the item, as for `true`.
+- On the command line, `_replace_` is an error, true or false. A dict there
+  replaces, and a single key inside a dict is set with
+  `+opt.kwargs.eps=1e-6` ([cli.md](cli.md#keyvalue-sets-a-key-inside-a-dict)).
+  A dict on the command line comes after the files, so it replaces what a
+  file merged.
 
 ### What a directory holds follows from the schema
 

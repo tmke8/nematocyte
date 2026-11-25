@@ -32,6 +32,16 @@ def test_replace_in_a_dict_on_the_command_line_is_an_error() -> None:
     assert "leave out the key" in message
 
 
+def test_replace_false_in_a_dict_on_the_command_line_is_an_error() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(
+            Config, overrides=["opt.optimizer_kwargs={_replace_:false,eps:1e-6}"]
+        )
+    message = str(excinfo.value)
+    assert "'_replace_' is in the dict for 'opt.optimizer_kwargs'" in message
+    assert "+opt.optimizer_kwargs.KEY=VALUE" in message
+
+
 def test_unknown_key_under_a_dataclass_is_an_error() -> None:
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(Config, overrides=["model.hiden_dim=10"])

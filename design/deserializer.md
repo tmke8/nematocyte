@@ -351,7 +351,7 @@ write. A name that is reserved only at the root may go without.
 | `_self_` | Every config class | A key in `_defaults_`, next to the names of fields |
 | `_option_` | Every config class | The key that names the option of a group, in `to_dict` and in a TypedDict option. Reserved on every class, not only on options: one rule is simpler, and it keeps the name free |
 | `_doc_` | Every config class | The key of a config file that describes the file, for `--help` ([helptext.md](helptext.md#docs-of-config-files)) |
-| `_replace_` | Every config class, and every mapping in a value | The key of a mapping for a TypedDict that replaces what was set before, instead of merging into it ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)). In a value it is accepted and changes nothing, since a dict is replaced anyway. Reserved on dataclasses too, so that it can be allowed there later |
+| `_replace_` | Every config class, and every mapping in a value | The key of a mapping for a TypedDict that replaces what was set before, instead of merging into it ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)). In a value, `true` changes nothing, since a dict is replaced anyway, and `false` merges the mapping one level into the dict that was there ([composition.md](composition.md#_replace_-false-merges-a-dict-one-level)). For a TypedDict, `false` changes nothing. Reserved on dataclasses too, so that it can be allowed there later |
 | `nematocyte` | The root config class | nematocyte's own settings ([cli.md](cli.md)) |
 
 - A field with a reserved name is an error that names the class and the

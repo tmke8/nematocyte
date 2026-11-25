@@ -135,6 +135,7 @@ For a field typed `dict[...]`, such as
 | ... when the field already holds `{amsgrad: true}` | Merges the two | Replaces it: only `eps` is left |
 | `opt: {optimizer_kwargs: {eps: 1.0e-6}}` in a config file, when a lower layer set `{amsgrad: true}` | Merges the two | Replaces it: only `eps` is left |
 | `opt: {optimizer_kwargs: {}}` in a config file | Changes nothing | Makes the dict empty |
+| `opt: {optimizer_kwargs: {_replace_: false, eps: 1.0e-6}}` in a config file, when a lower layer set `{amsgrad: true}` | Merges, and keeps `_replace_` as a key: `{amsgrad: true, _replace_: false, eps: 1.0e-6}` | Merges one level: `{amsgrad: true, eps: 1.0e-6}` |
 | `opt.optimizer_kwargs.eps=1e-6`, when the field holds a dict with `eps` | Sets `eps` | Error, which shows the whole dict and `+opt.optimizer_kwargs.eps=1e-6` |
 
 Whether a mapping is merged is decided per key: a key that a dataclass or a
@@ -142,6 +143,11 @@ TypedDict declares is merged, as in Hydra, and a key that is not declared,
 such as any key of a dict, is replaced, in a config file as on the command
 line. The same holds for a field typed `Any` that holds a mapping. Hydra
 merges every mapping in a config file into a mapping.
+
+In a config file, `_replace_: false` in the mapping for a dict merges it
+into what was there, one level: the keys that it gives replace what was
+under them, and the others stay. A mapping inside it is merged too only if
+it has `_replace_: false` as well; Hydra merges at every depth.
 
 On the command line, `+opt.optimizer_kwargs.eps=1e-6` sets one key of the
 dict and keeps the others
@@ -324,9 +330,10 @@ anyway, so the same is `opt={lr:0.001}`
 ([below](#a-dict-replaces-and-a-dataclass-takes-none)); `~opt.wd` takes out
 a single key. A
 dataclass cannot be replaced this way. A dict is replaced anyway
-([above](#dict-fields-are-open-and-replaced)), so `_replace_` is allowed in
-it but changes nothing; a dict that is to hold a key `_replace_` of its own
-cannot be written. See
+([above](#dict-fields-are-open-and-replaced)), so `_replace_: true` is
+allowed in it but changes nothing, and `_replace_: false` merges it one
+level instead. For a TypedDict, `_replace_: false` changes nothing. A dict
+that is to hold a key `_replace_` of its own cannot be written. See
 [composition.md](design/composition.md#_replace_-true-replaces-instead-of-merging).
 
 ### `_defaults_` is a mapping

@@ -236,6 +236,188 @@ def test_replace_is_not_true_in_a_value() -> None:
     assert "'opt.kwargs.sched'" in message
     assert "presets/x.yaml" in message
     assert "'_replace_'" in message
+    assert "Opt" in message
+    assert "true or false" in message
+
+
+# -- _replace_: false merges a dict ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # The keys that the mapping does not give stay.
+        (
+            "opt:\n  kwargs:\n    _replace_: false\n    extra: 1\n",
+            {"sched": {"gamma": 0.1, "step": 5}, "milestones": [1, 2], "extra": 1},
+        ),
+        # One level: a mapping under a key that it gives replaces the value.
+        (
+            "opt:\n  kwargs:\n    _replace_: false\n    sched:\n      gamma: 0.5\n",
+            {"sched": {"gamma": 0.5}, "milestones": [1, 2]},
+        ),
+        # `_replace_: false` at both levels merges the inner mapping too.
+        (
+            "opt:\n  kwargs:\n    _replace_: false\n"
+            "    sched:\n      _replace_: false\n      gamma: 0.5\n",
+            {"sched": {"gamma": 0.5, "step": 5}, "milestones": [1, 2]},
+        ),
+        # Only on the inner mapping: the outer one replaces, so there is
+        # nothing to merge the inner one into.
+        (
+            "opt:\n  kwargs:\n    sched:\n      _replace_: false\n      gamma: 0.5\n",
+            {"sched": {"gamma": 0.5}},
+        ),
+        # A key with null is set to None, not taken out.
+        (
+            "opt:\n  kwargs:\n    _replace_: false\n    sched: null\n",
+            {"sched": None, "milestones": [1, 2]},
+        ),
+        # An empty mapping changes nothing.
+        (
+            "opt:\n  kwargs:\n    _replace_: false\n",
+            {"sched": {"gamma": 0.1, "step": 5}, "milestones": [1, 2]},
+        ),
+    ],
+)
+def test_replace_false_merges_a_dict_one_level(text: str, expected: Any) -> None:
+    files = {"presets/x.yaml": text}
+    config = compose(files, overrides=["+presets/x"])
+    assert config.opt.kwargs == expected
+    assert config.opt.lr == 0.1
+
+
+def test_replace_false_in_a_json5_file() -> None:
+    files = {"presets/x.json5": "{opt: {kwargs: {_replace_: false, extra: 1}}}"}
+    config = compose(files, overrides=["+presets/x"])
+    assert config.opt.kwargs == {**_sched(), "extra": 1}
+
+
+def test_replace_false_merges_in_the_order_of_the_layers() -> None:
+    files = {
+        "run.yaml": "opt:\n  kwargs:\n    old: 1\n",
+        "presets/x.yaml": "opt:\n  kwargs:\n    _replace_: false\n    new: 2\n",
+    }
+    config = compose(files, config_name="run", overrides=["+presets/x"])
+    assert config.opt.kwargs == {"old": 1, "new": 2}
+
+
+def test_replace_false_merges_into_what_the_chain_of_self_set() -> None:
+    files = {
+        "opt/base.yaml": "kwargs:\n  old: 1\n",
+        "opt/more.yaml": (
+            "_defaults_:\n  _self_: base\nkwargs:\n  _replace_: false\n  new: 2\n"
+        ),
+    }
+    assert compose(files, overrides=["opt=more"]).opt.kwargs == {"old": 1, "new": 2}
+
+
+def test_replace_false_merges_into_what_the_file_selects() -> None:
+    # The selection is applied before the values of the file.
+    files = {
+        "run.yaml": "opt:\n  kwargs:\n    old: 1\n",
+        "opt/heavy.yaml": "kwargs:\n  heavy: 1\n",
+        "presets/x.yaml": (
+            "_defaults_:\n  opt: heavy\nopt:\n  kwargs:\n    _replace_: false\n"
+            "    x: 1\n"
+        ),
+    }
+    config = compose(files, config_name="run", overrides=["+presets/x"])
+    assert config.opt.kwargs == {"heavy": 1, "x": 1}
+
+
+def test_replace_false_in_a_field_typed_any() -> None:
+    files = {"presets/x.yaml": "anything:\n  _replace_: false\n  d: 4\n"}
+    config = compose(files, overrides=["+presets/x"])
+    assert config.anything == {"a": {"b": 1, "c": 2}, "d": 4}
+
+
+def test_replace_false_over_something_else_replaces_it() -> None:
+    files = {
+        "presets/x.yaml": (
+            "maybe:\n  _replace_: false\n  a: 1\ntext:\n  _replace_: false\n  a: 1\n"
+        )
+    }
+    config = compose(files, overrides=["+presets/x"])
+    assert config.maybe == {"a": 1}
+    assert config.text == {"a": 1}
+
+
+def test_replace_false_keeps_the_items_of_a_dict_of_config_classes() -> None:
+    files = {
+        "presets/x.yaml": (
+            "points:\n  _replace_: false\n  q:\n    x: 3\n"
+            "  p:\n    _replace_: false\n    y: 9\n"
+        )
+    }
+    config = compose(files, overrides=["+presets/x"])
+    assert config.points == {"p": Point(1, 9), "q": Point(3, 0)}
+
+
+def test_replace_false_in_a_dict_of_a_typeddict() -> None:
+    files = {"presets/x.yaml": "extra:\n  kwargs:\n    _replace_: false\n    b: 2\n"}
+    assert compose(files, overrides=["+presets/x"]).extra == {
+        "kwargs": {"a": 1, "b": 2},
+        "name": "x",
+    }
+
+
+def test_replace_false_after_the_typeddict_was_replaced() -> None:
+    # `_replace_: true` drops the default of `extra`, so `kwargs` is not set,
+    # and there is nothing to merge into.
+    files = {
+        "presets/x.yaml": (
+            "extra:\n  _replace_: true\n  kwargs:\n    _replace_: false\n    b: 2\n"
+        )
+    }
+    assert compose(files, overrides=["+presets/x"]).extra == {"kwargs": {"b": 2}}
+
+
+def test_a_dict_on_the_command_line_replaces_what_replace_false_merged() -> None:
+    files = {"presets/x.yaml": "opt:\n  kwargs:\n    _replace_: false\n    b: 1\n"}
+    config = compose(files, overrides=["+presets/x", "opt.kwargs={c:1}"])
+    assert config.opt.kwargs == {"c": 1}
+
+
+@pytest.mark.parametrize(
+    ("run", "preset", "key"),
+    [
+        (
+            "anything: ${opt.kwargs}\n",
+            "anything:\n  _replace_: false\n  b: 1\n",
+            "'anything'",
+        ),
+        (
+            "anything:\n  a: ${opt.kwargs}\n",
+            "anything:\n  _replace_: false\n  a:\n    _replace_: false\n    b: 1\n",
+            "'anything.a'",
+        ),
+    ],
+)
+def test_replace_false_over_an_interpolation_is_an_error(
+    run: str, preset: str, key: str
+) -> None:
+    files = {"run.yaml": run, "presets/x.yaml": preset}
+    with pytest.raises(ConfigError) as info:
+        compose(files, config_name="run", overrides=["+presets/x"])
+    message = str(info.value)
+    assert key in message
+    assert "presets/x.yaml" in message
+    assert "Config" in message
+    assert "${opt.kwargs}" in message
+    assert "leave out the key" in message
+
+
+def test_replace_false_inside_a_list_is_a_key_of_an_item() -> None:
+    @dataclass
+    class WithList:
+        items: list[dict[str, Any]] = field(default_factory=lambda: [{"a": 1}])
+
+    config_dir = write_files(
+        Path.cwd() / "configs", {"presets/x.yaml": "items:\n  - _replace_: false\n"}
+    )
+    config = nematocyte.compose(WithList, config_dir, overrides=["+presets/x"])
+    assert config.items == [{"_replace_": False}]
 
 
 def test_replace_inside_a_list_is_a_key_of_an_item() -> None:
