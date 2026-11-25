@@ -66,8 +66,9 @@ longer apply:
 - Some entries carry a keyword, such as `- override model: cnn`.
 
 In nematocyte `_defaults_` is a mapping. Each key says where: a field of the
-node that the file describes, a dotted path to a nested field, or `_self_`
-for that node itself. Each value names the config to load there.
+node that the file describes, or `_self_` for that node itself. Each value
+names the config to load there, or is a mapping that selects for the fields
+of the field ([below](#an-entry-in-_defaults_-can-be-nested)).
 
 ```yaml
 # configs/experiments/cmnist_cnn.yaml, a primary config
@@ -132,24 +133,50 @@ seed: 2
 `hydra-example` has neither a primary config that extends another, nor a
 preset that extends another. Both were tested in Hydra on a copy of it.
 
-### A key in `_defaults_` can be a path
+### An entry in `_defaults_` can be nested
 
 Suppose the option `cnn` of `model` has a field `norm`, which is itself a
 group. A primary config can select for both:
 
 ```yaml
 _defaults_:
-  model: my_cnn
-  model.norm: my_batchnorm
+  model:
+    _self_: my_cnn
+    norm: my_batchnorm
 
 model:
   norm:
     momentum: 0.2
 ```
 
-`model.norm: my_batchnorm` loads `configs/model/norm/my_batchnorm.yaml`
-(see below for the directory). It is an error if the option selected for
+`norm: my_batchnorm` loads `configs/model/norm/my_batchnorm.yaml` (see
+below for the directory). It is an error if the option selected for
 `model` has no field `norm`.
+
+- In a nested mapping, `_self_` is the entry for the field that holds it,
+  as `_self_` at the top of `_defaults_` is the entry for the node of the
+  file. `model: my_cnn` and `model: {_self_: my_cnn}` mean the same.
+- The other keys of a nested mapping are fields of that field, and can be
+  nested further. A nested mapping without `_self_` selects only for the
+  fields: `model: {norm: my_batchnorm}` keeps the option that a lower layer
+  selected for `model`.
+- A nested `_self_` takes what an entry takes, `null` and `_some_`
+  included: `ema: {_self_: _some_, inner: big}` switches `ema` on and
+  selects `big` for its field `inner`. Only `_self_` at the top of
+  `_defaults_` has to name a config.
+- A key with a dot, `model.norm: my_batchnorm`, is an error that names the
+  file and shows the nested form of the whole `_defaults_`, with the
+  selection for `model` moved to `_self_`. The dot in a key would be a
+  second way to write the same entry; it also has to be quoted in JSON5,
+  where the nested form does not. On the command line, a selection is still
+  written with dots, `model.norm=my_batchnorm` ([cli.md](cli.md)).
+- An empty mapping selects nothing, and is an error that names the file
+  and the entry.
+- A key that is not the name of a field, such as `model/norm`, and a value
+  that is neither a name, `null`, nor a mapping, are errors that name the
+  file and the key.
+- In error messages, an entry is named by its path with dots,
+  `'model.norm'`.
 
 A named config can do the same for its own fields. The keys other than
 `_self_` are relative to the node that the file describes:
@@ -188,8 +215,9 @@ The order in which things are written, in a file or on the command line,
 never matters, with one exception: several added configs are applied in the
 order given.
 
-**Shortest path first.** `model.norm` is inside `model`, so it is the more
-specific entry and is applied later. In the example above, `my_batchnorm`
+**Shortest path first.** `norm` under `model` is inside `model`, so it is
+the more specific entry and is applied later, whether it is written next to
+`_self_` or in another layer's file. In the example above, `my_batchnorm`
 wins over what `configs/model/my_cnn.yaml` selects for `norm`, and
 `momentum: 0.2` is then set on it. Two paths of which neither contains the
 other cannot conflict.

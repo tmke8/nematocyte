@@ -158,7 +158,7 @@ def test_replace_keeps_what_the_file_selects() -> None:
     # that holds it; the selection is applied after `_replace_`.
     files = {
         "presets/adam.yaml": (
-            "_defaults_:\n  training.optimizer: adam\n"
+            "_defaults_:\n  training:\n    optimizer: adam\n"
             "training:\n  _replace_: true\n  optimizer:\n    beta1: 0.5\n"
         )
     }

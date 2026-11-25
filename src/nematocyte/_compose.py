@@ -6,7 +6,6 @@ from dataclasses import MISSING, dataclass
 import difflib
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
-import re
 from typing import Any, cast
 import warnings
 
@@ -17,6 +16,8 @@ from ._files import (
     SUFFIXES,
     ConfigFile,
     check_unique,
+    defaults_block,
+    defaults_entry,
     display_path,
     find_file,
     list_files,
@@ -28,7 +29,6 @@ from ._schema import (
     DOC_KEY,
     REPLACE_KEY,
     RESERVED_KEY,
-    SELF_KEY,
     SOME,
     FieldInfo,
     Kind,
@@ -51,8 +51,6 @@ from ._tree import (
 from ._tree import Path as KeyPath
 
 __all__ = ["Composer"]
-
-_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # The name of the key in Hydra, which a config file may still use by mistake.
 _HYDRA_DEFAULTS_KEY = "defaults"
@@ -557,9 +555,8 @@ class Composer:
                 + " -> ".join(p.name for p in (*chain, path)),
             )
         file = self._load(path)
-        base = file.defaults.get(SELF_KEY)
-        if base is not None:
-            self._apply_primary(root, base, file.label, (*chain, path))
+        if file.base is not None:
+            self._apply_primary(root, file.base, file.label, (*chain, path))
         root.touched = True
         self._apply_body(root, file)
 
@@ -572,22 +569,12 @@ class Composer:
             )
         # A `_replace_` in the file drops what was set before this point.
         since = next_step()
-        entries = [
-            (tuple(key.split(".")), key, name)
-            for key, name in file.defaults.items()
-            if key != SELF_KEY
-        ]
         # What the file switches off here, it cannot set among its values.
         switched_off: dict[KeyPath, str] = {}
         # Shortest path first: `model.norm` is inside `model` and is applied later.
-        for path, key, name in sorted(entries, key=lambda entry: len(entry[0])):
+        for path, name in sorted(file.defaults.items(), key=lambda kv: len(kv[0])):
+            key = format_path(path)
             source = f"{file.label}, in the entry {key!r} of '_defaults_'"
-            if not all(_NAME.fullmatch(segment) for segment in path):
-                raise _error(
-                    source,
-                    "A key in '_defaults_' is a field, a dotted path to a nested "
-                    "field, or '_self_'.",
-                )
             parent, info = self._locate(node, path, source)
             if info.kind is Kind.VALUE:
                 raise _error(
@@ -708,7 +695,7 @@ class Composer:
                 f"nothing under it, which YAML reads as null. (In Hydra, this "
                 f"switches it off.)",
                 f"To switch it off, write the entry under '_defaults_':\n"
-                f"    _defaults_:\n      {format_path((*prefix, info.name))}: null",
+                f"{defaults_block((*prefix, info.name), None)}",
             ]
         else:
             lines = [
@@ -730,7 +717,6 @@ class Composer:
         assert info.config_cls is not None
         name = info.config_cls.__name__
         key = format_path((*node.path, info.name))
-        entry = format_path((*prefix, info.name))
         return (
             f"{key!r} is an optional subconfig of {node.describe()} "
             f"({name} | None), and it is switched off (null), so a mapping "
@@ -738,7 +724,7 @@ class Composer:
             f"mapping switches it on.)\n"
             f"To switch it on, with the defaults of {name}, write the entry "
             f"under '_defaults_' of the same file, and the mapping applies "
-            f"on top:\n    _defaults_:\n      {entry}: {SOME}"
+            f"on top:\n{defaults_block((*prefix, info.name), SOME)}"
         )
 
     def _switch_on(self, parent: Node, info: FieldInfo, source: str) -> None:
@@ -756,7 +742,8 @@ class Composer:
                 f"switches on an optional subconfig, which has one class. An "
                 f"option of a group is selected by its name, which also "
                 f"switches on an optional group: {key}={first} on the command "
-                f"line, or {key}: {first} under '_defaults_' in a config "
+                f"line, or {defaults_entry((*parent.path, info.name), first)} "
+                f"under '_defaults_' in a config "
                 f"file.{self._available((*parent.path, info.name), info)}",
             )
         if not info.optional:
@@ -951,7 +938,7 @@ class Composer:
         file = self._load(file_path)
         # A file in the directory of an option extends the option, unless its
         # `_self_` names another config.
-        base = file.defaults.get(SELF_KEY, option)
+        base = file.base if file.base is not None else option
         if base is not None:
             self._select_config(
                 parent,

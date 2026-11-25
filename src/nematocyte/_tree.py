@@ -7,6 +7,7 @@ import itertools
 from typing import Any, cast
 
 from ._errors import ConfigError, SchemaError
+from ._files import defaults_entry
 from ._json_form import to_json_form
 from ._overrides import format_value
 from ._schema import (
@@ -457,8 +458,9 @@ def switched_off_message(
         return (
             f"{path!r} is an optional group of {node.describe()}, and it is "
             f"switched off (null), so {what}. Selecting an option switches "
-            f"it on: {path}={first} on the command line, or {path}: {first} "
-            f"under '_defaults_' in a config file. "
+            f"it on: {path}={first} on the command line, or "
+            f"{defaults_entry((*node.path, info.name), first)} under "
+            f"'_defaults_' in a config file. "
             f"Options: {', '.join(info.options)}."
         )
     assert info.config_cls is not None
@@ -468,8 +470,9 @@ def switched_off_message(
         f"({name} | None), and it is switched off (null), so {what}."
     )
     switch = (
-        f"{path}={SOME} on the command line, or {path}: {SOME} under "
-        f"'_defaults_' in a config file"
+        f"{path}={SOME} on the command line, or "
+        f"{defaults_entry((*node.path, info.name), SOME)} under '_defaults_' "
+        f"in a config file"
     )
     if not is_typeddict_class(info.config_cls):
         then = ""

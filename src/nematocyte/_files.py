@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any
 
 from ruamel.yaml import YAML
@@ -14,6 +15,8 @@ __all__ = [
     "SUFFIXES",
     "ConfigFile",
     "check_unique",
+    "defaults_block",
+    "defaults_entry",
     "display_path",
     "find_file",
     "list_files",
@@ -24,6 +27,9 @@ YAML_SUFFIXES = (".yaml", ".yml")
 JSON5_SUFFIX = ".json5"
 SUFFIXES = (*YAML_SUFFIXES, JSON5_SUFFIX)
 
+# A key in `_defaults_` other than `_self_`: the name of a field.
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
 
 @dataclass(frozen=True)
 class ConfigFile:
@@ -32,8 +38,11 @@ class ConfigFile:
     path: Path
     label: str
     """The path of the file as it is shown in messages."""
-    defaults: dict[str, str | None]
-    """The entries of `_defaults_`; `None` switches off an optional group."""
+    base: str | None
+    """What `_self_` names under `_defaults_`: the config that the file extends."""
+    defaults: dict[tuple[str, ...], str | None]
+    """The other entries of `_defaults_`, by their path below the node of the
+    file. `None` switches off an optional subconfig or group."""
     values: dict[str, Any]
     doc: str = ""
     """What the file says about itself, in its `_doc_`; empty if nothing."""
@@ -73,27 +82,166 @@ def load_file(path: Path) -> ConfigFile:
             f"{label}: '{DOC_KEY}' describes the file, and has to be a string, "
             f"not {doc!r}."
         )
-    defaults = content.pop(DEFAULTS_KEY, None)
+    base, defaults = _read_defaults(content.pop(DEFAULTS_KEY, None), label)
+    return ConfigFile(
+        path=path,
+        label=label,
+        base=base,
+        defaults=defaults,
+        values=content,
+        doc=doc,
+    )
+
+
+def _read_defaults(
+    defaults: Any, label: str
+) -> tuple[str | None, dict[tuple[str, ...], str | None]]:
+    """The `_self_` of a file's `_defaults_`, and its other entries by path."""
     if defaults is None:
-        defaults = {}
+        return None, {}
     if isinstance(defaults, list):
         raise ConfigError(
-            f"{label}: '_defaults_' is a list, as in Hydra. In nematocyte it is "
-            "a mapping from a field to the name of the config to load there, "
-            "such as\n    _defaults_:\n      model: cnn"
+            f"{label}: '{DEFAULTS_KEY}' is a list, as in Hydra. In nematocyte it "
+            "is a mapping from a field to the name of the config to load there, "
+            f"such as\n{format_defaults({'model': 'cnn'})}"
         )
     if not isinstance(defaults, dict):
-        raise ConfigError(f"{label}: '_defaults_' has to be a mapping.")
-    for key, name in defaults.items():
-        # Null is checked against the field when the file is applied.
-        if not isinstance(name, str) and (name is not None or key == SELF_KEY):
+        raise ConfigError(f"{label}: '{DEFAULTS_KEY}' has to be a mapping.")
+    if _has_dotted_key(defaults):
+        raise ConfigError(
+            f"{label}: a key in '{DEFAULTS_KEY}' is a field, not a dotted path. "
+            "A config for a nested field is selected in a nested mapping, in "
+            "which '_self_' selects the config for the field itself:\n"
+            f"{format_defaults(_undotted(defaults))}"
+        )
+    base: str | None = None
+    if SELF_KEY in defaults:
+        name = defaults[SELF_KEY]
+        if not isinstance(name, str):
             raise ConfigError(
-                f"{label}: the entry {key!r} in '_defaults_' has to name a config, "
-                f"but is {name!r}."
+                f"{label}: the entry '{SELF_KEY}' in '{DEFAULTS_KEY}' names the "
+                f"config that the file extends, but is {name!r}."
             )
-    return ConfigFile(
-        path=path, label=label, defaults=defaults, values=content, doc=doc
+        base = name
+    entries: dict[tuple[str, ...], str | None] = {}
+    _read_entries(defaults, (), entries, label)
+    return base, entries
+
+
+def _read_entries(
+    mapping: dict[Any, Any],
+    prefix: tuple[str, ...],
+    entries: dict[tuple[str, ...], str | None],
+    label: str,
+) -> None:
+    """Add the entries of `mapping`, at `prefix` in `_defaults_`, to `entries`.
+
+    `_self_` in a nested mapping is the entry for the field that holds it.
+    """
+    where = f"under {'.'.join(prefix)!r} " if prefix else ""
+    for key, name in mapping.items():
+        if key == SELF_KEY:
+            if not prefix:
+                continue  # The config that the file extends.
+            path = prefix
+        elif isinstance(key, str) and _NAME.fullmatch(key):
+            path = (*prefix, key)
+        else:
+            raise ConfigError(
+                f"{label}: the key {key!r} {where}in '{DEFAULTS_KEY}' is not "
+                f"the name of a field. A key in '{DEFAULTS_KEY}' is a field, or "
+                f"'{SELF_KEY}'."
+            )
+        entry = ".".join(path)
+        if isinstance(name, dict) and key != SELF_KEY:
+            if not name:
+                raise ConfigError(
+                    f"{label}: the entry {entry!r} in '{DEFAULTS_KEY}' is an "
+                    f"empty mapping, which selects nothing. Name a config for "
+                    f"the field, or for its fields, or remove the entry."
+                )
+            _read_entries(name, path, entries, label)
+        elif isinstance(name, str) or name is None:
+            # Null is checked against the field when the file is applied.
+            entries[path] = name
+        else:
+            raise ConfigError(
+                f"{label}: the entry {entry!r} in '{DEFAULTS_KEY}' has to name "
+                f"a config, but is {name!r}."
+            )
+
+
+def _has_dotted_key(mapping: dict[Any, Any]) -> bool:
+    return any(
+        (isinstance(key, str) and "." in key)
+        or (isinstance(value, dict) and _has_dotted_key(value))
+        for key, value in mapping.items()
     )
+
+
+def _undotted(mapping: dict[Any, Any]) -> dict[Any, Any]:
+    """`mapping` with each dotted key written as a nested mapping, for a hint."""
+    result: dict[Any, Any] = {}
+    for key, value in mapping.items():
+        path = key.split(".") if isinstance(key, str) else [key]
+        if isinstance(value, dict):
+            value = _undotted(value)
+        for segment in reversed(path[1:]):
+            value = {segment: value}
+        _merge_entry(result, path[0], value)
+    return result
+
+
+def _merge_entry(mapping: dict[Any, Any], key: Any, value: Any) -> None:
+    """Add an entry to `mapping`; a name next to a mapping goes to its `_self_`."""
+    if key not in mapping:
+        mapping[key] = value
+        return
+    old = mapping[key]
+    if not isinstance(old, dict):
+        if not isinstance(value, dict):
+            mapping[key] = value
+            return
+        old = mapping[key] = {SELF_KEY: old}
+    if not isinstance(value, dict):
+        value = {SELF_KEY: value}
+    for inner_key, inner in value.items():
+        _merge_entry(old, inner_key, inner)
+
+
+def format_defaults(entries: dict[Any, Any], indent: str = "    ") -> str:
+    """`_defaults_` with `entries`, as a block of YAML for a message."""
+    return "\n".join(_yaml_lines({DEFAULTS_KEY: entries}, indent))
+
+
+def _yaml_lines(mapping: dict[Any, Any], indent: str) -> list[str]:
+    lines: list[str] = []
+    for key, value in mapping.items():
+        if isinstance(value, dict):
+            lines.append(f"{indent}{key}:")
+            lines.extend(_yaml_lines(value, indent + "  "))
+        else:
+            lines.append(f"{indent}{key}: {'null' if value is None else value}")
+    return lines
+
+
+def defaults_entry(path: tuple[str, ...], name: str | None) -> str:
+    """The entry under `_defaults_` for `name` at `path`, on one line.
+
+    `ema: null` for `ema`, and `outer: {ema: null}` for `outer.ema`.
+    """
+    text = "null" if name is None else name
+    for key in path[1:][::-1]:
+        text = f"{{{key}: {text}}}"
+    return f"{path[0]}: {text}"
+
+
+def defaults_block(path: tuple[str, ...], name: str | None) -> str:
+    """`_defaults_` with the entry for `name` at `path`, as a block of YAML."""
+    value: Any = name
+    for key in reversed(path[1:]):
+        value = {key: value}
+    return format_defaults({path[0]: value})
 
 
 def _read_yaml(path: Path, label: str) -> Any:

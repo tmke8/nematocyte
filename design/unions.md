@@ -129,7 +129,7 @@ has `decay: float = 0.99` and `every: int = 1`:
   ([deserializer.md](deserializer.md#typeddict-configs)).
 - **`null` switches it off**: `ema: null` under `_defaults_` in a file,
   as for an optional group ([below](#optional-groups)), and `ema=null` on
-  the command line. A dotted entry such as `outer.ema: null` works too.
+  the command line. A nested entry such as `outer: {ema: null}` works too.
   What lower layers set under the field is dropped, without a
   `DroppedValueWarning`: that is what `null` asks for. For a subconfig or
   a group that is not optional, null under `_defaults_` or on the command
@@ -150,7 +150,7 @@ has `decay: float = 0.99` and `every: int = 1`:
   field. A file above it can switch it on again with `_some_` or a preset.
 - **`_some_` switches it on**: `ema: _some_` under `_defaults_` in a file,
   next to where it is switched off, and `ema=_some_` on the command line. A
-  dotted entry such as `outer.ema: _some_` works too. If the field is off,
+  nested entry such as `outer: {ema: _some_}` works too. If the field is off,
   the node starts from the class defaults of `X`, as when an option of a
   group is selected, not from the default instance of the field. If it is
   on, it stays as it is: what lower layers set under it is kept. Unlike a
@@ -190,7 +190,8 @@ has `decay: float = 0.99` and `every: int = 1`:
   is an error that names the key and the class. It shows `ema=_some_
   ema.decay=0.5` and `ema=NAME`, and, for a TypedDict, `ema={decay:0.5}`.
   Setting one value should not bring back all the others. The same holds
-  for a dotted entry under `_defaults_`, such as `ema.inner: fast`.
+  for a nested entry under `_defaults_` without `_self_`, such as
+  `ema: {inner: fast}`.
 - **The order on the command line**
   ([cli.md](cli.md#group-or-value-from-the-fields-type)). `ema=null` and
   `ema=_some_` are applied with the selections, so `ema=null ema.decay=0.5`
@@ -297,7 +298,7 @@ the same as without `None`.
 - **`null` switches it off**: `model=null` on the command line, and
   `model: null` under `_defaults_` in a file. Being off is one of the
   choices for the group, so it is written where the options are selected,
-  next to `model: cnn`. A dotted entry such as `outer.model: null` works
+  next to `model: cnn`. A nested entry such as `outer: {model: null}` works
   too. What lower layers selected or set under the group is dropped,
   without a `DroppedValueWarning`. This is not what `- model: null` means
   in Hydra, where it selects nothing and keeps the default of the field
@@ -321,8 +322,8 @@ the same as without `None`.
 - **A mapping does not switch it on.** With `model` off, a mapping names
   no class: `model.kernel=2`, `model={kernel:2}` on the command line (for
   a group of TypedDicts; for one of dataclasses it is an error anyway),
-  `model: {kernel: 2}` in a file, and a dotted entry under `_defaults_`
-  such as `model.norm: small` are errors. The error names the key and the
+  `model: {kernel: 2}` in a file, and a nested entry under `_defaults_`
+  such as `model: {norm: small}` are errors. The error names the key and the
   options, and shows `model=fcn`. While the group is on, a mapping goes into
   the selected option, as for any group.
 - **No default, nothing selected.** As for any group, it is an error that

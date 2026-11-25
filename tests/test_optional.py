@@ -412,7 +412,7 @@ def test_some_leaves_it_as_it_is_when_on(tmp_path: Path) -> None:
         assert compose(overrides=("on=_some_",)).on == EmaCfg(decay=0.8)
 
 
-def test_dotted_some_entry_switches_on_a_nested_subconfig(tmp_path: Path) -> None:
+def test_nested_some_entry_switches_on_a_nested_subconfig(tmp_path: Path) -> None:
     @dataclass
     class Outer:
         ema: EmaCfg | None = None
@@ -421,9 +421,61 @@ def test_dotted_some_entry_switches_on_a_nested_subconfig(tmp_path: Path) -> Non
     class Nested:
         outer: Outer = field(default_factory=Outer)
 
-    config_dir = configs(tmp_path, {"c.yaml": "_defaults_:\n  outer.ema: _some_\n"})
+    config_dir = configs(
+        tmp_path, {"c.yaml": "_defaults_:\n  outer:\n    ema: _some_\n"}
+    )
     config = nematocyte.compose(Nested, config_dir, config_name="c")
     assert config.outer.ema == EmaCfg()
+
+
+def test_self_in_a_nested_entry_switches_on_and_off(tmp_path: Path) -> None:
+    config_dir = configs(
+        tmp_path,
+        {
+            "ema/inner/big.yaml": "size: 9\n",
+            "switch_on.yaml": "_defaults_:\n  ema:\n    _self_: _some_\n    inner: big\n",
+            "off.yaml": "_defaults_:\n  on:\n    _self_: null\n",
+        },
+    )
+    assert compose(config_dir, config_name="switch_on").ema == EmaCfg(
+        inner=Inner(size=9)
+    )
+    assert compose(config_dir, config_name="off").on is None
+
+
+def test_nested_entry_under_null_in_the_same_mapping_is_an_error(
+    tmp_path: Path,
+) -> None:
+    config_dir = configs(
+        tmp_path,
+        {
+            "on/inner/big.yaml": "size: 9\n",
+            "c.yaml": "_defaults_:\n  on:\n    _self_: null\n    inner: big\n",
+        },
+    )
+    with pytest.raises(ConfigError) as excinfo:
+        compose(config_dir, config_name="c")
+    message = str(excinfo.value)
+    assert "c.yaml" in message
+    assert "'on' is an optional subconfig" in message
+
+
+def test_error_for_an_entry_shows_the_nested_form(tmp_path: Path) -> None:
+    @dataclass
+    class Outer:
+        ema: EmaCfg | None = None
+
+    @dataclass
+    class Nested:
+        outer: Outer = field(default_factory=Outer)
+
+    config_dir = configs(tmp_path, {"c.yaml": "outer:\n  ema:\n    decay: 0.5\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Nested, config_dir, config_name="c")
+    assert "_defaults_:\n      outer:\n        ema: _some_" in str(excinfo.value)
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Nested, overrides=["outer.ema.decay=0.5"])
+    assert "outer: {ema: _some_} under '_defaults_'" in str(excinfo.value)
 
 
 def test_some_for_a_subconfig_that_is_not_optional_is_an_error(
@@ -657,14 +709,14 @@ def test_dotted_selection_under_a_subconfig_that_is_off_is_an_error(
     assert config.ema == EmaCfg(inner=Inner(size=9))
 
 
-def test_dotted_defaults_entry_under_a_subconfig_that_is_off_is_an_error(
+def test_nested_defaults_entry_under_a_subconfig_that_is_off_is_an_error(
     tmp_path: Path,
 ) -> None:
     config_dir = configs(
         tmp_path,
         {
             "ema/inner/big.yaml": "size: 9\n",
-            "c.yaml": "_defaults_:\n  ema.inner: big\n",
+            "c.yaml": "_defaults_:\n  ema:\n    inner: big\n",
         },
     )
     with pytest.raises(ConfigError) as excinfo:
