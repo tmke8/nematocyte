@@ -277,6 +277,12 @@ is in the launching process.
 - A value under `params` that is not a string (`seed: 1`) is a fixed value
   for every job.
 - nematocyte's own settings cannot be swept (`nematocyte.launcher=a,b`).
+- A key inside a dict, given with `+` on the command line
+  ([cli.md](cli.md#keyvalue-sets-a-key-inside-a-dict)), can be swept as any
+  value: `-m +opt.kwargs.eps=1e-8,1e-6`, or an `interval(...)` for Optuna.
+  The exact check of the swept keys at the start composes it with its
+  first value. The keys under `params` are those of declared fields, and
+  take no `+`.
 - An added config (`+presets/debug`, see [cli.md](cli.md)) is applied in
   every job, and its values under `nematocyte` count for the launcher and the
   sweeper. Added configs cannot be swept.

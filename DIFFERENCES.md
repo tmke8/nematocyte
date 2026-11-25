@@ -135,7 +135,7 @@ For a field typed `dict[...]`, such as
 | ... when the field already holds `{amsgrad: true}` | Merges the two | Replaces it: only `eps` is left |
 | `opt: {optimizer_kwargs: {eps: 1.0e-6}}` in a config file, when a lower layer set `{amsgrad: true}` | Merges the two | Replaces it: only `eps` is left |
 | `opt: {optimizer_kwargs: {}}` in a config file | Changes nothing | Makes the dict empty |
-| `opt.optimizer_kwargs.eps=1e-6`, when the field holds a dict with `eps` | Sets `eps` | Error; give the whole dict |
+| `opt.optimizer_kwargs.eps=1e-6`, when the field holds a dict with `eps` | Sets `eps` | Error, which shows the whole dict and `+opt.optimizer_kwargs.eps=1e-6` |
 
 Whether a mapping is merged is decided per key: a key that a dataclass or a
 TypedDict declares is merged, as in Hydra, and a key that is not declared,
@@ -143,7 +143,10 @@ such as any key of a dict, is replaced, in a config file as on the command
 line. The same holds for a field typed `Any` that holds a mapping. Hydra
 merges every mapping in a config file into a mapping.
 
-If possible, use `TypedDict` instead. Its keys are merged in a config file,
+On the command line, `+opt.optimizer_kwargs.eps=1e-6` sets one key of the
+dict and keeps the others
+([below](#-adds-a-primary-config-or-sets-a-key-inside-a-dict)). If
+possible, use `TypedDict` instead. Its keys are merged in a config file,
 and you can set `opt.optimizer_kwargs.eps=1e-6` on the command line.
 
 See [composition.md](design/composition.md#a-declared-key-is-merged-any-other-key-is-replaced)
@@ -435,10 +438,10 @@ selects none. See [composition.md](design/composition.md).
 
 ## Command line
 
-### `+` only adds a primary config
+### `+` adds a primary config, or sets a key inside a dict
 
 In Hydra, `+` adds a key, or a config group that is not in the defaults
-list. In nematocyte that is not needed:
+list. In nematocyte, a group or a declared key needs no `+`:
 
 | Hydra | nematocyte |
 | --- | --- |
@@ -446,11 +449,29 @@ list. In nematocyte that is not needed:
 | `+opt.optimizer_kwargs={eps:1e-6}` | `opt.optimizer_kwargs={eps:1e-6}` |
 
 Whether `key=name` selects a config or sets a value follows from the type of
-the field: a dataclass or a group is a selection. The one use of `+` that
-is left is `+NAME`, without `=`, which applies a primary config on top of
-the tree ([below](#a-preset-for-the-whole-config-is-presetsdebug)).
-`+key=value` is an error that shows both forms that may have been meant.
-See [cli.md](design/cli.md).
+the field: a dataclass or a group is a selection. Two uses of `+` are left.
+`+NAME`, without `=`, applies a primary config on top of the tree
+([below](#a-preset-for-the-whole-config-is-presetsdebug)). And
+`+KEY=value` sets one key inside a dict, a key that no dataclass or
+TypedDict declares, and keeps the other keys of the dict. It works
+differently from Hydra's `+`:
+
+| Written, for `kw: dict[str, Any]` holding `{eps: 1.0, sched: {gamma: 0.1}}` | Hydra | nematocyte |
+| --- | --- | --- |
+| `+opt.kw.new=2` | Adds `new` | Adds `new` |
+| `+opt.kw.eps=2`, a key that is there | Error; `++` sets it | Sets `eps` |
+| `+opt.kw.a.b=5`, where `a` is not there | Creates `a: {b: 5}` | Error, which shows `+opt.kw.a={b:5}` |
+| `+opt.kw.sched={step:5}` | Merges: `{gamma: 0.1, step: 5}` | Replaces: `{step: 5}` |
+| `+opt.kw.x=1`, when `kw` is null | Error | Error, which shows `opt.kw={x:1}` |
+| `+opt.lr=0.5`, a field of the dataclass | Error | Error, which shows `opt.lr=0.5` |
+| `+opt.newfield=1`, `opt` a dataclass | Adds the field | Error: not a field of `Opt` |
+| `opt.kw={z:1} +opt.kw.y=2` | Error | `{z: 1, y: 2}` |
+| `+opt.kw.y=2 +opt.kw.y=3` | Error | `y: 3`; the last one wins |
+
+Hydra's `+presets=debug` is read the same way, as a key `presets` of the
+root config, which has no such key; the error says so, and shows
+`+presets/debug`. See
+[cli.md](design/cli.md#keyvalue-sets-a-key-inside-a-dict).
 
 ### A dict replaces, and a dataclass takes none
 
@@ -499,7 +520,9 @@ See [cli.md](design/cli.md#key-leaves-out-an-optional-key-of-a-typeddict).
 In Hydra, `++key=value` sets a key whether or not it is in the config. In
 nematocyte, `key=value` sets any key that the schema has, and an unknown
 key is an error, with or without a prefix. `++key=value` is an error that
-says to write `key=value`.
+says to write `key=value`. A key inside a dict is set with `+`, whether or
+not the dict has it
+([above](#-adds-a-primary-config-or-sets-a-key-inside-a-dict)).
 
 ### A preset for the whole config is `+presets/debug`
 

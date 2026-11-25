@@ -123,6 +123,8 @@ class Multirun:
     """The overrides from the command line that are not sweeps."""
     sweeps: dict[KeyPath, Sweep]
     """The sweeps from the command line."""
+    undeclared: frozenset[KeyPath]
+    """The swept keys that are given as `+key=value`: keys in a dict."""
     settings: Settings
     now: datetime
     start: StartDir
@@ -160,8 +162,11 @@ class Multirun:
         """The fixed overrides, with `assignments` on top of them."""
         overrides = {override.key: override for override in self.fixed}
         for path, value in assignments:
-            text = f"{'.'.join(path)}={format_value(value)}"
-            overrides[path] = Override(path, value, text)
+            plus = "+" if path in self.undeclared else ""
+            text = f"{plus}{'.'.join(path)}={format_value(value)}"
+            overrides[path] = Override(
+                path, value, text, undeclared=path in self.undeclared
+            )
         return list(overrides.values())
 
     def launch(self, jobs: list[Job]) -> list[JobResult]:
@@ -394,6 +399,9 @@ def _check_exact(
     for path in sorted(keys, key=len):
         if any(path[: len(group)] == group for group in swept_groups):
             continue
+        if path in run.undeclared:
+            _check_undeclared(run, path, fixed)
+            continue
         node: Node = root
         for index, segment in enumerate(path):
             info = node.fields.get(segment)
@@ -417,6 +425,25 @@ def _check_exact(
                 break
             assert child is not None
             node = child
+
+
+def _check_undeclared(
+    run: Multirun, path: KeyPath, fixed: list[tuple[KeyPath, Any]]
+) -> None:
+    """Check a swept `+key`, a key in a dict, by composing with its first value."""
+    sweep = run.sweeps[path]
+    if isinstance(sweep, IntervalSweep):
+        first: Any = sweep.start
+    else:
+        first = next(iter_sweep(sweep), None)
+    try:
+        run.composer.compose(
+            run.config_name, run.overrides_with([*fixed, (path, first)]), run.added
+        )
+    except ConfigError as exc:
+        raise ConfigError(
+            f"The swept key {'+' + '.'.join(path)!r} cannot be set:\n{exc}"
+        ) from None
 
 
 def _sweep_optuna(run: Multirun, sweeper: OptunaSweeper) -> None:

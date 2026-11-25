@@ -24,6 +24,7 @@ _FLAGS = [
     ("--cfg, -c {job,all}", "Print the composed config instead of running."),
     ("--config-name, -cn NAME", "Use the primary config called NAME."),
     ("+NAME", "Apply the primary config called NAME on top."),
+    ("+KEY=VALUE", "Set KEY, a key inside a dict, and keep the dict's other keys."),
     ("~KEY", "Leave out KEY, a NotRequired key of a TypedDict."),
     ("--multirun, -m", "Run one job per combination of the swept values."),
 ]

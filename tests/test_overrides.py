@@ -139,7 +139,6 @@ def test_interval_keeps_integers() -> None:
     "text",
     [
         # The overrides that nematocyte removes.
-        "+seed=1",
         "++seed=1",
         "~seed=1",
         # Grammar that is left out.
@@ -198,20 +197,34 @@ def test_other_arguments_are_overrides() -> None:
 
 
 @pytest.mark.parametrize(
-    ("text", "added", "key"),
+    ("text", "key", "value"),
     [
-        ("+presets=debug", "+presets/debug", "presets=debug"),
-        ("+a.b=c", "+a/b/c", "a.b=c"),
+        ("+opt.kwargs.eps=1e-6", ("opt", "kwargs", "eps"), 1e-6),
+        # Whether the root takes the key is up to the schema.
+        ("+presets=debug", ("presets",), "debug"),
+        ("+ a.b.c = {x:1}", ("a", "b", "c"), {"x": 1}),
+        ("+a.b=", ("a", "b"), ""),
+        ("+a.b=1,2", ("a", "b"), ChoiceSweep((1, 2))),
     ],
 )
-def test_plus_with_equals_shows_both_forms(text: str, added: str, key: str) -> None:
-    # Hydra's `+presets=debug`: the name of the file is written without `=`.
+def test_plus_with_a_dotted_key_sets_a_key_in_a_dict(
+    text: str, key: tuple[str, ...], value: object
+) -> None:
+    override = parse_argument(text)
+    assert isinstance(override, Override)
+    assert override.undeclared
+    assert not override.unset
+    assert override.key == key
+    assert override.value == value
+    assert override.text == text
+    assert parse_override(text) == override
+
+
+@pytest.mark.parametrize("text", ["+~a.b=1", "+a/b=1", "++a.b=1", "+=1", "+a..b=1"])
+def test_plus_with_a_bad_key(text: str) -> None:
     with pytest.raises(ConfigError) as excinfo:
         parse_argument(text)
-    message = str(excinfo.value)
-    assert repr(text) in message
-    assert added in message
-    assert f"{key}" in message
+    assert repr(text) in str(excinfo.value)
 
 
 @pytest.mark.parametrize("text", ["+", "++presets/debug", "+ "])

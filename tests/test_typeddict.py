@@ -641,6 +641,7 @@ def test_help_and_cfg_after_tilde() -> None:
         for line in help_text.splitlines()
     )
     assert any(line.startswith("~KEY") for line in help_text.splitlines())
+    assert any(line.startswith("+KEY=VALUE") for line in help_text.splitlines())
 
 
 def test_multirun_with_tilde(

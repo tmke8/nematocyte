@@ -297,6 +297,32 @@ def test_config_error_is_printed_without_a_traceback(
     assert "Traceback" not in err
 
 
+def test_plus_sets_a_key_in_a_dict(
+    config_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[Config] = []
+    args = ["+opt.optimizer_kwargs.eps=1e-8", "opt.optimizer_kwargs={amsgrad:true}"]
+    make_main(config_dir, seen)(args)
+    assert seen[0].opt.optimizer_kwargs == {"amsgrad": True, "eps": 1e-8}
+    make_main(config_dir, seen)(["--cfg", "job", *args])
+    out = capsys.readouterr().out
+    assert "  optimizer_kwargs:\n    amsgrad: true\n    eps: 1e-08\n" in out
+
+
+def test_plus_on_a_declared_key_is_an_error(
+    config_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[Config] = []
+    with pytest.raises(SystemExit) as excinfo:
+        make_main(config_dir, seen)(["+opt.lr=0.1"])
+    assert excinfo.value.code == 1
+    err = capsys.readouterr().err
+    assert not seen
+    assert err.startswith("Error in '+opt.lr=0.1':")
+    assert "Opt" in err
+    assert "'+' is not needed: opt.lr=0.1" in err
+
+
 def test_unknown_flag(config_dir: Path) -> None:
     with pytest.raises(SystemExit) as excinfo:
         make_main(config_dir, [])(["--resolve"])

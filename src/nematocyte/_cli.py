@@ -162,6 +162,7 @@ def _multirun(
         added=added,
         fixed=fixed,
         sweeps={override.key: override.value for override in sweeps},
+        undeclared=frozenset(o.key for o in sweeps if o.undeclared),
         settings=settings,
         now=now,
         start=_start_dir(settings, now),

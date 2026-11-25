@@ -198,19 +198,25 @@ class Composer:
 
         A dict replaces what was set before at its key, for a TypedDict as for
         a value; it is not merged as a mapping for a TypedDict in a file is.
+        `+key=value` sets one key in the dict that a field holds, and is
+        applied with the values, after a dict for the field itself.
         """
         overrides = last_wins(overrides)
         # A value's node stays in the tree: what comes after it in this order
         # replaces only nodes at least as deep as the value itself.
-        values: list[tuple[Override, Node, FieldInfo]] = []
+        values: list[tuple[Override, Node, FieldInfo, KeyPath]] = []
         for override in sorted(overrides, key=lambda o: len(o.key)):
             source = repr(override.text)
             _check_no_replace(override)
+            if override.undeclared:
+                parent, info, rest = self._locate_undeclared(root, override)
+                values.append((override, parent, info, rest))
+                continue
             parent, info = self._locate(
                 root, override.key, source, _plain_value(override)
             )
             if info.kind is Kind.VALUE:
-                values.append((override, parent, info))
+                values.append((override, parent, info, ()))
                 continue
             if override.unset:
                 what = "a group" if info.kind is Kind.GROUP else "a subconfig"
@@ -238,7 +244,7 @@ class Composer:
                 continue
             name = self._selection_name(override, info)
             self._select(parent, info, name, source, f"the override {source}")
-        for override, parent, info in values:
+        for override, parent, info, rest in values:
             source = repr(override.text)
             if override.unset:
                 _check_unset(override, parent, info)
@@ -252,6 +258,9 @@ class Composer:
                     "as a string.",
                 )
             label = f"the override {source}"
+            if override.undeclared:
+                _set_in_dict(parent, info, rest, override.value, source)
+                continue
             parent.set_value(info.name, override.value, label)
 
     def _apply_mapping(self, parent: Node, info: FieldInfo, override: Override) -> None:
@@ -767,6 +776,58 @@ class Composer:
         `value` is what is to be set at `path`, if anything, for the error
         when the path goes through an optional subconfig or group that is off.
         """
+        node, info, _ = self._walk(start, path, source, value, undeclared=False)
+        return node, info
+
+    def _locate_undeclared(
+        self, root: Node, override: Override
+    ) -> tuple[Node, FieldInfo, KeyPath]:
+        """Follow the path of `+key=value` to the field that holds a dict.
+
+        Return the node, the field, and the path of the key inside the
+        field's dict. A path that ends at a declared key, or that names a
+        key that a config class does not declare, is an error.
+        """
+        path = override.key
+        source = repr(override.text)
+        value = _plain_value(override)
+        hint = _added_config_hint(override)
+        node, info, rest = self._walk(
+            root, path, source, value, undeclared=True, hint=hint
+        )
+        if not rest:
+            key = format_path(path)
+            what = (
+                "a key of the TypedDict"
+                if is_typeddict_class(node.cls)
+                else "a field of the dataclass"
+            )
+            shown = "VALUE" if value is MISSING else format_value(value)
+            raise _error(
+                source,
+                f"{key!r} is {what} {node.describe()}, so it is declared, "
+                f"and '+' is not needed: {key}={shown}. '+' sets a key inside "
+                f"a dict, which no config class declares.",
+            )
+        return node, info, rest
+
+    def _walk(
+        self,
+        start: Node,
+        path: KeyPath,
+        source: str,
+        value: Any,
+        *,
+        undeclared: bool,
+        hint: str = "",
+    ) -> tuple[Node, FieldInfo, KeyPath]:
+        """Follow `path` from `start` through the subconfigs and groups.
+
+        Return the last node, the field in it, and what is left of the path.
+        Only with `undeclared` does the walk stop at a field that holds a
+        value before the end of the path; otherwise that is an error.
+        `hint` goes at the end of the error for a key that is not declared.
+        """
         node = start
         for index, segment in enumerate(path):
             info = node.fields.get(segment)
@@ -782,22 +843,17 @@ class Composer:
                     f"the command line, a dict replaces anyway{example}",
                 )
             if info is None:
-                raise _error(source, unknown_key_message(node, segment))
+                message = unknown_key_message(node, segment)
+                if undeclared:
+                    message += "\n" + _closed_message(node) + hint
+                raise _error(source, message)
             if index == len(path) - 1:
-                return node, info
+                return node, info, ()
             if info.kind is Kind.VALUE:
-                here = format_path((*node.path, segment))
                 rest = path[index + 1 :]
-                example = "{...}"
-                if value is not MISSING:
-                    example = format_value(nest(rest, value))
-                raise _error(
-                    source,
-                    f"{here!r} is a value, not a subconfig, so it has no key "
-                    f"{format_path(rest)!r}. On the command line, a dict value is "
-                    f"given as a whole, and replaces the dict that it holds: "
-                    f"{here}={example}",
-                )
+                if undeclared:
+                    return node, info, rest
+                raise _error(source, _value_has_no_key_message(node, info, rest, value))
             if node.is_off(info):
                 rest = path[index + 1 :]
                 raise _error(source, switched_off_message(node, info, rest, value))
@@ -1091,6 +1147,108 @@ def _explicit(node: Node, selections: tuple[Selection, ...]) -> Iterator[_Droppe
                 )
             inner = (*selections, child.selection)
         yield from _explicit(child, inner)
+
+
+def _value_has_no_key_message(
+    node: Node, info: FieldInfo, rest: KeyPath, value: Any
+) -> str:
+    """The error for a dotted path that goes on past a field that holds a value."""
+    here = format_path((*node.path, info.name))
+    example = "{...}" if value is MISSING else format_value(nest(rest, value))
+    message = (
+        f"{here!r} is a value, not a subconfig, so it has no key "
+        f"{format_path(rest)!r}. On the command line, a dict value is given as "
+        f"a whole, and replaces the dict that it holds: {here}={example}"
+    )
+    if _takes_a_mapping(info):
+        shown = "VALUE" if value is MISSING else format_value(value)
+        message += (
+            f"\nTo set one key of the dict and keep the others: "
+            f"+{here}.{format_path(rest)}={shown}"
+        )
+    return message
+
+
+def _added_config_hint(override: Override) -> str:
+    """For `+key=value` with a key of the root, the hint about `+NAME`.
+
+    `+presets=debug` is how Hydra adds a config on top; in nematocyte, the
+    name of the file is written without `=`. The hint goes with the error
+    for a key that the root does not declare.
+    """
+    value_text = override.text.partition("=")[2].strip(" \t")
+    if len(override.key) != 1 or not value_text:
+        return ""
+    name = f"{override.key[0]}/{value_text}"
+    return (
+        f"\nTo apply the primary config {name!r} on top of the one from "
+        f"--config-name, '+' takes its name without '=': +{name}"
+    )
+
+
+def _closed_message(node: Node) -> str:
+    """Why `+key=value` cannot add a key to the node's class."""
+    if is_typeddict_class(node.cls):
+        return (
+            f"'+' sets a key inside a dict. {node.class_name} is a TypedDict, "
+            "and a TypedDict is closed: it has only the keys that it declares."
+        )
+    return (
+        f"'+' sets a key inside a dict. {node.class_name} is a dataclass, "
+        "which has only the fields that it declares."
+    )
+
+
+def _set_in_dict(
+    node: Node, info: FieldInfo, rest: KeyPath, value: Any, source: str
+) -> None:
+    """Set the key at `rest` inside the dict that the field `info` holds.
+
+    The other keys stay. Every mapping on the way has to be there already;
+    only the last key can be new. The default of the field is not changed:
+    the mappings on the way are copied.
+    """
+    field = (*node.path, info.name)
+    current = node.value(info)
+    if current is MISSING or current is None or not isinstance(current, Mapping):
+        if current is MISSING:
+            holds = "is not set"
+        elif current is None:
+            holds = "is null"
+        else:
+            holds = f"holds {format_value(current)}, not a dict"
+        raise _error(
+            source,
+            f"{format_path(field)!r} of {node.describe()} {holds}, so there is "
+            f"no dict to set the key {format_path(rest)!r} in. '+' only sets a "
+            f"key in a dict that is there. To set the whole dict: "
+            f"{format_path(field)}={format_value(nest(rest, value))}",
+        )
+    root: dict[Any, Any] = dict(cast("Mapping[Any, Any]", current))
+    mapping = root
+    for index, segment in enumerate(rest[:-1]):
+        inner = mapping.get(segment, MISSING)
+        if not isinstance(inner, Mapping):
+            here = (*field, *rest[: index + 1])
+            holds = (
+                "is not set"
+                if inner is MISSING
+                else f"holds {format_value(inner)}, not a dict"
+            )
+            remaining = rest[index + 1 :]
+            raise _error(
+                source,
+                f"{format_path(here)!r}, in the dict {format_path(field)!r} of "
+                f"{node.describe()}, {holds}, so there is no dict to set the "
+                f"key {format_path(remaining)!r} in. '+' only sets a key in a "
+                f"dict that is there. To set it as a whole: "
+                f"+{format_path(here)}={format_value(nest(remaining, value))}",
+            )
+        copied: dict[Any, Any] = dict(cast("Mapping[Any, Any]", inner))
+        mapping[segment] = copied
+        mapping = copied
+    mapping[rest[-1]] = value
+    node.set_value(info.name, root, f"the override {source}")
 
 
 def _not_a_mapping_message(

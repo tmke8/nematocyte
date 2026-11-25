@@ -592,6 +592,61 @@ def test_optuna_keys_are_checked_at_the_start(
     assert "Cnn" in err
 
 
+def test_a_key_in_a_dict_is_swept(capsys: pytest.CaptureFixture[str]) -> None:
+    seen: list[Config] = []
+    args = [
+        "-m",
+        "opt.optimizer_kwargs={amsgrad:true}",
+        "+opt.optimizer_kwargs.eps=1,2",
+    ]
+    assert run(make_main(empty_config_dir(), seen), args) == 0
+    assert [config.opt.optimizer_kwargs for config in seen] == [
+        {"amsgrad": True, "eps": 1},
+        {"amsgrad": True, "eps": 2},
+    ]
+    err = capsys.readouterr().err
+    assert "#0 : opt.optimizer_kwargs={amsgrad:true} +opt.optimizer_kwargs.eps=1" in err
+    assert "#1 : opt.optimizer_kwargs={amsgrad:true} +opt.optimizer_kwargs.eps=2" in err
+
+
+def test_optuna_sweeps_a_key_in_a_dict(
+    config_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[Config] = []
+    args = [
+        "-m",
+        "nematocyte.sweeper=optuna",
+        "nematocyte.sweeper.n_trials=2",
+        "opt.optimizer_kwargs={amsgrad:true}",
+        "+opt.optimizer_kwargs.eps=interval(1e-8, 1e-6)",
+    ]
+    assert run(make_main(config_dir, seen), args) == 0
+    capsys.readouterr()
+    assert len(seen) == 2
+    for config in seen:
+        kwargs = config.opt.optimizer_kwargs
+        assert kwargs is not None
+        assert kwargs["amsgrad"] is True
+        assert 1e-8 <= kwargs["eps"] <= 1e-6
+
+
+def test_optuna_checks_a_key_in_a_dict_at_the_start(
+    config_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[Config] = []
+    # `opt.optimizer_kwargs` is null, so it has no key to set.
+    args = [
+        "-m",
+        "nematocyte.sweeper=optuna",
+        "+opt.optimizer_kwargs.eps=interval(1e-8, 1e-6)",
+    ]
+    assert run(make_main(config_dir, seen), args) == 1
+    assert not seen
+    err = capsys.readouterr().err
+    assert "'+opt.optimizer_kwargs.eps'" in err
+    assert "'opt.optimizer_kwargs' of Opt (at 'opt') is null" in err
+
+
 def test_optuna_failures_and_max_failure_rate(
     config_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

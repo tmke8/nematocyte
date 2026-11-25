@@ -241,6 +241,12 @@ python main.py 'wandb.tags=[baseline,cnn]' 'opt.optimizer_kwargs={eps:1e-8,amsgr
 ```
 A dictionary given like this replaces the previous value as a whole: here, `optimizer_kwargs` has only these two keys, whatever a config file set in it. The same holds for a `TypedDict` such as `wandb`: `'wandb={...}'` replaces the whole dictionary, so it has to give every required key of `WandbKwargs` (`project`, `dir`, `entity` and `mode`) again. To change one key of a `TypedDict` and keep the others, use a dotted key, `wandb.project=test`. A dataclass such as `opt` cannot be given a dictionary; set its fields one by one, `opt.lr=0.01`.
 
+To set one key of a dictionary such as `optimizer_kwargs` and keep the others, put a `+` in front:
+```bash
+python main.py 'opt.optimizer_kwargs={eps:1e-8}' +opt.optimizer_kwargs.amsgrad=true
+```
+This gives `{eps: 1e-8, amsgrad: true}`, in whichever order the two are written. The dictionary has to be there: `optimizer_kwargs` is `null` by default, so `+opt.optimizer_kwargs.amsgrad=true` on its own is an error that shows the whole dictionary instead. The `+` is only for keys that no dataclass or `TypedDict` declares; `+opt.lr=0.01` is an error.
+
 In a config file, a dictionary such as `optimizer_kwargs` replaces the previous value in the same way. A `TypedDict` such as `wandb`, or a dataclass such as `opt`, is merged instead: keys that the mapping does not give keep their values. To replace a `TypedDict` in a config file, add `_replace_: true` to the mapping; then every required key has to be given again:
 ```yaml
 wandb:

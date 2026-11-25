@@ -96,7 +96,7 @@ type Sweep = ChoiceSweep | RangeSweep | IntervalSweep
 
 @dataclass(frozen=True)
 class Override:
-    """A parsed `key=value` argument, or a `~key` argument."""
+    """A parsed `key=value`, `+key=value` or `~key` argument."""
 
     key: tuple[str, ...]
     value: Any
@@ -105,6 +105,12 @@ class Override:
     """The argument as it was written."""
     unset: bool = False
     """Whether this is `~key`, which leaves an optional TypedDict key out."""
+    undeclared: bool = False
+    """Whether this is `+key=value`, which sets a key in a dict.
+
+    The key is one that no config class declares: the path goes through a
+    field that holds a dict, and on into it.
+    """
 
     @property
     def key_text(self) -> str:
@@ -502,15 +508,7 @@ def parse_override(text: str) -> Override:
             "or changed with a plain key=value"
         )
     elif key_text.startswith("+"):
-        bare = key_text[1:]
-        value_text = text.partition("=")[2].strip(_WHITESPACE)
-        name = f"{bare.replace('.', '/')}/{value_text}"
-        problem = (
-            f"'+' takes the name of a primary config, without '=': +{name} "
-            f"applies the primary config {name!r} on top of the one from "
-            f"--config-name. To set or select a key, no '+' is needed: "
-            f"{bare}={value_text}"
-        )
+        return _parse_undeclared(text, key_text[1:].strip(_WHITESPACE))
     elif key_text.startswith("~"):
         bare = key_text[1:].strip(_WHITESPACE)
         value_text = text.partition("=")[2].strip(_WHITESPACE)
@@ -528,6 +526,28 @@ def parse_override(text: str) -> Override:
     except _ParseError as exc:
         raise _fail(text, exc) from None
     return Override(tuple(key_text.split(".")), value, text)
+
+
+def _parse_undeclared(text: str, bare: str) -> Override:
+    """Parse one `+key=value` argument, which sets a key that is not declared.
+
+    Whether the key can be set is up to the schema: a key without a dot,
+    such as in `+presets=debug`, is a key of the root config.
+    """
+    if bare.startswith(("+", "~")):
+        problem = (
+            "'+' is followed by a key, as in +opt.kwargs.eps=1e-6; '++' and "
+            "'+~' are not supported"
+        )
+    else:
+        problem = _key_problem(bare)
+    if problem is not None:
+        raise ConfigError(f"Cannot parse {text!r}: {problem}.")
+    try:
+        value = _Parser(text, start=len(text.partition("=")[0]) + 1).value()
+    except _ParseError as exc:
+        raise _fail(text, exc) from None
+    return Override(tuple(bare.split(".")), value, text, undeclared=True)
 
 
 def _key_problem(key_text: str) -> str | None:

@@ -99,7 +99,8 @@ def compose[C](
             relative to the working directory.
         config_name: The primary config, as `--config-name` takes it.
         overrides: The arguments as they are written on the command line:
-            `key=value`, and `+NAME` for a primary config to apply on top.
+            `key=value`, `+KEY=value` for a key in a dict, `~KEY`, and
+            `+NAME` for a primary config to apply on top.
 
     Returns:
         An instance of `config_cls`; a dict for a TypedDict.

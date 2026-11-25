@@ -11,7 +11,9 @@ preset such as `+presets=debug` on top of an experiment, keeps the `+`, in a
 simpler form: `+presets/debug`.
 
 `~key` came back later, in a narrow form: it leaves out an optional key of a
-TypedDict ([below](#key-leaves-out-an-optional-key-of-a-typeddict)).
+TypedDict ([below](#key-leaves-out-an-optional-key-of-a-typeddict)). So did
+`+key=value`: it sets one key inside a dict, which no config class declares
+([below](#keyvalue-sets-a-key-inside-a-dict)).
 
 ## How Hydra does it
 
@@ -65,14 +67,20 @@ Unlike YAML 1.1, `1e-3` is a float here.
 
 ## Decided
 
-### No `++`, `+` only adds a primary config, and `~` only leaves out a key
+### No `++`, and `+` and `~` in narrow forms
 
 The grammar's top-level rule keeps `key=value` and `key=`, and adds
-`+NAME`, with no `=` (next section), and `~KEY`, with no `=`
-([below](#key-leaves-out-an-optional-key-of-a-typeddict)). `+key=value`,
-`++key=value` and `~key=value` are errors. For `+presets=debug`, the error
-shows both forms that may have been meant: `+presets/debug` and
-`presets=debug`.
+`+NAME`, with no `=` (next section), `+KEY=value`
+([below](#keyvalue-sets-a-key-inside-a-dict)), and `~KEY`, with no `=`
+([below](#key-leaves-out-an-optional-key-of-a-typeddict)). `++key=value`
+and `~key=value` are errors.
+
+`+presets=debug`, Hydra's way to add a config on top, is read as
+`+KEY=value` with a key of the root config. Whether the root takes the key
+is up to the schema, as for any `+KEY`: the root has no field `presets`,
+and takes no keys that it does not declare, so it is an error. For a key of
+the root that the root does not declare, the error then also shows the
+form that may have been meant, `+presets/debug`.
 
 ### `+NAME` applies a primary config on top
 
@@ -199,15 +207,86 @@ has no other spelling on the command line.
 
 Dotted paths end at the dict-typed field. `opt.optimizer_kwargs.eps=1e-6` is
 not supported, unlike in Hydra; the error shows the dict,
-`opt.optimizer_kwargs={eps:1e-6}`, and the whole dict is given again. For
-dotted keys, use a `TypedDict`. A spelling that sets one key of a dict and
-keeps the others, such as `+opt.optimizer_kwargs.eps=1e-6`, may be added
-later.
+`opt.optimizer_kwargs={eps:1e-6}`, and the form that sets one key of the
+dict and keeps the others, `+opt.optimizer_kwargs.eps=1e-6`
+([below](#keyvalue-sets-a-key-inside-a-dict)). A key that is set on its own
+often is better declared in a `TypedDict`, where it has a dotted key.
 
 The same holds for any field that holds a value, whatever its type: a field
 typed `Any` or `dict[str, int] | None` is replaced by a dict, as it is by any
 other value. A key given twice is replaced as a whole too:
 `opt.optimizer_kwargs={a:1} opt.optimizer_kwargs={b:2}` gives `{b: 2}`.
+
+### `+KEY=value` sets a key inside a dict
+
+`+opt.optimizer_kwargs.eps=1e-6` sets the key `eps` in the dict that
+`opt.optimizer_kwargs` holds, and keeps its other keys. It is for the keys
+that no config class declares
+([composition.md](composition.md#a-declared-key-is-merged-any-other-key-is-replaced)):
+the path goes through declared fields to a field that holds a dict, and on
+into the dict.
+
+The rules:
+
+- The field can be of any type that holds a mapping: `dict[...]`,
+  `Mapping[...]`, `Any`. What counts is that it holds a mapping when the
+  override is applied, whether from its default, a config file or the
+  command line. The value is checked with the dict when the config is
+  built, as any value is.
+- The key is set whether or not the dict has it. Hydra's `+` adds only a
+  key that is not there, and its `++` sets one that is; nematocyte has no
+  `++`, and what a file or a default put into a dict is not always known.
+- The path can go deeper into nested mappings, `+opt.kwargs.sched.step=5`,
+  but every mapping on the way has to be there; only the last key can be
+  new. A step that is missing, or that holds something else, is an error,
+  which shows the form that sets it as a whole: `+opt.kwargs.sched={step:5}`.
+  Hydra creates the missing mappings, and replaces a value on the way with
+  a mapping.
+- A field that holds null, or nothing (a `NotRequired` key that is not
+  set), or something that is not a mapping, has no dict to set the key in:
+  the error shows the dict for the field, `opt.optimizer_kwargs={eps:1e-6}`.
+  This includes an interpolation, which is a string until after composition
+  ([interpolation.md](interpolation.md)).
+- The path has to reach a dict. A key that is declared, a field of a
+  dataclass or a key of a TypedDict, takes no `+`: `+opt.lr=0.1` is an
+  error that shows `opt.lr=0.1`, and `+opt.optimizer_kwargs={eps:1e-6}` is
+  one that shows the dict without `+`. A key that a class does not declare
+  is an error that says that the class has only the keys it declares. Every
+  TypedDict is closed ([composition.md](composition.md#a-declared-key-is-merged-any-other-key-is-replaced)).
+  Hydra adds such a key, even to a dataclass, without a warning. This holds
+  for the root config too: `+presets=debug` is an error, which also points
+  to `+presets/debug` ([above](#no--and--and--in-narrow-forms)).
+- A dict as the value replaces what the key held, as a dict does everywhere
+  on the command line: `+opt.kwargs.sched={step:5}` leaves only `step` in
+  `sched`. Hydra merges it.
+- `+KEY` is applied with the values, shortest path first, after the
+  selections and the dicts, so after a dict for the field itself:
+  `opt.kwargs={a:1} +opt.kwargs.b=2` gives `{a: 1, b: 2}`, in either order,
+  and `+opt.kwargs.s={x:1} +opt.kwargs.s.y=2` gives `{x: 1, y: 2}`. A key
+  that is given twice is one key: the last one wins. Hydra makes all of
+  these an error.
+- With `--multirun`, `+KEY` can be swept, as any value
+  ([multirun.md](multirun.md)).
+- `+KEY` exists only on the command line and in the overrides of
+  `nematocyte.compose`. A config file sets a key in a dict by writing the
+  dict, which replaces it.
+
+Observed in Hydra, for `kw: dict[str, Any]` holding
+`{eps: 1.0, sched: {gamma: 0.1}}`, and `none_kw` holding null:
+
+| Override | Hydra | nematocyte |
+| --- | --- | --- |
+| `+opt.kw.new=2` | Adds `new` | Adds `new` |
+| `+opt.kw.eps=2` | "An item is already at 'opt.kw.eps'"; `++` sets it | Sets `eps` |
+| `+opt.kw.sched.step=5` | Adds `step` to `sched` | Adds `step` to `sched` |
+| `+opt.kw.a.b=5` | Creates `a: {b: 5}` | Error, which shows `+opt.kw.a={b:5}` |
+| `+opt.kw.eps.x=1` | `eps: {x: 1}` | Error, which shows `+opt.kw.eps={x:1}` |
+| `+opt.kw.sched={step:5}` | `sched: {gamma: 0.1, step: 5}` | `sched: {step: 5}` |
+| `+opt.none_kw.x=1` | Error | Error, which shows `opt.none_kw={x:1}` |
+| `+opt.lr=0.5` | "An item is already at 'opt.lr'" | Error, which shows `opt.lr=0.5` |
+| `+opt.newfield=1`, `opt` a dataclass | Adds the field | Error: not a field of `Opt` |
+| `opt.kw={z:1} +opt.kw.y=2`, either order | "Could not override 'opt.kw'" | `{z: 1, y: 2}` |
+| `+opt.kw.y=2 +opt.kw.y=3` | "An item is already at 'opt.kw.y'" | `y: 3` |
 
 ### A dict for a TypedDict replaces it
 
@@ -357,7 +436,9 @@ A key that is given more than once: the last one wins, and the earlier ones
 are dropped before anything is applied (`seed=1 seed=2` sets `2`; with
 `--multirun`, `seed=1,2 seed=3` is one job). A dict for a TypedDict is
 applied with the selections
-([above](#a-dict-for-a-typeddict-replaces-it)). And the added configs
+([above](#a-dict-for-a-typeddict-replaces-it)), and `+KEY=value` with the
+values, shortest path first
+([above](#keyvalue-sets-a-key-inside-a-dict)). And the added configs
 (`+NAME`) are applied in the order given, before all selections and values. What a selection does to
 the values that the config files set is described in
 [composition.md](composition.md#layers).
@@ -502,6 +583,8 @@ For reference, the flags Hydra has beyond these (`hydra/_internal/utils.py`):
 - **`--resolve`**, to print the resolved values with `--cfg`.
 - **Sweeping over added configs**, as in `+presets/a,presets/b`. With
   `--multirun`, the added configs are the same for every job.
+- **Leaving out a key of a dict**, as in `~opt.kwargs.eps`. `~KEY` only
+  leaves out a key of a TypedDict; a dict is given again without the key.
 
 ## Rejected ideas
 

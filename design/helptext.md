@@ -144,7 +144,7 @@ the docs as comments.
   option are among them, as `celeba/male_blond`. The presets of a plain
   subconfig are listed the same way, under `Presets:`.
 - `--help` also shows nematocyte's own settings and the flags (with
-  `+NAME` and `~KEY`), after the
+  `+NAME`, `+KEY=VALUE` and `~KEY`), after the
   program's keys, as a block of their own, so that their keys do not widen
   the left column. The left column is at most 40 characters wide, and the
   text is wrapped at the width of the terminal, between 60 and 100 columns

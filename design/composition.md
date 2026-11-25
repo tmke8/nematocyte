@@ -386,8 +386,9 @@ also has a dotted key on the command line
 - On the command line, a dict replaces too
   ([cli.md](cli.md#on-the-command-line-a-dict-replaces)), also for a
   TypedDict ([cli.md](cli.md#a-dict-for-a-typeddict-replaces-it)), and a
-  dotted path ends at a dict-typed field, so a key inside the dict cannot be
-  set on its own there.
+  key inside a dict is set on its own with `+`, as in
+  `+opt.kwargs.eps=1e-6`, which keeps the other keys of the dict
+  ([cli.md](cli.md#keyvalue-sets-a-key-inside-a-dict)).
 - Every TypedDict is treated as closed: a key that it does not declare is an
   error. Once an open TypedDict (`closed=False`, or with `extra_items`) is
   supported, its extra keys follow rule 2, and are replaced while its
