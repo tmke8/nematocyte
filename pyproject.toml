@@ -1,6 +1,6 @@
 [project]
 name = "nematocyte"
-version = "0.2.0"
+version = "0.3.0"
 description = "Configuration for Python programs, as a tree of dataclasses filled from YAML or JSON5 files and the command line"
 license = "MIT"
 license-files = ["LICENSE"]
