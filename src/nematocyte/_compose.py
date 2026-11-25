@@ -580,6 +580,7 @@ class Composer:
                 file.label,
                 f"{_HYDRA_DEFAULTS_KEY!r} is not a field of {node.describe()}.{hint}",
             )
+        _check_no_top_level_replace(node, file)
         # A `_replace_` in the file drops what was set before this point.
         since = next_step()
         # What the file switches off here, it cannot set among its values.
@@ -1393,19 +1394,49 @@ def _check_unset(override: Override, parent: Node, info: FieldInfo) -> None:
         )
 
 
-def _check_replace(node: Node, value: Any, label: str) -> None:
-    """`_replace_` is true or false, and only for a `TypedDict` below the root.
+def _check_no_top_level_replace(node: Node, file: ConfigFile) -> None:
+    """`_replace_` is not at the top level of a file.
 
-    `_replace_: true` replaces the TypedDict; `_replace_: false` merges into
-    it, as a mapping without the key does.
+    For a primary config, it would replace the whole config. A named config
+    is applied by a selection, which starts its node again anyway; what the
+    file's chain of `_self_` set is dropped by not extending it.
     """
+    if REPLACE_KEY not in file.values:
+        return
     if not node.path:
         raise _error(
-            label,
-            f"{REPLACE_KEY!r} is at the top level of the config, where it would "
-            f"replace the whole of {node.describe()}. It goes into the mapping "
-            "for a TypedDict subconfig or group.",
+            file.label,
+            f"{REPLACE_KEY!r} is at the top level of the file, which is the "
+            f"whole of {node.describe()}. The whole config is always merged, "
+            f"and cannot be replaced, so leave out the key. {REPLACE_KEY!r} "
+            "goes into the mapping for a TypedDict subconfig or group, or for "
+            "a dict.",
         )
+    key = format_path(node.path)
+    hint = ""
+    if file.base is not None:
+        hint = (
+            f" To leave out what the config {file.base!r} sets, remove the "
+            f"entry '_self_' from '_defaults_'."
+        )
+    raise _error(
+        file.label,
+        f"{REPLACE_KEY!r} is at the top level of the file, which is a config "
+        f"for {node.describe()}. Selecting a config for {key!r} starts "
+        f"it again from its class, so there is nothing to replace or merge "
+        f"into: leave out the key.{hint} {REPLACE_KEY!r} goes into the "
+        "mapping for a TypedDict or a dict inside the file.",
+    )
+
+
+def _check_replace(node: Node, value: Any, label: str) -> None:
+    """`_replace_` is true or false, and only for a `TypedDict`.
+
+    `_replace_: true` replaces the TypedDict; `_replace_: false` merges into
+    it, as a mapping without the key does. The node is below the top level
+    of the file, which `_check_no_top_level_replace` has checked.
+    """
+    assert node.path
     where = f"{REPLACE_KEY!r} in the mapping for {format_path(node.path)!r}"
     if not is_typeddict_class(node.cls):
         raise _error(

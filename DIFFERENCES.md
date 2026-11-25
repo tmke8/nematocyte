@@ -329,7 +329,10 @@ config or a preset set under it. On the command line, a dict replaces
 anyway, so the same is `opt={lr:0.001}`
 ([below](#a-dict-replaces-and-a-dataclass-takes-none)); `~opt.wd` takes out
 a single key. A
-dataclass cannot be replaced this way. A dict is replaced anyway
+dataclass cannot be replaced this way, and `_replace_` is not allowed at
+the top level of a file: a named config is applied by selecting it, which
+starts the field again from its class anyway
+([above](#selecting-an-option-or-a-preset-starts-the-node-again)). A dict is replaced anyway
 ([above](#dict-fields-are-open-and-replaced)), so `_replace_: true` is
 allowed in it but changes nothing, and `_replace_: false` merges it one
 level instead. For a TypedDict, `_replace_: false` changes nothing. A dict

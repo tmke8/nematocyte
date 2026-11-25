@@ -140,16 +140,10 @@ def test_a_required_key_has_to_be_set_again() -> None:
     assert "a value is required" in message
 
 
-def test_replace_at_the_top_of_a_preset_for_the_field() -> None:
-    files = {"opt/plain.yaml": "_replace_: true\nlr: 0.001\n"}
-    assert compose(files, overrides=["opt=plain"]).opt == {"lr": 0.001}
-
-
-def test_replace_drops_what_the_chain_of_self_set() -> None:
-    files = {
-        "opt/base.yaml": "lr: 0.5\nwd: 0.5\n",
-        "opt/plain.yaml": "_defaults_:\n  _self_: base\n_replace_: true\nlr: 0.001\n",
-    }
+def test_selecting_a_config_drops_the_default_without_replace() -> None:
+    # Why a named config has no `_replace_` at its top level: the selection
+    # starts the node again anyway.
+    files = {"opt/plain.yaml": "lr: 0.001\n"}
     assert compose(files, overrides=["opt=plain"]).opt == {"lr": 0.001}
 
 
@@ -219,14 +213,6 @@ def test_replace_in_an_optional_subconfig_switched_on_by_some() -> None:
             "{opt: {lr: 0.5}}",
             "+presets/x",
             {"lr": 0.5, "wd": 0.01},
-        ),
-        # Selecting the named config starts from the class, which has no `wd`.
-        (
-            "opt/x.yaml",
-            "_replace_: false\nlr: 0.5\n",
-            "lr: 0.5\n",
-            "opt=x",
-            {"lr": 0.5},
         ),
     ],
 )
@@ -439,8 +425,8 @@ def test_validate_configs_with_replace(tmp_path: Path) -> None:
         tmp_path,
         {
             **PLAIN,
-            "opt/plain.yaml": "_replace_: true\nlr: 0.001\n",
-            "opt/empty.yaml": "_replace_: true\n",
+            "presets/empty.yaml": "opt:\n  _replace_: true\n",
+            "opt/top.yaml": "_replace_: true\nlr: 0.001\n",
         },
     )
     results = {
@@ -449,8 +435,10 @@ def test_validate_configs_with_replace(tmp_path: Path) -> None:
     }
     assert results == {
         "presets/plain.yaml": True,
-        "opt/plain.yaml": True,
-        "opt/empty.yaml": False,
+        # A required key has to be set again.
+        "presets/empty.yaml": False,
+        # `_replace_` is not at the top level of a file.
+        "opt/top.yaml": False,
     }
 
 
@@ -468,7 +456,32 @@ def test_validate_configs_with_replace(tmp_path: Path) -> None:
         (
             {"model/small.yaml": "_replace_: true\nwidth: 1\n"},
             ["model=small"],
-            ["'_replace_'", "'model'", "Model", "dataclass", "model/small.yaml"],
+            ["'_replace_'", "top level", "'model'", "Model", "model/small.yaml"],
+        ),
+        (
+            {"opt/plain.yaml": "_replace_: true\nlr: 0.001\n"},
+            ["opt=plain"],
+            ["'_replace_'", "top level", "'opt'", "Opt", "opt/plain.yaml"],
+        ),
+        (
+            {"opt/plain.yaml": "_replace_: false\nlr: 0.001\n"},
+            ["opt=plain"],
+            ["'_replace_'", "top level", "'opt'", "leave out the key"],
+        ),
+        (
+            {
+                "opt/base.yaml": "lr: 0.5\nwd: 0.5\n",
+                "opt/plain.yaml": (
+                    "_defaults_:\n  _self_: base\n_replace_: true\nlr: 0.001\n"
+                ),
+            },
+            ["opt=plain"],
+            ["'_replace_'", "top level", "'opt'", "'base'", "'_self_'"],
+        ),
+        (
+            {"optimizer/adam/x.yaml": "_replace_: true\nbeta1: 0.5\n"},
+            ["optimizer=adam/x"],
+            ["'_replace_'", "top level", "'optimizer'", "Adam", "adam/x.yaml"],
         ),
         (
             {},
@@ -524,6 +537,16 @@ def test_errors_name_the_key_the_file_and_the_class(
         compose(files, overrides=overrides)
     message = str(info.value)
     for part in parts:
+        assert part in message
+
+
+@pytest.mark.parametrize("flag", ["true", "false"])
+def test_replace_at_the_top_of_the_primary_config_is_an_error(flag: str) -> None:
+    files = {"run.yaml": f"_replace_: {flag}\nseed: 1\n"}
+    with pytest.raises(ConfigError) as info:
+        compose(files, config_name="run")
+    message = str(info.value)
+    for part in ["'_replace_'", "top level", "Config", "run.yaml"]:
         assert part in message
 
 

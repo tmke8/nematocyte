@@ -457,16 +457,21 @@ The rules:
   `_some_` under `_defaults_` does
   ([unions.md](unions.md#optional-subconfigs)).
   The option of a group stays selected, and only what was set in it is
-  dropped. `_replace_` is also allowed at the top level of a named config
-  for such a field, where it drops what was set for the field before the
-  file, including what the file's chain of `_self_` set.
+  dropped.
 - In a value, `_replace_` is allowed in any mapping, but not in the items
   of a list; there it is a key of the item.
 - For a dataclass, `_replace_` is an error that names the class, true or
   false. Every field of a dataclass that has a default can be set back to
-  it, so a dataclass needs it less; it may be allowed later. At the top
-  level of a primary config, where it would replace the whole config, it is
-  an error too.
+  it, so a dataclass needs it less; it may be allowed later.
+- At the top level of a file, `_replace_` is an error, true or false, which
+  names the file and the class. It goes into a mapping inside the file. At
+  the top level of a primary config, it would replace the whole config. A
+  named config is applied by a selection, which starts the node again from
+  its class anyway ([layers](#layers)), so there is nothing below it to
+  replace or merge into. That leaves only what the file's own chain of
+  `_self_` set, and `_self_: base` with `_replace_: true` would give the
+  same as leaving out `_self_`; the error says so when the file has a
+  `_self_`.
 - The value is `true` or `false`. Anything else is an error. For a
   TypedDict, `false` is allowed and changes nothing, since its mapping is
   merged anyway: a mapping that is to be merged can leave out the key.
