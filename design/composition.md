@@ -297,16 +297,27 @@ named config ([validation.md](validation.md)), because nobody wrote those.
 Python shows a warning with the same text only once from the same place,
 so the jobs of a multirun that drop the same values give one warning.
 
-### A mapping is merged into a mapping, also in a value
+### A declared key is merged, any other key is replaced
 
-In a config file, a mapping for a subconfig is merged into what the layers
-below set: the keys that it gives are set, and the others stay. The same
-holds for a value that is a mapping, such as that of a field typed
-`dict[...]`, as in Hydra:
+In a config file, whether a mapping is merged into what the layers below set,
+or replaces it, is decided per key:
+
+1. A key that is declared in a config class, a field of a dataclass or a key
+   of a TypedDict, is merged: the keys that the mapping under it gives are
+   set, and the others stay. For a TypedDict, `_replace_: true` makes it
+   replace instead
+   ([below](#_replace_-true-replaces-instead-of-merging)).
+2. A key that is not declared, such as any key of a field typed `dict[...]`,
+   is replaced: when a higher layer writes a mapping for the dict, what a
+   lower layer set in it is gone.
+
+So a dataclass or a TypedDict is merged, and a dict is replaced as a whole,
+deeply: nothing inside it is merged.
 
 ```python
 @dataclass
 class Opt:
+    lr: float = 0.1
     kwargs: dict[str, Any] = field(
         default_factory=lambda: {
             "sched": {"gamma": 0.1, "step": 5},
@@ -315,41 +326,49 @@ class Opt:
     )
 ```
 
-| Written in a config file on top | `opt.kwargs` |
-| --- | --- |
-| `opt: {kwargs: {sched: {gamma: 0.5}, extra: 1}}` | `{sched: {gamma: 0.5, step: 5}, milestones: [1, 2], extra: 1}` |
-| `opt: {kwargs: {milestones: [9]}}` | `{sched: {gamma: 0.1, step: 5}, milestones: [9]}` |
-| `opt: {kwargs: {sched: null}}` | `{sched: null, milestones: [1, 2]}` |
+| Written in a config file on top | `opt.kwargs` in Hydra | `opt.kwargs` in nematocyte |
+| --- | --- | --- |
+| `opt: {kwargs: {sched: {gamma: 0.5}, extra: 1}}` | `{sched: {gamma: 0.5, step: 5}, milestones: [1, 2], extra: 1}` | `{sched: {gamma: 0.5}, extra: 1}` |
+| `opt: {kwargs: {milestones: [9]}}` | `{sched: {gamma: 0.1, step: 5}, milestones: [9]}` | `{milestones: [9]}` |
+| `opt: {kwargs: {sched: null}}` | `{sched: null, milestones: [1, 2]}` | `{sched: null}` |
+| `opt: {kwargs: {}}` | `{sched: {gamma: 0.1, step: 5}, milestones: [1, 2]}` | `{}` |
 
-Hydra gives the same results (tested with Hydra 1.4).
+In all four, `opt.lr` stays `0.1`: `opt` is a dataclass, and is merged.
+The Hydra column was tested by merging into the structured config with
+OmegaConf, as Hydra 1.4 does; it merges every mapping into a mapping.
 
-On the command line, a dict replaces instead
-([cli.md](cli.md#on-the-command-line-a-dict-replaces)):
-`opt.kwargs={sched:{step:1}}` gives `{sched: {step: 1}}`, where Hydra
-merges.
+A dict usually holds keyword arguments for a function, and a file that
+writes some of them means those, not those on top of whatever a lower layer
+set. A key that is to be set on its own belongs in a TypedDict, where it
+also has a dotted key on the command line
+([cli.md](cli.md#on-the-command-line-a-dict-replaces)).
 
-- A mapping is merged into a mapping, deeply: a mapping inside it is merged
-  into the mapping at the same key. Anything else replaces what was there:
-  a list, null, a scalar, and a mapping over something that is not one,
-  such as `null` or a string.
-- What counts is the value, not the type of the field: a field typed `Any`
-  or `dict[str, int] | None` merges a mapping into the mapping that it
-  holds. A config class inside a value, such as `dict[str, Point]`, is a
-  mapping in a config file, and is merged as one.
+- What counts is the type of the field, not the value: a field typed `Any`
+  or `dict[str, int] | None` that holds a mapping is replaced, since it
+  declares no keys. A config class inside a value, such as the items of
+  `dict[str, Point]`, is replaced with the dict. A mapping over something
+  that is not one, such as `null` or a string, replaces it too.
+- A mapping for a subconfig, a group or a TypedDict is merged deeply: a
+  mapping for a subconfig inside it is merged into that subconfig, and a
+  dict inside it is replaced.
 - The default of the field is the first layer, as for a subconfig.
 - An interpolation (`${...}`) is resolved after composition, so it is a
-  string while the layers are merged: a mapping written over it replaces
+  string while the layers are applied: a mapping written over it replaces
   it ([interpolation.md](interpolation.md)).
-- On the command line, a dotted path ends at the field
-  ([cli.md](cli.md#on-the-command-line-a-dict-replaces)), so a key inside
-  the dict cannot be set on its own there.
-- `_replace_: true` in a mapping replaces instead of merging
-  ([below](#_replace_-true-replaces-instead-of-merging)).
+- On the command line, a dict replaces too
+  ([cli.md](cli.md#on-the-command-line-a-dict-replaces)), also for a
+  TypedDict ([cli.md](cli.md#a-dict-for-a-typeddict-replaces-it)), and a
+  dotted path ends at a dict-typed field, so a key inside the dict cannot be
+  set on its own there.
+- Every TypedDict is treated as closed: a key that it does not declare is an
+  error. Once an open TypedDict (`closed=False`, or with `extra_items`) is
+  supported, its extra keys follow rule 2, and are replaced while its
+  declared keys are merged.
 
 ### `_replace_: true` replaces instead of merging
 
-Since a mapping is merged, a file has no way to take out a key that a layer
-below set: `wd: null` is a value, and `~KEY` exists only on the command
+Since a mapping for a TypedDict is merged, a file has no way to take out a
+key that a layer below set: `wd: null` is a value, and `~KEY` exists only on the command
 line and only for a TypedDict
 ([cli.md](cli.md#key-leaves-out-an-optional-key-of-a-typeddict)). A mapping
 can say instead that it replaces what the layers below set at its place:
@@ -376,17 +395,10 @@ config with `opt: {lr: 0.1, wd: 0.01}`:
 
 Only `~opt.wd` on the command line takes the key out.
 
-In a value, `_replace_` works the same way, at any depth:
-
-```yaml
-opt:
-  kwargs:
-    sched:
-      _replace_: true
-      step: 1
-```
-
-gives `{sched: {step: 1}, milestones: [1, 2]}` with the `kwargs` above.
+A dict is replaced anyway
+([above](#a-declared-key-is-merged-any-other-key-is-replaced)), so in a
+value, `_replace_: true` is allowed in any mapping, at any depth, and
+changes nothing.
 
 The rules:
 
@@ -397,8 +409,7 @@ The rules:
   `Required` key has to be set again ("a value is required" otherwise). A
   subconfig or a group inside it is as if the TypedDict had no default: a
   group has no option selected, and a subconfig starts from the defaults of
-  its class. In a value, the mapping is then only what the layer gives,
-  and an empty mapping if it gives nothing else.
+  its class.
 - The layers below are what was applied before the file: the default of
   the field, the files below it, and the file's own chain of `_self_`.
   What the file selects under `_defaults_` and sets among its values stays,
@@ -418,8 +429,7 @@ The rules:
   for such a field, where it drops what was set for the field before the
   file, including what the file's chain of `_self_` set.
 - In a value, `_replace_` is allowed in any mapping, but not in the items
-  of a list, which are replaced with the list anyway; there it is a key of
-  the item.
+  of a list; there it is a key of the item.
 - For a dataclass, `_replace_` is an error that names the class. Every
   field of a dataclass that has a default can be set back to it, so a
   dataclass needs it less; it may be allowed later. At the top level of a
@@ -427,10 +437,11 @@ The rules:
   too.
 - The value is `true`. Anything else is an error; a mapping that is to be
   merged leaves out the key.
-- An empty mapping, `kwargs: {}`, is merged, and so changes nothing. A dict
-  is made empty with `kwargs: {_replace_: true}`. Null is not an empty
-  dict: for a dict that does not take `None`, it is an error that shows this
-  spelling ([below](#details-of-finding-and-reading-files)).
+- An empty mapping for a TypedDict, `opt: {}`, is merged, and so changes
+  nothing; `opt: {_replace_: true}` makes it empty. A dict is made empty
+  with `kwargs: {}`. Null is not an empty dict: for a dict that does not
+  take `None`, it is an error that shows `kwargs: {}`
+  ([below](#details-of-finding-and-reading-files)).
 - `_replace_` is reserved on every config class
   ([deserializer.md](deserializer.md#reserved-names)), and in the mappings
   of a value: a dict with a key `_replace_` of its own cannot be written in
@@ -464,10 +475,10 @@ almost always means that the user expects `seed=one` to select
 `configs/seed/one.yaml`, but `seed=one` sets the value to the string `"one"`;
 the error catches the mistake at the directory. A primary config that sets
 such a field goes at the top of the config directory or in a directory that
-matches no field, and can be applied with `+NAME`: a dict in it is merged
-into the dict that the field holds
-([above](#a-mapping-is-merged-into-a-mapping-also-in-a-value)), where `=`
-on the command line replaces it.
+matches no field, and can be applied with `+NAME`: a dict in it replaces
+the dict that the field holds
+([above](#a-declared-key-is-merged-any-other-key-is-replaced)), as `=` on
+the command line does.
 
 A file at the top of the config directory that is named after a subconfig
 or a group of the root dataclass, such as `configs/model.yaml`, is an error,
@@ -679,9 +690,10 @@ Python version. Reading config files does not need to be fast (see above).
   config silently. The error names the file, the key and the class, and
   shows what may have been meant: leaving out the key; for an optional
   subconfig or group, switching it off under `_defaults_`
-  ([unions.md](unions.md#optional-subconfigs)); for a TypedDict or a dict,
-  making it empty with `{_replace_: true}`
-  ([above](#_replace_-true-replaces-instead-of-merging)). For a value whose
+  ([unions.md](unions.md#optional-subconfigs)); for a TypedDict, making it
+  empty with `{_replace_: true}`
+  ([above](#_replace_-true-replaces-instead-of-merging)); for a dict, making
+  it empty with `{}`. For a value whose
   type takes `None`, such as `dict[int, int] | None` or `Any`, null is
   `None`, as in Hydra.
 - In the file that switches an optional subconfig or group off under

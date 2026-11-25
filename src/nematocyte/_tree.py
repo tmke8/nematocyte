@@ -8,7 +8,6 @@ from typing import Any, cast
 
 from ._errors import ConfigError, SchemaError
 from ._json_form import to_json_form
-from ._merge import Part, merge_parts
 from ._overrides import format_value
 from ._schema import (
     OPTION_KEY,
@@ -107,12 +106,10 @@ class Node:
         is off only while it has no node in `children`.
         """
         self.values: dict[str, Any] = {}
-        """The values that were set, merged from their `parts`.
+        """The values that were set, each as the last file or override gave it.
 
         ``MISSING`` for a key of a `TypedDict` that `~key` left out.
         """
-        self.parts: dict[str, list[Part]] = {}
-        """What the files and overrides gave for each value, in order."""
         self.sources: dict[str, str] = {}
         """Where each of the values was set, for error messages."""
         self.steps: dict[str, int] = {}
@@ -241,40 +238,22 @@ class Node:
             return self.values[info.name]
         return to_json_form(self.default_value(info))
 
-    def set_value(
-        self,
-        name: str,
-        value: Any,
-        source: str,
-        *,
-        since: int | None = None,
-        whole: bool = False,
-    ) -> None:
-        """Set a value on top of what was set before.
+    def set_value(self, name: str, value: Any, source: str) -> None:
+        """Set a value, which replaces what was set before.
 
-        A mapping is merged into a mapping. `since` is when the layer that
-        sets the value started, which a `_replace_` in the value goes back
-        to; without it, the layer starts with the value. With `whole`, the
-        value replaces what was there. The value is stored in JSON form, so
-        that a date from YAML is its ISO string from here on, also where an
+        A value has no declared keys, so a mapping in it is not merged into
+        what was there. The value is stored in JSON form, so that a date
+        from YAML is its ISO string from here on, also where an
         interpolation formats it into a longer string.
         """
-        step = next_step()
-        stored = to_json_form(value)
-        part = Part(stored, step, step if since is None else since, whole)
-        self.parts.setdefault(name, []).append(part)
-        self._merge(name)
+        self.values[name] = to_json_form(value)
         self.sources[name] = source
-        self.steps[name] = step
+        self.steps[name] = next_step()
         self.touched = True
 
-    def _merge(self, name: str) -> None:
-        base = to_json_form(self.default_value(self.fields[name]))
-        self.values[name] = merge_parts(base, self.parts[name])
-
-    def unset_value(self, name: str, source: str, *, since: int | None = None) -> None:
+    def unset_value(self, name: str, source: str) -> None:
         """Leave the key out, whatever set it before, the default included."""
-        self.set_value(name, MISSING, source, since=since, whole=True)
+        self.set_value(name, MISSING, source)
 
     def changed_since(self, step: int) -> bool:
         """Whether anything under the node was set or selected at `step` or later."""
@@ -298,14 +277,9 @@ class Node:
         as it is: its node is new. The option of the node itself stays.
         """
         self.default = MISSING
-        for name, parts in list(self.parts.items()):
-            kept = [part for part in parts if part.step >= since]
-            if kept:
-                self.parts[name] = kept
-                self._merge(name)
-                continue
-            del self.parts[name], self.values[name]
-            del self.sources[name], self.steps[name]
+        for name, step in list(self.steps.items()):
+            if step < since:
+                del self.values[name], self.sources[name], self.steps[name]
         self.touched = True
         for info in self.fields.values():
             if info.kind is Kind.VALUE:
@@ -368,7 +342,7 @@ def _from_json_tree(
         child_path = (*path, info.name)
         where = format_path(child_path)
         if info.kind is Kind.VALUE:
-            node.set_value(info.name, value, rebuild.source, whole=True)
+            node.set_value(info.name, value, rebuild.source)
             continue
         if value is None and info.optional:
             # An optional subconfig or group that is off: it has no node.

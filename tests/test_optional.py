@@ -253,7 +253,8 @@ def test_null_for_a_dict_in_a_file_is_an_error(tmp_path: Path, text: str) -> Non
     message = str(excinfo.value)
     assert "c.yaml" in message
     assert "'counts' of WithDicts holds a dict" in message
-    assert "counts: {_replace_: true}" in message
+    assert "counts: {}" in message
+    assert "_replace_" not in message
     assert "leave out the key" in message
 
 
@@ -264,12 +265,14 @@ def test_null_for_a_dict_that_takes_none_is_a_value(tmp_path: Path) -> None:
     assert config.anything is None
 
 
-def test_an_empty_dict_is_written_with_replace(tmp_path: Path) -> None:
-    config_dir = configs(tmp_path, {"c.yaml": "counts: {_replace_: true}\nmaybe: {}\n"})
+def test_an_empty_mapping_makes_a_dict_empty(tmp_path: Path) -> None:
+    text = "counts: {}\nmaybe: {_replace_: true}\nanything: {}\n"
+    config_dir = configs(tmp_path, {"c.yaml": text})
     config = nematocyte.compose(WithDicts, config_dir, config_name="c")
+    # A dict is replaced, so `_replace_` is not needed, but it is allowed.
     assert config.counts == {}
-    # An empty mapping is merged, and changes nothing.
-    assert config.maybe == {"a": 1}
+    assert config.maybe == {}
+    assert config.anything == {}
 
 
 def test_null_for_a_nested_subconfig_in_a_dict_is_an_error() -> None:
