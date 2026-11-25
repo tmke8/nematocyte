@@ -320,10 +320,11 @@ the rejection of the string `"1e-3"` does not matter in a config file.
   ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)).
   Composition takes it out of the mappings of a value, but not out of the
   items of a list, where it is a key of the item: for a config class such
-  as an item of `list[Layer]`, with `Layer` a TypedDict, it is an unknown
-  key, and dropped. `layers: [{_replace_: true, width: 9}]` gives
-  `[{width: 9}]`, as without it, and the list replaces what was there
-  anyway.
+  as an item of `list[Layer]`, it is an unknown key, and dropped.
+  `layers: [{_replace_: true, width: 9}]` gives the same as without it,
+  and the list replaces what was there anyway. This holds for a TypedDict,
+  although a TypedDict node takes `_replace_`, and for a dataclass,
+  although a dataclass node rejects it with an error.
 - An option of a group of dataclasses cannot set `extra` to `"forbid"` or
   `"allow"`: it receives its option under `_option_`, which it has to
   ignore. That is an error in the schema, which names the group and the

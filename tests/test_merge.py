@@ -250,20 +250,38 @@ def test_replace_inside_a_list_is_a_key_of_an_item() -> None:
     assert config.items == [{"_replace_": 1}]
 
 
-def test_replace_in_an_item_of_a_list_of_typeddicts_is_dropped() -> None:
-    class Layer(TypedDict):
-        width: int
-        depth: NotRequired[int]
+class PointDict(TypedDict):
+    x: int
+    y: NotRequired[int]
 
-    @dataclass
-    class WithLayers:
-        layers: list[Layer] = field(default_factory=lambda: [Layer(width=1, depth=2)])
 
-    files = {"presets/x.yaml": "layers:\n  - {_replace_: true, width: 9}\n"}
+@dataclass
+class WithPointDicts:
+    points: list[PointDict] = field(default_factory=lambda: [PointDict(x=1, y=2)])
+
+
+@dataclass
+class WithPoints:
+    points: list[Point] = field(default_factory=lambda: [Point(1, 2)])
+
+
+@pytest.mark.parametrize(
+    ("config_cls", "expected"),
+    [
+        # A TypedDict node takes `_replace_`, but an item of a list is no node.
+        (WithPointDicts, WithPointDicts(points=[PointDict(x=9)])),
+        # A dataclass node rejects `_replace_`, but here it is ignored as well.
+        (WithPoints, WithPoints(points=[Point(x=9)])),
+    ],
+)
+def test_replace_in_an_item_of_a_list_is_an_unknown_key(
+    config_cls: type[object], expected: object
+) -> None:
+    files = {"presets/x.yaml": "points:\n  - {_replace_: true, x: 9}\n"}
     config_dir = write_files(Path.cwd() / "configs", files)
-    config = nematocyte.compose(WithLayers, config_dir, overrides=["+presets/x"])
-    # An unknown key of the TypedDict, which pydantic ignores.
-    assert config.layers == [{"width": 9}]
+    config = nematocyte.compose(config_cls, config_dir, overrides=["+presets/x"])
+    # pydantic ignores the unknown key of the class.
+    assert config == expected
 
 
 def test_the_composed_value_is_saved_whole(
