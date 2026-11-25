@@ -250,6 +250,22 @@ def test_replace_inside_a_list_is_a_key_of_an_item() -> None:
     assert config.items == [{"_replace_": 1}]
 
 
+def test_replace_in_an_item_of_a_list_of_typeddicts_is_dropped() -> None:
+    class Layer(TypedDict):
+        width: int
+        depth: NotRequired[int]
+
+    @dataclass
+    class WithLayers:
+        layers: list[Layer] = field(default_factory=lambda: [Layer(width=1, depth=2)])
+
+    files = {"presets/x.yaml": "layers:\n  - {_replace_: true, width: 9}\n"}
+    config_dir = write_files(Path.cwd() / "configs", files)
+    config = nematocyte.compose(WithLayers, config_dir, overrides=["+presets/x"])
+    # An unknown key of the TypedDict, which pydantic ignores.
+    assert config.layers == [{"width": 9}]
+
+
 def test_the_composed_value_is_saved_whole(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

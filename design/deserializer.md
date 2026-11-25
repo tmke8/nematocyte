@@ -316,6 +316,14 @@ the rejection of the string `"1e-3"` does not matter in a config file.
   field takes its default. A class can opt in with
   `@with_config(ConfigDict(extra="forbid"))`; then the error names the
   field, the item and where the value was set.
+- The same holds for `_replace_` in an item of a list
+  ([composition.md](composition.md#_replace_-true-replaces-instead-of-merging)).
+  Composition takes it out of the mappings of a value, but not out of the
+  items of a list, where it is a key of the item: for a config class such
+  as an item of `list[Layer]`, with `Layer` a TypedDict, it is an unknown
+  key, and dropped. `layers: [{_replace_: true, width: 9}]` gives
+  `[{width: 9}]`, as without it, and the list replaces what was there
+  anyway.
 - An option of a group of dataclasses cannot set `extra` to `"forbid"` or
   `"allow"`: it receives its option under `_option_`, which it has to
   ignore. That is an error in the schema, which names the group and the
