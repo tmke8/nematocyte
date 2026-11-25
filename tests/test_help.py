@@ -325,3 +325,21 @@ def test_cfg_is_valid_yaml(config_dir: Path) -> None:
         assert ("nematocyte" in loaded) is own_settings
     assert loaded["nematocyte"]["launcher"] == {}
     assert loaded["nematocyte"]["output_dir"] is None
+
+
+@dataclass
+class Dated:
+    day: Any = None
+    by_day: dict[Any, str] = field(default_factory=dict)
+
+
+def test_cfg_shows_a_date_from_yaml_as_its_iso_string(tmp_path: Path) -> None:
+    directory = write_files(
+        tmp_path / "c", {"primary.yaml": "day: 2026-11-16\nby_day: {2026-11-17: x}\n"}
+    )
+    composer = Composer(Dated, directory, Settings)
+    root = composer.compose("primary", [])
+    text = format_cfg(composer, root, own_settings=False, width=88)
+    assert "day: '2026-11-16'" in text
+    loaded = YAML(typ="safe", pure=True).load(text)
+    assert loaded == {"day": "2026-11-16", "by_day": {"2026-11-17": "x"}}

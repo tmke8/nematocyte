@@ -42,7 +42,7 @@ def _json_problems(root: Node, skip: str | None) -> list[str]:
         value = node.value(info)
         if value is MISSING:
             continue
-        found = without_json_form(to_json_form(value))
+        found = without_json_form(value)
         if found is None:
             continue
         inner, part = found
