@@ -165,8 +165,8 @@ below for the directory). It is an error if the option selected for
   selects `big` for its field `inner`. Only `_self_` at the top of
   `_defaults_` has to name a config.
 - A key with a dot, `model.norm: my_batchnorm`, is an error that names the
-  file and shows the nested form of the whole `_defaults_`, with the
-  selection for `model` moved to `_self_`. The dot in a key would be a
+  file and shows the entry in the nested form, and says that `_self_`
+  selects for the field itself. The dot in a key would be a
   second way to write the same entry; it also has to be quoted in JSON5,
   where the nested form does not. On the command line, a selection is still
   written with dots, `model.norm=my_batchnorm` ([cli.md](cli.md)).

@@ -220,15 +220,11 @@ def test_nested_entry_in_a_json5_file(config_dir: Path) -> None:
     [
         (
             "_defaults_:\n  model: my_cnn\n  model.norm: my_batchnorm\n",
-            "      model:\n        _self_: my_cnn\n        norm: my_batchnorm",
-        ),
-        (
-            "_defaults_:\n  model.norm: my_batchnorm\n",
             "      model:\n        norm: my_batchnorm",
         ),
         (
             "_defaults_:\n  model:\n    _self_: cnn\n    norm.x: y\n",
-            "      model:\n        _self_: cnn\n        norm:\n          x: y",
+            "      model:\n        norm:\n          x: y",
         ),
     ],
 )

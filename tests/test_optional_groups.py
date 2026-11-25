@@ -300,7 +300,7 @@ def test_values_after_null_under_defaults_are_an_error(tmp_path: Path) -> None:
 
 def test_null_for_self_is_an_error(tmp_path: Path) -> None:
     config_dir = configs(tmp_path, {"c.yaml": "_defaults_:\n  _self_: null\n"})
-    with pytest.raises(ConfigError, match=r"c\.yaml.*'_self_'.*None"):
+    with pytest.raises(ConfigError, match=r"c\.yaml.*'_self_'.*null"):
         compose(config_dir, config_name="c")
 
 

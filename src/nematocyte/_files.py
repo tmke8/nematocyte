@@ -103,29 +103,19 @@ def _read_defaults(
         raise ConfigError(
             f"{label}: '{DEFAULTS_KEY}' is a list, as in Hydra. In nematocyte it "
             "is a mapping from a field to the name of the config to load there, "
-            f"such as\n{format_defaults({'model': 'cnn'})}"
+            f"such as\n{defaults_block(('model',), 'cnn')}"
         )
     if not isinstance(defaults, dict):
         raise ConfigError(f"{label}: '{DEFAULTS_KEY}' has to be a mapping.")
-    if _has_dotted_key(defaults):
-        raise ConfigError(
-            f"{label}: a key in '{DEFAULTS_KEY}' is a field, not a dotted path. "
-            "A config for a nested field is selected in a nested mapping, in "
-            "which '_self_' selects the config for the field itself:\n"
-            f"{format_defaults(_undotted(defaults))}"
-        )
-    base: str | None = None
-    if SELF_KEY in defaults:
-        name = defaults[SELF_KEY]
-        if not isinstance(name, str):
-            raise ConfigError(
-                f"{label}: the entry '{SELF_KEY}' in '{DEFAULTS_KEY}' names the "
-                f"config that the file extends, but is {name!r}."
-            )
-        base = name
     entries: dict[tuple[str, ...], str | None] = {}
     _read_entries(defaults, (), entries, label)
-    return base, entries
+    # The entry at the node of the file is the config that the file extends.
+    if () in entries and entries[()] is None:
+        raise ConfigError(
+            f"{label}: the entry '{SELF_KEY}' in '{DEFAULTS_KEY}' names the "
+            f"config that the file extends, but is null."
+        )
+    return entries.pop((), None), entries
 
 
 def _read_entries(
@@ -136,23 +126,17 @@ def _read_entries(
 ) -> None:
     """Add the entries of `mapping`, at `prefix` in `_defaults_`, to `entries`.
 
-    `_self_` in a nested mapping is the entry for the field that holds it.
+    `_self_` is the entry for the field that holds the mapping, or, at the
+    top, for the node of the file.
     """
-    where = f"under {'.'.join(prefix)!r} " if prefix else ""
     for key, name in mapping.items():
         if key == SELF_KEY:
-            if not prefix:
-                continue  # The config that the file extends.
             path = prefix
         elif isinstance(key, str) and _NAME.fullmatch(key):
             path = (*prefix, key)
         else:
-            raise ConfigError(
-                f"{label}: the key {key!r} {where}in '{DEFAULTS_KEY}' is not "
-                f"the name of a field. A key in '{DEFAULTS_KEY}' is a field, or "
-                f"'{SELF_KEY}'."
-            )
-        entry = ".".join(path)
+            raise ConfigError(_key_message(key, prefix, name, label))
+        entry = ".".join(path) or SELF_KEY
         if isinstance(name, dict) and key != SELF_KEY:
             if not name:
                 raise ConfigError(
@@ -171,58 +155,22 @@ def _read_entries(
             )
 
 
-def _has_dotted_key(mapping: dict[Any, Any]) -> bool:
-    return any(
-        (isinstance(key, str) and "." in key)
-        or (isinstance(value, dict) and _has_dotted_key(value))
-        for key, value in mapping.items()
+def _key_message(key: Any, prefix: tuple[str, ...], name: Any, label: str) -> str:
+    """The error for a key in `_defaults_` that is not a field or `_self_`."""
+    segments = key.split(".") if isinstance(key, str) else []
+    if len(segments) > 1 and all(_NAME.fullmatch(s) for s in segments):
+        shown = name if isinstance(name, str) or name is None else "..."
+        return (
+            f"{label}: the key {key!r} in '{DEFAULTS_KEY}' is a dotted path. A "
+            f"config for a nested field is selected in a nested mapping, in "
+            f"which '{SELF_KEY}' selects the config for the field itself:\n"
+            f"{defaults_block((*prefix, *segments), shown)}"
+        )
+    where = f"under {'.'.join(prefix)!r} " if prefix else ""
+    return (
+        f"{label}: the key {key!r} {where}in '{DEFAULTS_KEY}' is not the name "
+        f"of a field. A key in '{DEFAULTS_KEY}' is a field, or '{SELF_KEY}'."
     )
-
-
-def _undotted(mapping: dict[Any, Any]) -> dict[Any, Any]:
-    """`mapping` with each dotted key written as a nested mapping, for a hint."""
-    result: dict[Any, Any] = {}
-    for key, value in mapping.items():
-        path = key.split(".") if isinstance(key, str) else [key]
-        if isinstance(value, dict):
-            value = _undotted(value)
-        for segment in reversed(path[1:]):
-            value = {segment: value}
-        _merge_entry(result, path[0], value)
-    return result
-
-
-def _merge_entry(mapping: dict[Any, Any], key: Any, value: Any) -> None:
-    """Add an entry to `mapping`; a name next to a mapping goes to its `_self_`."""
-    if key not in mapping:
-        mapping[key] = value
-        return
-    old = mapping[key]
-    if not isinstance(old, dict):
-        if not isinstance(value, dict):
-            mapping[key] = value
-            return
-        old = mapping[key] = {SELF_KEY: old}
-    if not isinstance(value, dict):
-        value = {SELF_KEY: value}
-    for inner_key, inner in value.items():
-        _merge_entry(old, inner_key, inner)
-
-
-def format_defaults(entries: dict[Any, Any], indent: str = "    ") -> str:
-    """`_defaults_` with `entries`, as a block of YAML for a message."""
-    return "\n".join(_yaml_lines({DEFAULTS_KEY: entries}, indent))
-
-
-def _yaml_lines(mapping: dict[Any, Any], indent: str) -> list[str]:
-    lines: list[str] = []
-    for key, value in mapping.items():
-        if isinstance(value, dict):
-            lines.append(f"{indent}{key}:")
-            lines.extend(_yaml_lines(value, indent + "  "))
-        else:
-            lines.append(f"{indent}{key}: {'null' if value is None else value}")
-    return lines
 
 
 def defaults_entry(path: tuple[str, ...], name: str | None) -> str:
@@ -231,17 +179,17 @@ def defaults_entry(path: tuple[str, ...], name: str | None) -> str:
     `ema: null` for `ema`, and `outer: {ema: null}` for `outer.ema`.
     """
     text = "null" if name is None else name
-    for key in path[1:][::-1]:
+    for key in reversed(path[1:]):
         text = f"{{{key}: {text}}}"
     return f"{path[0]}: {text}"
 
 
 def defaults_block(path: tuple[str, ...], name: str | None) -> str:
-    """`_defaults_` with the entry for `name` at `path`, as a block of YAML."""
-    value: Any = name
-    for key in reversed(path[1:]):
-        value = {key: value}
-    return format_defaults({path[0]: value})
+    """`_defaults_` with the entry for `name` at `path`, as YAML for a message."""
+    lines = [f"    {DEFAULTS_KEY}:"]
+    lines.extend(f"    {'  ' * depth}{key}:" for depth, key in enumerate(path, 1))
+    lines[-1] += f" {'null' if name is None else name}"
+    return "\n".join(lines)
 
 
 def _read_yaml(path: Path, label: str) -> Any:
