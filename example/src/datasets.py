@@ -1,6 +1,7 @@
 """Data loading and preprocessing."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, override
@@ -85,7 +86,7 @@ class ColoredMNISTDataModule(DataModule):
     default_res: int = field(default=28, doc="Resolution of the images.")
 
     # Colorization settings
-    label_map: dict[int, int] | None = field(
+    label_map: Mapping[int, int] | None = field(
         default=None, doc="Mapping from the original labels to new labels."
     )
     colors: list[int] | None = field(default=None, doc="Indices of the colors to use.")
