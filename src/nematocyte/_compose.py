@@ -1,6 +1,6 @@
 """Finding config files and combining them, with the overrides, into one tree."""
 
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
 import dataclasses
 from dataclasses import MISSING, dataclass
 import difflib
@@ -22,7 +22,6 @@ from ._files import (
     list_files,
     load_file,
 )
-from ._merge import replace_paths
 from ._overrides import AddedConfig, Override, format_value, last_wins
 from ._schema import (
     DEFAULTS_KEY,
@@ -200,7 +199,7 @@ class Composer:
         `model.norm=batchnorm` is looked at. The values come after.
 
         A dict replaces what was set before at its key, for a TypedDict as for
-        a value; it is not merged as a mapping in a file is.
+        a value; it is not merged as a mapping for a TypedDict in a file is.
         """
         overrides = last_wins(overrides)
         # A value's node stays in the tree: what comes after it in this order
@@ -255,7 +254,7 @@ class Composer:
                     "as a string.",
                 )
             label = f"the override {source}"
-            parent.set_value(info.name, override.value, label, whole=True)
+            parent.set_value(info.name, override.value, label)
 
     def _apply_mapping(self, parent: Node, info: FieldInfo, override: Override) -> None:
         """Replace a TypedDict with a dict from the command line.
@@ -634,8 +633,11 @@ class Composer:
         A dict on the command line holds no mapping for a dataclass. `prefix`
         is the path of `node` below the node of the file.
 
-        A value is merged into what was set before. `since` is when the layer
-        started: a `_replace_` drops what was set before it.
+        A mapping for a subconfig or a group is merged into what was set
+        before: its keys are declared. A value replaces what was set before,
+        mappings in it included, since their keys are not declared. `since` is
+        when the layer started: a `_replace_` for a TypedDict drops what was
+        set before it.
         """
         values = self._replace(node, values, label, since)
         for key, value in values.items():
@@ -652,7 +654,7 @@ class Composer:
                 if not command_line:
                     _check_null_for_a_dict(node, info, value, label)
                 _check_value_replaces(node, info, value, label)
-                node.set_value(info.name, value, label, since=since)
+                node.set_value(info.name, _without_replace(value), label)
                 continue
             path = format_path((*node.path, info.name))
             if switched_off is not None:
@@ -787,8 +789,9 @@ class Composer:
                 raise _error(
                     source,
                     f"{REPLACE_KEY!r} is not a field of {node.describe()}. In a "
-                    f"config file, {REPLACE_KEY}: true goes into a mapping, which "
-                    f"then replaces what was set before instead of merging. On "
+                    f"config file, {REPLACE_KEY}: true goes into the mapping for a "
+                    f"TypedDict, which then replaces what was set before instead "
+                    f"of merging. On "
                     f"the command line, a dict replaces anyway{example}",
                 )
             if info is None:
@@ -1129,7 +1132,7 @@ def _check_null_for_a_dict(node: Node, info: FieldInfo, value: Any, label: str) 
     """In a file, null for a value that is a dict, and cannot be `None`, is an error.
 
     A key with nothing under it is null to YAML, and may have been meant as
-    an empty dict, which is written with `_replace_`.
+    an empty dict, which is written `{}`.
     """
     if value is not None or _takes_none(info) or not _takes_a_mapping(info):
         return
@@ -1139,8 +1142,8 @@ def _check_null_for_a_dict(node: Node, info: FieldInfo, value: Any, label: str) 
         f"{key!r} of {node.describe()} holds a dict, and its type does not "
         f"allow None, so it cannot be null, nor a key with nothing under it, "
         f"which YAML reads as null. An empty dict is written "
-        f"{info.name}: {{{REPLACE_KEY}: true}}, which drops what was set in it "
-        f"before; to leave it as it is, leave out the key.",
+        f"{info.name}: {{}}, which replaces what was set in it before; to "
+        f"leave it as it is, leave out the key.",
     )
 
 
@@ -1192,14 +1195,14 @@ def _dotted(
 
 def _check_no_replace(override: Override) -> None:
     """A dict on the command line replaces anyway, so it has no `_replace_`."""
-    for path, _ in replace_paths(override.value):
-        where = format_path((*override.key, *map(str, path)))
+    for path, _ in _replace_paths(override.value):
+        where = format_path((*override.key, *path))
         raise _error(
             repr(override.text),
             f"{REPLACE_KEY!r} is in the dict for {where!r}. On the command "
             f"line, a dict replaces what was set before anyway, so leave out "
-            f"the key. In a config file, {REPLACE_KEY}: true makes a mapping "
-            f"replace instead of merging.",
+            f"the key. In a config file, {REPLACE_KEY}: true makes the mapping "
+            f"for a TypedDict replace instead of merging.",
         )
 
 
@@ -1258,17 +1261,45 @@ def _check_replace(node: Node, value: Any, label: str) -> None:
         )
 
 
+def _replace_paths(value: Any, path: KeyPath = ()) -> Iterator[tuple[KeyPath, Any]]:
+    """The places of the mappings in `value` that have `_replace_`, with its value."""
+    if not isinstance(value, Mapping):
+        return
+    mapping = cast("Mapping[Any, Any]", value)
+    if REPLACE_KEY in mapping:
+        yield path, mapping[REPLACE_KEY]
+    for key, inner in mapping.items():
+        if key != REPLACE_KEY:
+            yield from _replace_paths(inner, (*path, str(key)))
+
+
+def _without_replace(value: Any) -> Any:
+    """`value` without the key `_replace_` in its mappings."""
+    if not isinstance(value, Mapping):
+        return value
+    mapping = cast("Mapping[Any, Any]", value)
+    return {
+        key: _without_replace(inner)
+        for key, inner in mapping.items()
+        if key != REPLACE_KEY
+    }
+
+
 def _check_value_replaces(node: Node, info: FieldInfo, value: Any, label: str) -> None:
-    """`_replace_` in a mapping inside a value takes true."""
-    for path, flag in replace_paths(value):
+    """`_replace_` in a mapping inside a value takes true, and changes nothing.
+
+    A value replaces what was set before anyway, since the keys of a mapping
+    in it are not declared.
+    """
+    for path, flag in _replace_paths(value):
         if flag is not True:
-            where = format_path((*node.path, info.name, *map(str, path)))
+            where = format_path((*node.path, info.name, *path))
             raise _error(
                 label,
                 f"{REPLACE_KEY!r} in the mapping for {where!r} is "
-                f"{format_value(flag)}. It takes true, which replaces what was "
-                f"set before there; to merge the mapping into it, leave out "
-                "the key.",
+                f"{format_value(flag)}. It takes only true, and is not needed "
+                f"here: a dict replaces what was set before anyway, so leave "
+                "out the key.",
             )
 
 

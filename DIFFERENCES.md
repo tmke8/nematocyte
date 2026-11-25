@@ -124,7 +124,7 @@ Give the field the type it holds (`color: Color`), or, for a choice between
 config classes, make it a group ([unions.md](design/unions.md)). See
 [deserializer.md](design/deserializer.md).
 
-### Dict fields are open, and replaced on the command line
+### Dict fields are open, and replaced
 
 For a field typed `dict[...]`, such as
 `optimizer_kwargs: dict[str, Any] | None`:
@@ -133,17 +133,21 @@ For a field typed `dict[...]`, such as
 | --- | --- | --- |
 | `opt.optimizer_kwargs={eps:1e-6}` | Error, asks for `+` | Sets the dict |
 | ... when the field already holds `{amsgrad: true}` | Merges the two | Replaces it: only `eps` is left |
+| `opt: {optimizer_kwargs: {eps: 1.0e-6}}` in a config file, when a lower layer set `{amsgrad: true}` | Merges the two | Replaces it: only `eps` is left |
+| `opt: {optimizer_kwargs: {}}` in a config file | Changes nothing | Makes the dict empty |
 | `opt.optimizer_kwargs.eps=1e-6`, when the field holds a dict with `eps` | Sets `eps` | Error; give the whole dict |
 
-As in Hydra, a mapping in a config file is merged deeply into a mapping,
-whatever the type of the field. To replace it in a file instead, add
-`_replace_: true` to the mapping
-([below](#_replace_-true-replaces-instead-of-merging)).
+Whether a mapping is merged is decided per key: a key that a dataclass or a
+TypedDict declares is merged, as in Hydra, and a key that is not declared,
+such as any key of a dict, is replaced, in a config file as on the command
+line. The same holds for a field typed `Any` that holds a mapping. Hydra
+merges every mapping in a config file into a mapping.
 
-If possible, use `TypedDict` instead. Then you can set
-`opt.optimizer_kwargs.eps=1e-6` on the commandline.
+If possible, use `TypedDict` instead. Its keys are merged in a config file,
+and you can set `opt.optimizer_kwargs.eps=1e-6` on the command line.
 
-See [cli.md](design/cli.md).
+See [composition.md](design/composition.md#a-declared-key-is-merged-any-other-key-is-replaced)
+and [cli.md](design/cli.md).
 
 ### Unknown keys inside a value are ignored
 
@@ -239,15 +243,15 @@ default of `Fcn()` stays on. Hydra switches the group off with
 In nematocyte, null in the body of a file is an error for anything that
 holds a mapping and does not take `None`: any subconfig or group, and a
 dict without `| None`. The error shows what may have been meant: the entry
-under `_defaults_`, leaving out the key, or, for a TypedDict or a dict,
-`{_replace_: true}`, which makes it empty.
+under `_defaults_`, leaving out the key, or, for a TypedDict,
+`{_replace_: true}`, and for a dict, `{}`, which make it empty.
 
 | In the body of a file | Hydra | nematocyte |
 | --- | --- | --- |
 | `ema: null`, for `ema: EmaCfg \| None` | `None` | Error, which shows the entry under `_defaults_` |
 | `ema:` with only comments under it | `None` | The same error |
 | `plain: null`, for `plain: Plain` | Error | Error |
-| `counts: null`, for `counts: dict[str, int]` | Error | Error, which shows `counts: {_replace_: true}` |
+| `counts: null`, for `counts: dict[str, int]` | Error | Error, which shows `counts: {}` |
 | `maybe: null`, for `maybe: dict[str, int] \| None` | `None` | `None` |
 | `ema: {decay: 0.5}` or `ema: {}`, with `ema` off | Switches it on | Error, which shows `ema: _some_` under `_defaults_` |
 
@@ -299,11 +303,11 @@ an optional subconfig, is not a selection, and keeps what was set. See
 
 ### `_replace_: true` replaces instead of merging
 
-A mapping in a config file is merged into what was set before, in Hydra and
-in nematocyte. In Hydra, a file cannot take out a key that a lower layer
-set: `key: null` sets `None`, and `key: ???` leaves the value as it was. In
-nematocyte, a mapping for a TypedDict, or a mapping in a value such as a
-`dict[...]`, can replace what was there instead:
+A mapping for a TypedDict in a config file is merged into what was set
+before, in Hydra and in nematocyte. In Hydra, a file cannot take out a key
+that a lower layer set: `key: null` sets `None`, and `key: ???` leaves the
+value as it was. In nematocyte, a mapping for a TypedDict can replace what
+was there instead:
 
 ```yaml
 opt:
@@ -316,8 +320,10 @@ config or a preset set under it. On the command line, a dict replaces
 anyway, so the same is `opt={lr:0.001}`
 ([below](#a-dict-replaces-and-a-dataclass-takes-none)); `~opt.wd` takes out
 a single key. A
-dataclass cannot be replaced this way. A dict that is to hold a key
-`_replace_` of its own cannot be written. See
+dataclass cannot be replaced this way. A dict is replaced anyway
+([above](#dict-fields-are-open-and-replaced)), so `_replace_` is allowed in
+it but changes nothing; a dict that is to hold a key `_replace_` of its own
+cannot be written. See
 [composition.md](design/composition.md#_replace_-true-replaces-instead-of-merging).
 
 ### `_defaults_` is a mapping
@@ -400,10 +406,11 @@ See [composition.md](design/composition.md).
   error. In Hydra every directory is a config group, so `counts=heavy` puts
   the file's content into the dict and merges it with the default. In
   nematocyte, a primary config such as `configs/counts_heavy.yaml`, which
-  writes `counts:` at the top, can be applied with `+counts_heavy`; it is
-  merged into the dict, as in Hydra. For presets that go straight into the
-  field, use a `TypedDict` instead; such a preset replaces what the field
-  held ([above](#selecting-an-option-or-a-preset-starts-the-node-again)).
+  writes `counts:` at the top, can be applied with `+counts_heavy`; it
+  replaces the dict ([above](#dict-fields-are-open-and-replaced)). For
+  presets that go straight into the field, use a `TypedDict` instead; such
+  a preset replaces what the field held too
+  ([above](#selecting-an-option-or-a-preset-starts-the-node-again)).
 - In a group's directory, a subdirectory named after an option, such as
   `configs/dm/celeba/`, holds further configs for the group, selected as
   `dm=celeba/male_blond`. Each of them extends that option, without

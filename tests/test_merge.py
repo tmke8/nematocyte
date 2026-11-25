@@ -1,11 +1,13 @@
-"""A mapping in a file is merged into a mapping, also in a value such as a `dict[...]`.
+"""Merge or replace, decided per key.
 
-On the command line, a dict replaces instead.
+A key declared in a config class is merged; a key that is not declared, such
+as every key of a `dict[...]`, is replaced by the layer that sets it. On the
+command line, a dict replaces too.
 """
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import Any, NotRequired, TypedDict, cast
 
 import pytest
 
@@ -25,8 +27,15 @@ class Opt:
     kwargs: dict[str, Any] = field(default_factory=_sched)
 
 
-class Extra(TypedDict, total=False):
-    kwargs: dict[str, Any]
+class Extra(TypedDict):
+    kwargs: NotRequired[dict[str, Any]]
+    name: NotRequired[str]
+
+
+@dataclass
+class Point:
+    x: int = 0
+    y: int = 0
 
 
 @dataclass(kw_only=True)
@@ -35,7 +44,8 @@ class Config:
     anything: Any = field(default_factory=lambda: {"a": {"b": 1, "c": 2}})
     maybe: dict[str, int] | None = None
     text: dict[str, int] | str = "none"
-    extra: Extra = field(default_factory=lambda: Extra(kwargs={"a": 1}))
+    extra: Extra = field(default_factory=lambda: Extra(kwargs={"a": 1}, name="x"))
+    points: dict[str, Point] = field(default_factory=lambda: {"p": Point(1, 2)})
 
 
 def compose(files: dict[str, str] | None = None, **kwargs: Any) -> Config:
@@ -45,52 +55,46 @@ def compose(files: dict[str, str] | None = None, **kwargs: Any) -> Config:
     return nematocyte.compose(Config, config_dir, **kwargs)
 
 
-# -- what is merged ----------------------------------------------------------------
+# -- what is replaced ----------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        # Nested mappings are merged too, as in Hydra.
+        # Hydra merges: {sched: {gamma: 0.5, step: 5}, milestones: [1, 2], extra: 1}
         (
             "opt:\n  kwargs:\n    sched:\n      gamma: 0.5\n    extra: 1\n",
-            {"sched": {"gamma": 0.5, "step": 5}, "milestones": [1, 2], "extra": 1},
+            {"sched": {"gamma": 0.5}, "extra": 1},
         ),
-        # A list is replaced.
-        (
-            "opt:\n  kwargs:\n    milestones: [9]\n",
-            {"sched": {"gamma": 0.1, "step": 5}, "milestones": [9]},
-        ),
-        # A value that is not a mapping replaces the mapping, and the other way.
-        (
-            "opt:\n  kwargs:\n    sched: off\n",
-            {"sched": "off", "milestones": [1, 2]},
-        ),
-        # Null is a value, which replaces.
-        (
-            "opt:\n  kwargs:\n    sched: null\n",
-            {"sched": None, "milestones": [1, 2]},
-        ),
+        # Hydra: {sched: {gamma: 0.1, step: 5}, milestones: [9]}
+        ("opt:\n  kwargs:\n    milestones: [9]\n", {"milestones": [9]}),
+        # Hydra: {sched: null, milestones: [1, 2]}
+        ("opt:\n  kwargs:\n    sched: null\n", {"sched": None}),
+        # An empty mapping makes the dict empty.
+        ("opt:\n  kwargs: {}\n", {}),
     ],
 )
-def test_a_file_is_merged_into_the_default(text: str, expected: Any) -> None:
+def test_a_dict_in_a_file_replaces_the_default(text: str, expected: Any) -> None:
     files = {"presets/x.yaml": text}
-    assert compose(files, overrides=["+presets/x"]).opt.kwargs == expected
+    config = compose(files, overrides=["+presets/x"])
+    assert config.opt.kwargs == expected
+    # `opt` is a dataclass, whose fields are declared: it is merged.
+    assert config.opt.lr == 0.1
 
 
-def test_files_are_merged_in_the_order_of_the_layers() -> None:
+def test_a_dict_is_replaced_in_the_order_of_the_layers() -> None:
     files = {
         "run.yaml": "opt:\n  kwargs:\n    sched:\n      gamma: 0.5\n",
         "presets/step.yaml": "opt:\n  kwargs:\n    sched:\n      step: 9\n",
     }
     config = compose(files, config_name="run", overrides=["+presets/step"])
-    assert config.opt.kwargs["sched"] == {"gamma": 0.5, "step": 9}
+    assert config.opt.kwargs == {"sched": {"step": 9}}
 
 
-def test_a_field_typed_any_is_merged() -> None:
+def test_a_field_typed_any_is_replaced() -> None:
     files = {"presets/x.yaml": "anything:\n  a:\n    b: 5\n"}
     config = compose(files, overrides=["+presets/x"])
-    assert config.anything == {"a": {"b": 5, "c": 2}}
+    assert config.anything == {"a": {"b": 5}}
 
 
 def test_a_mapping_over_something_else_replaces_it() -> None:
@@ -106,11 +110,19 @@ def test_a_mapping_over_an_interpolation_replaces_it() -> None:
     assert config.anything == {"b": 1}
 
 
-def test_a_dict_inside_a_typeddict_is_merged() -> None:
+def test_a_typeddict_is_merged_and_a_dict_in_it_replaced() -> None:
     files = {"presets/x.yaml": "extra:\n  kwargs:\n    b: 2\n"}
     assert compose(files, overrides=["+presets/x"]).extra == {
-        "kwargs": {"a": 1, "b": 2}
+        "kwargs": {"b": 2},
+        "name": "x",
     }
+
+
+def test_a_config_class_inside_a_dict_is_replaced_with_it() -> None:
+    files = {"presets/x.yaml": "points:\n  p:\n    x: 5\n"}
+    config = compose(files, overrides=["+presets/x"])
+    # `y` falls back to the class default, not to the default of the field.
+    assert config.points == {"p": Point(5, 0)}
 
 
 # -- the command line ----------------------------------------------------------------
@@ -170,34 +182,41 @@ def test_the_command_line_replaces_the_params_of_a_sweeper(
 
 
 @pytest.mark.parametrize(
-    ("text", "expected"),
+    ("text", "without", "expected"),
     [
-        ("opt:\n  kwargs:\n    _replace_: true\n    a: 1\n", {"a": 1}),
+        (
+            "opt:\n  kwargs:\n    _replace_: true\n    a: 1\n",
+            "opt:\n  kwargs:\n    a: 1\n",
+            {"a": 1},
+        ),
         (
             "opt:\n  kwargs:\n    sched:\n      _replace_: true\n      step: 1\n",
-            {"sched": {"step": 1}, "milestones": [1, 2]},
+            "opt:\n  kwargs:\n    sched:\n      step: 1\n",
+            {"sched": {"step": 1}},
         ),
         (
             "opt:\n  kwargs:\n    sched:\n      _replace_: true\n",
-            {"sched": {}, "milestones": [1, 2]},
+            "opt:\n  kwargs:\n    sched: {}\n",
+            {"sched": {}},
         ),
     ],
 )
-def test_replace_in_a_file(text: str, expected: dict[str, Any]) -> None:
-    files = {"presets/x.yaml": text}
+def test_replace_in_a_value_changes_nothing(
+    text: str, without: str, expected: dict[str, Any]
+) -> None:
+    files = {"presets/x.yaml": text, "presets/y.yaml": without}
     assert compose(files, overrides=["+presets/x"]).opt.kwargs == expected
+    assert compose(files, overrides=["+presets/y"]).opt.kwargs == expected
 
 
-def test_replace_in_a_file_keeps_what_the_file_selects() -> None:
+def test_the_values_of_a_file_replace_a_dict_that_it_selects() -> None:
     files = {
         "run.yaml": "opt:\n  kwargs:\n    old: 1\n",
         "opt/heavy.yaml": "kwargs:\n  heavy: 1\n",
-        "presets/x.yaml": (
-            "_defaults_:\n  opt: heavy\nopt:\n  kwargs:\n    _replace_: true\n    x: 1\n"
-        ),
+        "presets/x.yaml": "_defaults_:\n  opt: heavy\nopt:\n  kwargs:\n    x: 1\n",
     }
     config = compose(files, config_name="run", overrides=["+presets/x"])
-    assert config.opt.kwargs == {"heavy": 1, "x": 1}
+    assert config.opt.kwargs == {"x": 1}
 
 
 @pytest.mark.parametrize(
@@ -229,6 +248,40 @@ def test_replace_inside_a_list_is_a_key_of_an_item() -> None:
     )
     config = nematocyte.compose(WithList, config_dir, overrides=["+presets/x"])
     assert config.items == [{"_replace_": 1}]
+
+
+class PointDict(TypedDict):
+    x: int
+    y: NotRequired[int]
+
+
+@dataclass
+class WithPointDicts:
+    points: list[PointDict] = field(default_factory=lambda: [PointDict(x=1, y=2)])
+
+
+@dataclass
+class WithPoints:
+    points: list[Point] = field(default_factory=lambda: [Point(1, 2)])
+
+
+@pytest.mark.parametrize(
+    ("config_cls", "expected"),
+    [
+        # A TypedDict node takes `_replace_`, but an item of a list is no node.
+        (WithPointDicts, WithPointDicts(points=[PointDict(x=9)])),
+        # A dataclass node rejects `_replace_`, but here it is ignored as well.
+        (WithPoints, WithPoints(points=[Point(x=9)])),
+    ],
+)
+def test_replace_in_an_item_of_a_list_is_an_unknown_key(
+    config_cls: type[object], expected: object
+) -> None:
+    files = {"presets/x.yaml": "points:\n  - {_replace_: true, x: 9}\n"}
+    config_dir = write_files(Path.cwd() / "configs", files)
+    config = nematocyte.compose(config_cls, config_dir, overrides=["+presets/x"])
+    # pydantic ignores the unknown key of the class.
+    assert config == expected
 
 
 def test_the_composed_value_is_saved_whole(

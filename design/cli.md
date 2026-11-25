@@ -191,11 +191,11 @@ the schema instead:
 ### On the command line, a dict replaces
 
 `opt.optimizer_kwargs={eps:1e-6}` replaces the dict that the field holds:
-only `eps` is left, whatever the default or a config file set in it. In a
-config file, a mapping is merged instead
-([composition.md](composition.md#a-mapping-is-merged-into-a-mapping-also-in-a-value)).
-Hydra merges on the command line too, but `=` reads as "set to this", and a
-single key of the dict has no other spelling on the command line.
+only `eps` is left, whatever the default or a config file set in it. A
+mapping for a dict in a config file replaces it in the same way
+([composition.md](composition.md#a-declared-key-is-merged-any-other-key-is-replaced)).
+Hydra merges, but `=` reads as "set to this", and a single key of the dict
+has no other spelling on the command line.
 
 Dotted paths end at the dict-typed field. `opt.optimizer_kwargs.eps=1e-6` is
 not supported, unlike in Hydra; the error shows the dict,
