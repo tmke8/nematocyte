@@ -160,7 +160,8 @@ def test_settings_in_a_primary_config(config_dir: Path) -> None:
         {
             "cluster.yaml": """\
 _defaults_:
-  nematocyte.launcher: slurm_test
+  nematocyte:
+    launcher: slurm_test
 
 nematocyte:
   output_dir: runs/${seed}

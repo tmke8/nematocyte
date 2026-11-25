@@ -144,8 +144,12 @@ def test_order_of_defaults_has_no_meaning(config_dir: Path) -> None:
     write_files(
         config_dir,
         {
-            "one.yaml": "_defaults_:\n  model: my_cnn\n  model.norm: my_batchnorm\n",
-            "two.yaml": "_defaults_:\n  model.norm: my_batchnorm\n  model: my_cnn\n",
+            "one.yaml": (
+                "_defaults_:\n  model:\n    _self_: my_cnn\n    norm: my_batchnorm\n"
+            ),
+            "two.yaml": (
+                "_defaults_:\n  model:\n    norm: my_batchnorm\n    _self_: my_cnn\n"
+            ),
         },
     )
     one = nematocyte.compose(Config, config_dir, config_name="one")
@@ -159,8 +163,9 @@ def test_defaults_key_can_be_a_path(config_dir: Path) -> None:
         {
             "nested.yaml": """\
 _defaults_:
-  model: my_cnn
-  model.norm: my_batchnorm
+  model:
+    _self_: my_cnn
+    norm: my_batchnorm
 
 model:
   norm:
@@ -174,6 +179,124 @@ model:
     assert config.model == Cnn(stride=1, norm=BatchNorm(momentum=0.2))
 
 
+def test_self_in_a_nested_entry_selects_for_the_field(config_dir: Path) -> None:
+    write_files(
+        config_dir,
+        {
+            "plain.yaml": "_defaults_:\n  model: my_cnn\n",
+            "nested.yaml": "_defaults_:\n  model:\n    _self_: my_cnn\n",
+        },
+    )
+    plain = nematocyte.compose(Config, config_dir, config_name="plain")
+    nested = nematocyte.compose(Config, config_dir, config_name="nested")
+    assert plain == nested
+    assert nested.model == Cnn(stride=1, norm=LayerNorm())
+
+
+def test_nested_entry_without_self_keeps_the_selection(config_dir: Path) -> None:
+    # Only `norm` is selected; `model` stays at the option the base selects.
+    write_files(
+        config_dir,
+        {
+            "base.yaml": "_defaults_:\n  model: cnn\nmodel:\n  stride: 3\n",
+            "c.yaml": "_defaults_:\n  _self_: base\n  model:\n    norm: layernorm\n",
+        },
+    )
+    config = nematocyte.compose(Config, config_dir, config_name="c")
+    assert config.model == Cnn(stride=3, norm=LayerNorm())
+
+
+def test_nested_entry_in_a_json5_file(config_dir: Path) -> None:
+    write_files(
+        config_dir,
+        {"c.json5": "{_defaults_: {model: {_self_: 'my_cnn', norm: 'my_batchnorm'}}}"},
+    )
+    config = nematocyte.compose(Config, config_dir, config_name="c")
+    assert config.model == Cnn(stride=1, norm=BatchNorm(momentum=0.5))
+
+
+@pytest.mark.parametrize(
+    ("text", "shown"),
+    [
+        (
+            "_defaults_:\n  model: my_cnn\n  model.norm: my_batchnorm\n",
+            "      model:\n        norm: my_batchnorm",
+        ),
+        (
+            "_defaults_:\n  model:\n    _self_: cnn\n    norm.x: y\n",
+            "      model:\n        norm:\n          x: y",
+        ),
+    ],
+)
+def test_dotted_key_in_defaults_is_an_error(
+    config_dir: Path, text: str, shown: str
+) -> None:
+    write_files(config_dir, {"dotted.yaml": text})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, config_name="dotted")
+    message = str(excinfo.value)
+    assert "dotted.yaml" in message
+    assert "dotted path" in message
+    assert f"    _defaults_:\n{shown}" in message
+
+
+def test_dotted_key_in_a_json5_file_is_an_error(config_dir: Path) -> None:
+    write_files(config_dir, {"dotted.json5": "{_defaults_: {'model.norm': 'x'}}"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, config_name="dotted")
+    message = str(excinfo.value)
+    assert "dotted.json5" in message
+    assert "model:\n        norm: x" in message
+
+
+@pytest.mark.parametrize(
+    ("text", "key"),
+    [
+        ("_defaults_:\n  model/norm: x\n", "'model/norm'"),
+        ("_defaults_:\n  model:\n    1: x\n", "1"),
+        ("_defaults_:\n  model:\n    norm-x: y\n", "'norm-x'"),
+    ],
+)
+def test_key_in_defaults_that_is_not_a_name_is_an_error(
+    config_dir: Path, text: str, key: str
+) -> None:
+    write_files(config_dir, {"bad.yaml": text})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, config_name="bad")
+    message = str(excinfo.value)
+    assert "bad.yaml" in message
+    assert f"the key {key}" in message
+
+
+def test_empty_mapping_in_defaults_is_an_error(config_dir: Path) -> None:
+    write_files(config_dir, {"bad.yaml": "_defaults_:\n  model: {}\n"})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, config_name="bad")
+    message = str(excinfo.value)
+    assert "bad.yaml" in message
+    assert "'model'" in message
+    assert "empty mapping" in message
+
+
+@pytest.mark.parametrize(
+    ("text", "entry"),
+    [
+        ("_defaults_:\n  _self_: {model: cnn}\n", "'_self_'"),
+        ("_defaults_:\n  model:\n    _self_: {norm: x}\n", "'model'"),
+        ("_defaults_:\n  model:\n    norm: [a]\n", "'model.norm'"),
+    ],
+)
+def test_entry_in_defaults_that_names_no_config_is_an_error(
+    config_dir: Path, text: str, entry: str
+) -> None:
+    write_files(config_dir, {"bad.yaml": text})
+    with pytest.raises(ConfigError) as excinfo:
+        nematocyte.compose(Config, config_dir, config_name="bad")
+    message = str(excinfo.value)
+    assert "bad.yaml" in message
+    assert f"the entry {entry}" in message
+
+
 def test_named_config_selects_for_its_own_fields(config_dir: Path) -> None:
     config = nematocyte.compose(Config, config_dir, overrides=["model=my_cnn"])
     assert config.model == Cnn(stride=1, norm=LayerNorm())
@@ -182,7 +305,7 @@ def test_named_config_selects_for_its_own_fields(config_dir: Path) -> None:
 def test_path_in_defaults_needs_the_field(config_dir: Path) -> None:
     write_files(
         config_dir,
-        {"bad.yaml": "_defaults_:\n  model: fcn\n  model.norm: my_batchnorm\n"},
+        {"bad.yaml": "_defaults_:\n  model: {_self_: fcn, norm: my_batchnorm}\n"},
     )
     with pytest.raises(ConfigError) as excinfo:
         nematocyte.compose(Config, config_dir, config_name="bad")
@@ -1218,7 +1341,7 @@ def test_no_drop_warning_for_a_field_the_new_config_lacks(config_dir: Path) -> N
 def test_drop_warning_for_a_dropped_selection(config_dir: Path) -> None:
     write_files(
         config_dir,
-        {"ln.yaml": "_defaults_:\n  model: cnn\n  model.norm: layernorm\n"},
+        {"ln.yaml": "_defaults_:\n  model: {_self_: cnn, norm: layernorm}\n"},
     )
     [message] = _dropped(config_dir, "ln", ["model=cnn"])
     assert "'model.norm=layernorm', selected in `configs/ln.yaml`" in message

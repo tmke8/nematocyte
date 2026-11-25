@@ -451,6 +451,15 @@ opt:
 
 The `_defaults_` section selects options for config groups, in the same way as `model=...` and `dm=...` on the command line. Everything the file does not mention keeps its default from the `Config` class.
 
+A group inside a group, such as `model.norm`, is selected with a nested entry, in which `_self_` selects the option of the outer group itself:
+```yaml
+_defaults_:
+  model:
+    _self_: fcn
+    norm: slow_bn
+```
+This is the same as `model=fcn model.norm=slow_bn` on the command line.
+
 And then we can run the code with these config values by naming the file, without `.yaml`, after a `+`:
 ```bash
 python main.py +good_run

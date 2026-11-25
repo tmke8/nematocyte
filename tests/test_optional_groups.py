@@ -263,17 +263,21 @@ def test_null_among_the_values_shows_the_path_from_the_file(tmp_path: Path) -> N
         nematocyte.compose(WithOuter, config_dir, config_name="c")
     message = str(excinfo.value)
     assert "'outer.model' is an optional group of Outer" in message
-    assert "_defaults_:\n      outer.model: null" in message
+    assert "_defaults_:\n      outer:\n        model: null" in message
 
 
 def test_null_for_a_nested_group_under_defaults(tmp_path: Path) -> None:
-    config_dir = configs(tmp_path, {"c.yaml": "_defaults_:\n  outer.model: null\n"})
+    config_dir = configs(
+        tmp_path, {"c.yaml": "_defaults_:\n  outer:\n    model: null\n"}
+    )
     config = nematocyte.compose(WithOuter, config_dir, config_name="c")
     assert config.outer.model is None
     config_dir = configs(
         tmp_path,
         {
-            "d.yaml": "_defaults_:\n  outer.model: null\nouter:\n  model:\n    width: 2\n"
+            "d.yaml": (
+                "_defaults_:\n  outer: {model: null}\nouter:\n  model:\n    width: 2\n"
+            )
         },
     )
     with pytest.raises(ConfigError) as excinfo:
@@ -296,7 +300,7 @@ def test_values_after_null_under_defaults_are_an_error(tmp_path: Path) -> None:
 
 def test_null_for_self_is_an_error(tmp_path: Path) -> None:
     config_dir = configs(tmp_path, {"c.yaml": "_defaults_:\n  _self_: null\n"})
-    with pytest.raises(ConfigError, match=r"c\.yaml.*'_self_'.*None"):
+    with pytest.raises(ConfigError, match=r"c\.yaml.*'_self_'.*null"):
         compose(config_dir, config_name="c")
 
 
@@ -457,12 +461,15 @@ def test_mapping_in_a_file_does_not_switch_on_a_group(tmp_path: Path) -> None:
     assert "model: fcn" in message
 
 
-def test_dotted_defaults_entry_under_a_group_that_is_off_is_an_error(
+def test_nested_defaults_entry_under_a_group_that_is_off_is_an_error(
     tmp_path: Path,
 ) -> None:
     config_dir = configs(
         tmp_path,
-        {"c.yaml": "_defaults_:\n  model.norm: small\n", "model/norm/small.yaml": ""},
+        {
+            "c.yaml": "_defaults_:\n  model:\n    norm: small\n",
+            "model/norm/small.yaml": "",
+        },
     )
     with pytest.raises(ConfigError) as excinfo:
         compose(config_dir, config_name="c")

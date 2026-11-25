@@ -358,7 +358,11 @@ _defaults_:
   by `_self_`, then the other entries, shortest path first, then the values
   in the file. Hydra applies the list in order.
 - There is no `override` keyword.
-- A key can be a dotted path: `model.norm: my_batchnorm`.
+- An entry can be nested, where Hydra writes a path with a slash,
+  `- model/norm: my_batchnorm`. In the nested mapping, `_self_` selects
+  for the field itself: `model: {_self_: my_cnn, norm: my_batchnorm}`.
+  A dotted key, `model.norm: my_batchnorm`, is an error that shows the
+  nested form.
 - `- opt: null`, which Hydra needs so that `opt=NAME` works without `+`, is
   not needed, and is an error. Under `_defaults_`, null only switches off
   an optional subconfig or group, `model: null`, which is not what it
