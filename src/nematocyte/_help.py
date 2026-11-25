@@ -177,10 +177,15 @@ def format_help(composer: Composer, root: Node, width: int | None = None) -> str
     return "\n".join(lines) + "\n"
 
 
-def _dump_yaml(key: str, value: Any) -> list[str]:
+def _yaml() -> YAML:
+    """A dumper for the values of `--cfg`; making one is slow, so it is reused."""
     yaml = YAML(typ="safe", pure=True)
     yaml.default_flow_style = False
     yaml.width = 4096
+    return yaml
+
+
+def _dump_yaml(yaml: YAML, key: str, value: Any) -> list[str]:
     stream = io.StringIO()
     yaml.dump({key: value}, stream)
     return stream.getvalue().splitlines()
@@ -209,7 +214,13 @@ def _cfg_node_doc(node: Node, info: FieldInfo) -> str:
 
 
 def _cfg_node(
-    node: Node, indent: str, width: int, lines: list[str], *, skip: str | None
+    node: Node,
+    indent: str,
+    width: int,
+    lines: list[str],
+    yaml: YAML,
+    *,
+    skip: str | None,
 ) -> None:
     empty = True
     for info in node.fields.values():
@@ -227,7 +238,7 @@ def _cfg_node(
             elif value is MISSING:
                 lines.append(f"{indent}{info.name}: {_REQUIRED}  # a value is required")
             else:
-                lines += [indent + line for line in _dump_yaml(info.name, value)]
+                lines += [indent + line for line in _dump_yaml(yaml, info.name, value)]
             continue
         child = node.children.get(info.name)
         lines += _comment(_cfg_node_doc(node, info), indent, width)
@@ -239,7 +250,7 @@ def _cfg_node(
             continue
         before = len(lines)
         lines.append(f"{indent}{info.name}:")
-        _cfg_node(child, indent + "  ", width, lines, skip=None)
+        _cfg_node(child, indent + "  ", width, lines, yaml, skip=None)
         # Only comments below the key, e.g. for a TypedDict with no key set.
         if all(line.lstrip().startswith("#") for line in lines[before + 1 :]):
             lines[before] += " {}"
@@ -259,5 +270,6 @@ def format_cfg(
     doc = class_doc(composer.config_cls)
     if doc:
         lines += [*_comment(doc, "", width), ""]
-    _cfg_node(root, "", width, lines, skip=None if own_settings else RESERVED_KEY)
+    skip = None if own_settings else RESERVED_KEY
+    _cfg_node(root, "", width, lines, _yaml(), skip=skip)
     return "\n".join(lines) + "\n"

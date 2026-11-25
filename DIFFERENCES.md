@@ -596,7 +596,9 @@ the machine it was started on. See [multirun.md](design/multirun.md).
 
 The config of every job is composed and checked before anything runs. A job
 that waits in the SLURM queue is not affected by edits to the config files
-in the meantime; in Hydra it is. See [multirun.md](design/multirun.md).
+in the meantime; in Hydra it is. The config files are read once, so a later
+batch of Optuna trials is not affected by such edits either. See
+[multirun.md](design/multirun.md).
 
 ### nematocyte's settings cannot be swept
 

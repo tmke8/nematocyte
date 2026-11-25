@@ -84,6 +84,18 @@ def test_reference_picks_up_a_command_line_override(tmp_path: Path) -> None:
     assert config.tag == "run-5"
 
 
+def test_date_from_yaml_is_formatted_as_its_iso_string(tmp_path: Path) -> None:
+    # The same text as the value itself arrives as, with a `T` and not the
+    # space that `str()` of a datetime gives.
+    directory = write_files(
+        tmp_path / "c",
+        {"primary.yaml": "extra: {at: 2026-11-16 09:30:00}\ntag: at ${extra.at}\n"},
+    )
+    config = nematocyte.compose(Root, directory, config_name="primary")
+    assert config.extra == {"at": "2026-11-16T09:30:00"}
+    assert config.tag == "at 2026-11-16T09:30:00"
+
+
 def test_chain_of_references() -> None:
     config = nematocyte.compose(
         Root, overrides=["tag=${model.name}", "model.name=x${seed}"]

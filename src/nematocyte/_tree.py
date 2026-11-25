@@ -234,13 +234,12 @@ class Node:
     def value(self, info: FieldInfo) -> Any:
         """The value of a field, or ``MISSING``.
 
-        A value that was set is as its source gave it; a default is in JSON
-        form.
+        It is in JSON form, whether it was set or is the default, apart from
+        a part that JSON has no form for.
         """
         if info.name in self.values:
             return self.values[info.name]
-        default = self.default_value(info)
-        return default if default is MISSING else to_json_form(default)
+        return to_json_form(self.default_value(info))
 
     def set_value(
         self,
@@ -256,10 +255,13 @@ class Node:
         A mapping is merged into a mapping. `since` is when the layer that
         sets the value started, which a `_replace_` in the value goes back
         to; without it, the layer starts with the value. With `whole`, the
-        value replaces what was there.
+        value replaces what was there. The value is stored in JSON form, so
+        that a date from YAML is its ISO string from here on, also where an
+        interpolation formats it into a longer string.
         """
         step = next_step()
-        part = Part(value, step, step if since is None else since, whole)
+        stored = to_json_form(value)
+        part = Part(stored, step, step if since is None else since, whole)
         self.parts.setdefault(name, []).append(part)
         self._merge(name)
         self.sources[name] = source
@@ -267,9 +269,7 @@ class Node:
         self.touched = True
 
     def _merge(self, name: str) -> None:
-        info = self.fields[name]
-        default = self.default_value(info)
-        base = default if default is MISSING else to_json_form(default)
+        base = to_json_form(self.default_value(self.fields[name]))
         self.values[name] = merge_parts(base, self.parts[name])
 
     def unset_value(self, name: str, source: str, *, since: int | None = None) -> None:
@@ -336,7 +336,7 @@ class Node:
             if info.kind is Kind.VALUE:
                 value = self.value(info)
                 if value is not MISSING:
-                    result[info.name] = to_json_form(value)
+                    result[info.name] = value
             elif info.name in self.children:
                 result[info.name] = self.children[info.name].to_json_tree()
             elif self.is_off(info):

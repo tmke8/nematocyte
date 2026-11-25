@@ -58,7 +58,11 @@ several groups.
 - A reference can go into a dict value (`${opt.optimizer_kwargs.eps}`), but
   not into a list.
 - Inside a longer string a value is formatted with `str()`, so `true`
-  becomes `True` and null becomes `None`.
+  becomes `True` and null becomes `None`. A date, a datetime or a time from
+  YAML is already its ISO string by then, as every value is kept in JSON
+  form ([deserializer.md](deserializer.md#details-of-building)): `at ${dt}`
+  becomes `at 2026-11-16T09:30:00`, the text that `dt` itself arrives as,
+  and not the `str()` of the datetime, which has a space.
 - There is no way to write a literal `${`.
 - The argument of `now` is everything after the first colon, as it is.
 

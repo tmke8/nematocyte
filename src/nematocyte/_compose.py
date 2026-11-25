@@ -82,11 +82,6 @@ def _option_fields(info: FieldInfo) -> set[str]:
     return {name for cls in info.options.values() for name in class_fields(cls)}
 
 
-def _file_doc(path: Path) -> str:
-    """The first paragraph of the `_doc_` of the config file at `path`."""
-    return first_paragraph(load_file(path).doc)
-
-
 def _is_file_name(name: str) -> bool:
     """Whether `name` is a plain file name on every platform.
 
@@ -122,6 +117,10 @@ class Composer:
         self.settings_cls = settings_cls
         self._drops: list[_Drop] | None = None
         """While a tree is composed with warnings: what the selections dropped."""
+        self._files: dict[Path, ConfigFile] = {}
+        """The config files read so far, by path. Each is read once, so that
+        every tree composed here sees the file as it was then; nothing
+        changes what is in them."""
         self._check_top_level_files()
 
     def _check_top_level_files(self) -> None:
@@ -384,6 +383,16 @@ class Composer:
 
     # -- where the files are ----------------------------------------------
 
+    def _load(self, path: Path) -> ConfigFile:
+        file = self._files.get(path)
+        if file is None:
+            file = self._files[path] = load_file(path)
+        return file
+
+    def _file_doc(self, path: Path) -> str:
+        """The first paragraph of the `_doc_` of the config file at `path`."""
+        return first_paragraph(self._load(path).doc)
+
     def directory(self, path: KeyPath) -> Path | None:
         """The directory that holds the named configs for the field at `path`."""
         if self.config_dir is None:
@@ -404,7 +413,7 @@ class Composer:
         A doc is the first paragraph of the file's `_doc_`; empty if it has none.
         """
         return {
-            name: _file_doc(file)
+            name: self._file_doc(file)
             for name, file in self._named_files(path, info).items()
         }
 
@@ -505,8 +514,18 @@ class Composer:
 
     def primary_configs(self) -> list[str]:
         """The names of all primary configs, as `--config-name` takes them."""
+        return list(self._primary_files())
+
+    def primary_config_docs(self) -> dict[str, str]:
+        """The primary configs, as `--config-name` takes them, with their docs."""
+        return {
+            name: self._file_doc(path) for name, path in self._primary_files().items()
+        }
+
+    def _primary_files(self) -> dict[str, Path]:
+        """The files of all primary configs, by the names that select them."""
         if self.config_dir is None:
-            return []
+            return {}
         reserved = self.root_field_names()
         paths: list[Path] = []
         for path in sorted(self.config_dir.rglob("*")):
@@ -521,16 +540,9 @@ class Composer:
                 continue
             paths.append(path)
         check_unique(paths)
-        return [
-            path.relative_to(self.config_dir).with_suffix("").as_posix()
-            for path in paths
-        ]
-
-    def primary_config_docs(self) -> dict[str, str]:
-        """The primary configs, as `--config-name` takes them, with their docs."""
         return {
-            name: _file_doc(self.primary_file(name, "--help"))
-            for name in self.primary_configs()
+            path.relative_to(self.config_dir).with_suffix("").as_posix(): path
+            for path in paths
         }
 
     # -- applying files ----------------------------------------------------
@@ -545,7 +557,7 @@ class Composer:
                 f"The primary config {name!r} extends itself through '_self_': "
                 + " -> ".join(p.name for p in (*chain, path)),
             )
-        file = load_file(path)
+        file = self._load(path)
         base = file.defaults.get(SELF_KEY)
         if base is not None:
             self._apply_primary(root, base, file.label, (*chain, path))
@@ -933,7 +945,7 @@ class Composer:
                 f"The config {name!r} for {format_path(path)!r} extends itself "
                 "through '_self_': " + " -> ".join(p.name for p in (*chain, file_path)),
             )
-        file = load_file(file_path)
+        file = self._load(file_path)
         # A file in the directory of an option extends the option, unless its
         # `_self_` names another config.
         base = file.defaults.get(SELF_KEY, option)

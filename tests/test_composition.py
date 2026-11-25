@@ -641,6 +641,19 @@ def test_config_name_of_a_named_config_suggests_the_selection(
         nematocyte.compose(Config, config_dir, config_name=name)
 
 
+def test_a_file_is_read_once_per_composer(config_dir: Path) -> None:
+    # Every tree that a composer makes, such as each job of a multirun, sees
+    # the file as it was when it was first read.
+    write_files(config_dir, {"short.yaml": "seed: 1\n"})
+    composer = Composer(Config, config_dir, Settings)
+    assert composer.compose("short").values["seed"] == 1
+    write_files(config_dir, {"short.yaml": "_doc_: Edited.\nseed: 2\n"})
+    assert composer.compose("short").values["seed"] == 1
+    assert composer.primary_config_docs()["short"] == ""
+    # A new composer, as each call of `nematocyte.compose` makes, reads it again.
+    assert nematocyte.compose(Config, config_dir, config_name="short").seed == 2
+
+
 def test_files_that_no_name_selects_are_not_listed(config_dir: Path) -> None:
     # On Windows, `x:` would be a drive, so the names are not accepted anywhere.
     write_files(

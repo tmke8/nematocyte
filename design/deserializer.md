@@ -226,7 +226,10 @@ validation behaviour we would own.
   with `isoformat()`, whether they come from a default or from YAML, where
   an unquoted `2026-11-16` is a `date`. A `date` field gets its date back;
   under `Any`, a date from YAML arrives as the string `'2026-11-16'`, as it
-  does from JSON5, and a `str` field accepts it.
+  does from JSON5, and a `str` field accepts it. A value from a file or an
+  override is converted when it is set, so interpolation and `--cfg` see
+  the ISO string as well. A date as a key, such as `2026-11-16: first`,
+  becomes its ISO string too.
 - A value that has no JSON form is an error that names the field, the
   class, the value and where it was set, with the part of the value at
   fault: an object such as a `Decimal` or a `torch.device` as a default,

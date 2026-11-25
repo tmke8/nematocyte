@@ -59,7 +59,11 @@ def load_file(path: Path) -> ConfigFile:
             f"{label}: a config file has to be a mapping at the top level, "
             f"not a {type(content).__name__}."
         )
-    _check_keys(content, label, ())
+    # Only the keys at the top level have to be strings; further down, a key
+    # that is not a string can be a key of a dict-typed field.
+    for key in content:
+        if not isinstance(key, str):
+            raise ConfigError(f"{label}: the key {key!r} is not a string.")
 
     doc = content.pop(DOC_KEY, None)
     if doc is None:
@@ -125,17 +129,6 @@ def _read_json5(path: Path, label: str) -> Any:
         # The parser calls the text "<string>"; the label already names it.
         message = str(exc).replace("<string>:", "line ")
         raise ConfigError(f"{label} is not valid JSON5:\n{message}") from exc
-
-
-def _check_keys(mapping: dict[Any, Any], label: str, path: tuple[str, ...]) -> None:
-    """Keys are strings, down to where the schema could still have a dataclass."""
-    for key in mapping:
-        if not isinstance(key, str):
-            where = f" under {'.'.join(path)!r}" if path else ""
-            # Only reported at the top level; further down, a key that is
-            # not a string can be a key of a dict-typed field.
-            if not path:
-                raise ConfigError(f"{label}: the key {key!r}{where} is not a string.")
 
 
 def _clash(paths: list[Path]) -> ConfigError:

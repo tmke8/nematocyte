@@ -638,9 +638,10 @@ strings.
   converts the values for the fields, as for YAML.
 - JSON5 has no dates, so `'2026-11-16'` is a string. A field typed
   `datetime.date` gets the same date from either format, since pydantic
-  converts the string. A field typed `Any` gets a `date` from YAML but a
-  string from JSON5. A field typed `str` takes the JSON5 string, while in
-  YAML the date has to be quoted.
+  converts the string. A field typed `Any` gets the string `'2026-11-16'`
+  from either format, as every value reaches pydantic in JSON form
+  ([deserializer.md](deserializer.md#details-of-building)). A field typed
+  `str` takes the JSON5 string, while in YAML the date has to be quoted.
 - `--cfg` prints YAML whichever format the files are in.
 
 `json5` was chosen over `pyjson5`, which is faster, because `pyjson5` cannot
@@ -651,6 +652,10 @@ Python version. Reading config files does not need to be fast (see above).
 
 - The config directory has to exist. One that does not is an error straight
   away.
+- A config file is read once per start of the program: every config that
+  is composed from then on, such as each job of a multirun, uses what the
+  file held when it was first read. `nematocyte.compose` reads the files
+  again on each call, and a `Validator` once for all the files it checks.
 - Config files end in `.yaml`, `.yml` or `.json5`. `--config-name` accepts a
   name with or without the suffix. Two files whose names differ only in the
   suffix, such as `cnn.yaml` and `cnn.yml`, or `cnn.yaml` and `cnn.json5`, in

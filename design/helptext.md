@@ -151,6 +151,9 @@ the docs as comments.
   (88 when there is no terminal).
 - `--cfg` always prints the docs as comments; there is no switch. A group is
   shown with its options and the selected one.
+- `--cfg` prints the values in JSON form, from which the config is built: a
+  date from YAML, `2026-11-16`, is shown as the string `'2026-11-16'`, as
+  a date default is.
 - A value that is required and missing is shown as `???`, in `--help` and in
   `--cfg`.
 - A key of a `TypedDict` has no doc: there is no `field(doc=...)` for it,
