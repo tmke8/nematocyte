@@ -122,7 +122,9 @@ Consequences:
   submitted. With the basic sweeper all jobs are known at the start. With
   Optuna the values of a trial are only known per batch, but the keys under
   `params` are checked at the start.
-- A job does not read the config files. A job that waits in the SLURM queue
+- A job does not read the config files, and the launching process reads
+  each one once ([composition.md](composition.md#details-of-finding-and-reading-files)).
+  A job that waits in the SLURM queue, or a later batch of Optuna trials,
   is not affected by edits made in the meantime. In Hydra it is.
 - `${now:...}` is the same in every job without further work.
 - Every `__post_init__` runs twice, once in the launching process and once

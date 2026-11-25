@@ -239,8 +239,7 @@ class Node:
         """
         if info.name in self.values:
             return self.values[info.name]
-        default = self.default_value(info)
-        return default if default is MISSING else to_json_form(default)
+        return to_json_form(self.default_value(info))
 
     def set_value(
         self,
@@ -270,9 +269,7 @@ class Node:
         self.touched = True
 
     def _merge(self, name: str) -> None:
-        info = self.fields[name]
-        default = self.default_value(info)
-        base = default if default is MISSING else to_json_form(default)
+        base = to_json_form(self.default_value(self.fields[name]))
         self.values[name] = merge_parts(base, self.parts[name])
 
     def unset_value(self, name: str, source: str, *, since: int | None = None) -> None:

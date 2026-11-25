@@ -652,6 +652,10 @@ Python version. Reading config files does not need to be fast (see above).
 
 - The config directory has to exist. One that does not is an error straight
   away.
+- A config file is read once per start of the program: every config that
+  is composed from then on, such as each job of a multirun, uses what the
+  file held when it was first read. `nematocyte.compose` reads the files
+  again on each call, and a `Validator` once for all the files it checks.
 - Config files end in `.yaml`, `.yml` or `.json5`. `--config-name` accepts a
   name with or without the suffix. Two files whose names differ only in the
   suffix, such as `cnn.yaml` and `cnn.yml`, or `cnn.yaml` and `cnn.json5`, in
