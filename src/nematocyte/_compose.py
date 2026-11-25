@@ -23,6 +23,7 @@ from ._files import (
     list_files,
     load_file,
 )
+from ._json_form import to_json_form
 from ._overrides import AddedConfig, Override, format_value, last_wins
 from ._schema import (
     DEFAULTS_KEY,
@@ -362,13 +363,16 @@ class Composer:
     ) -> dict[Any, Any]:
         """Apply `_replace_: true` in the mapping `values` for `node`, if it has it.
 
+        `_replace_: false` merges, as the mapping for a TypedDict does anyway.
         The rest of the mapping is returned, without the key.
         """
         if REPLACE_KEY not in values:
             return values
-        _check_replace(node, values[REPLACE_KEY], label)
-        node.replace(since)
-        self._forget_drops(node.path)
+        flag = values[REPLACE_KEY]
+        _check_replace(node, flag, label)
+        if flag is True:
+            node.replace(since)
+            self._forget_drops(node.path)
         return {key: value for key, value in values.items() if key != REPLACE_KEY}
 
     def _forget_drops(self, path: KeyPath) -> None:
@@ -576,6 +580,7 @@ class Composer:
                 file.label,
                 f"{_HYDRA_DEFAULTS_KEY!r} is not a field of {node.describe()}.{hint}",
             )
+        _check_no_top_level_replace(node, file)
         # A `_replace_` in the file drops what was set before this point.
         since = next_step()
         # What the file switches off here, it cannot set among its values.
@@ -650,7 +655,12 @@ class Composer:
                 if not command_line:
                     _check_null_for_a_dict(node, info, value, label)
                 _check_value_replaces(node, info, value, label)
-                node.set_value(info.name, _without_replace(value), label)
+                merged = _merged_value(
+                    node.value(info),
+                    to_json_form(value),
+                    _MergePlace(node, (*node.path, info.name), label),
+                )
+                node.set_value(info.name, merged, label)
                 continue
             path = format_path((*node.path, info.name))
             if switched_off is not None:
@@ -1339,15 +1349,19 @@ def _dotted(
 
 
 def _check_no_replace(override: Override) -> None:
-    """A dict on the command line replaces anyway, so it has no `_replace_`."""
+    """A dict on the command line always replaces, so it has no `_replace_`."""
     for path, _ in _replace_paths(override.value):
         where = format_path((*override.key, *path))
         raise _error(
             repr(override.text),
             f"{REPLACE_KEY!r} is in the dict for {where!r}. On the command "
-            f"line, a dict replaces what was set before anyway, so leave out "
-            f"the key. In a config file, {REPLACE_KEY}: true makes the mapping "
-            f"for a TypedDict replace instead of merging.",
+            f"line, a dict replaces what was set before, always, so leave out "
+            f"the key. To set one key and keep the others, give it on its "
+            f"own: {where}.KEY=VALUE for a TypedDict, or +{where}.KEY=VALUE for "
+            f"a dict. In a config file, {REPLACE_KEY}: true makes "
+            f"the mapping for a TypedDict replace instead of merging, and "
+            f"{REPLACE_KEY}: false makes the mapping for a dict merge one level "
+            f"instead of replacing.",
         )
 
 
@@ -1380,29 +1394,65 @@ def _check_unset(override: Override, parent: Node, info: FieldInfo) -> None:
         )
 
 
-def _check_replace(node: Node, value: Any, label: str) -> None:
-    """`_replace_: true` replaces only a `TypedDict` below the root."""
+def _check_no_top_level_replace(node: Node, file: ConfigFile) -> None:
+    """`_replace_` is not at the top level of a file.
+
+    For a primary config, it would replace the whole config. A named config
+    is applied by a selection, which starts its node again anyway; what the
+    file's chain of `_self_` set is dropped by not extending it.
+    """
+    if REPLACE_KEY not in file.values:
+        return
     if not node.path:
         raise _error(
-            label,
-            f"{REPLACE_KEY!r} is at the top level of the config, where it would "
-            f"replace the whole of {node.describe()}. It goes into the mapping "
-            "for a TypedDict subconfig or group.",
+            file.label,
+            f"{REPLACE_KEY!r} is at the top level of the file, which is the "
+            f"whole of {node.describe()}. The whole config is always merged, "
+            f"and cannot be replaced, so leave out the key. {REPLACE_KEY!r} "
+            "goes into the mapping for a TypedDict subconfig or group, or for "
+            "a dict.",
         )
+    key = format_path(node.path)
+    hint = ""
+    if file.base is not None:
+        hint = (
+            f" To leave out what the config {file.base!r} sets, remove the "
+            f"entry '_self_' from '_defaults_'."
+        )
+    raise _error(
+        file.label,
+        f"{REPLACE_KEY!r} is at the top level of the file, which is a config "
+        f"for {node.describe()}. Selecting a config for {key!r} starts "
+        f"it again from its class, so there is nothing to replace or merge "
+        f"into: leave out the key.{hint} {REPLACE_KEY!r} goes into the "
+        "mapping for a TypedDict or a dict inside the file.",
+    )
+
+
+def _check_replace(node: Node, value: Any, label: str) -> None:
+    """`_replace_` is true or false, and only for a `TypedDict`.
+
+    `_replace_: true` replaces the TypedDict; `_replace_: false` merges into
+    it, as a mapping without the key does. The node is below the top level
+    of the file, which `_check_no_top_level_replace` has checked.
+    """
+    assert node.path
     where = f"{REPLACE_KEY!r} in the mapping for {format_path(node.path)!r}"
     if not is_typeddict_class(node.cls):
         raise _error(
             label,
-            f"{where}: {node.describe()} is a dataclass, which cannot be "
-            f"replaced. {REPLACE_KEY!r} replaces a TypedDict; a field of a "
-            "dataclass is set back to its default by setting it again.",
+            f"{where}: {node.describe()} is a dataclass, which is always "
+            f"merged, and cannot be replaced, so leave out the key. "
+            f"{REPLACE_KEY!r} replaces a TypedDict; a field of a dataclass is "
+            "set back to its default by setting it again.",
         )
-    if value is not True:
+    if not isinstance(value, bool):
         raise _error(
             label,
             f"{where} is {format_value(value)}. It takes true, which replaces "
-            f"what was set before under {node.describe()}; to merge the "
-            "mapping into it, leave out the key.",
+            f"what was set before under {node.describe()}, or false, which "
+            "merges the mapping into it; false is what a mapping for a "
+            "TypedDict does anyway, so the key can be left out.",
         )
 
 
@@ -1418,33 +1468,74 @@ def _replace_paths(value: Any, path: KeyPath = ()) -> Iterator[tuple[KeyPath, An
             yield from _replace_paths(inner, (*path, str(key)))
 
 
-def _without_replace(value: Any) -> Any:
-    """`value` without the key `_replace_` in its mappings."""
+@dataclass(frozen=True)
+class _MergePlace:
+    """Where a mapping inside a value is merged, for error messages."""
+
+    node: Node
+    """The node that holds the value."""
+    path: KeyPath
+    """The path of the mapping, from the root."""
+    label: str
+    """The file that gives the mapping."""
+
+    def inner(self, key: Any) -> _MergePlace:
+        return dataclasses.replace(self, path=(*self.path, str(key)))
+
+
+def _merged_value(current: Any, value: Any, place: _MergePlace) -> Any:
+    """`value`, with each mapping in it that has `_replace_: false` merged.
+
+    Such a mapping is merged one level into what is at its place: `current`
+    for `value` itself, and for a mapping inside it what is under the same
+    key once the level above has been merged. The keys that it does not give
+    keep their values there; a key that it gives is replaced, unless its
+    mapping has `_replace_: false` too. Over something that is not a mapping
+    it replaces, as a mapping without the key does. The key `_replace_` is
+    taken out of every mapping. The items of a list are not looked into.
+    """
     if not isinstance(value, Mapping):
         return value
     mapping = cast("Mapping[Any, Any]", value)
-    return {
-        key: _without_replace(inner)
-        for key, inner in mapping.items()
-        if key != REPLACE_KEY
-    }
+    base: dict[Any, Any] = {}
+    if mapping.get(REPLACE_KEY) is False:
+        if isinstance(current, str) and "${" in current:
+            where = format_path(place.path)
+            raise _error(
+                place.label,
+                f"{REPLACE_KEY}: false in the mapping for {where!r}, in "
+                f"{place.node.describe()}, would merge it into the "
+                f"interpolation {current!r}, which is resolved only after the "
+                "config files are composed, so there is no dict to merge into "
+                "yet. To replace the interpolation with the mapping, leave out "
+                "the key.",
+            )
+        if isinstance(current, Mapping):
+            base = dict(cast("Mapping[Any, Any]", current))
+    result = dict(base)
+    for key, inner in mapping.items():
+        if key != REPLACE_KEY:
+            result[key] = _merged_value(base.get(key, MISSING), inner, place.inner(key))
+    return result
 
 
 def _check_value_replaces(node: Node, info: FieldInfo, value: Any, label: str) -> None:
-    """`_replace_` in a mapping inside a value takes true, and changes nothing.
+    """`_replace_` in a mapping inside a value takes true or false.
 
-    A value replaces what was set before anyway, since the keys of a mapping
-    in it are not declared.
+    A value replaces what was set before, since the keys of a mapping in it
+    are not declared, so true changes nothing; false merges the mapping one
+    level into what was there.
     """
     for path, flag in _replace_paths(value):
-        if flag is not True:
+        if not isinstance(flag, bool):
             where = format_path((*node.path, info.name, *path))
             raise _error(
                 label,
-                f"{REPLACE_KEY!r} in the mapping for {where!r} is "
-                f"{format_value(flag)}. It takes only true, and is not needed "
-                f"here: a dict replaces what was set before anyway, so leave "
-                "out the key.",
+                f"{REPLACE_KEY!r} in the mapping for {where!r}, in "
+                f"{node.describe()}, is {format_value(flag)}. It takes true or "
+                "false: false merges the mapping one level into the dict that "
+                "was there, and true replaces it, which a dict does anyway, so "
+                "true can be left out.",
             )
 
 

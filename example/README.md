@@ -247,7 +247,7 @@ python main.py 'opt.optimizer_kwargs={eps:1e-8}' +opt.optimizer_kwargs.amsgrad=t
 ```
 This gives `{eps: 1e-8, amsgrad: true}`, in whichever order the two are written. The dictionary has to be there: `optimizer_kwargs` is `null` by default, so `+opt.optimizer_kwargs.amsgrad=true` on its own is an error that shows the whole dictionary instead. The `+` is only for keys that no dataclass or `TypedDict` declares; `+opt.lr=0.01` is an error.
 
-In a config file, a dictionary such as `optimizer_kwargs` replaces the previous value in the same way. A `TypedDict` such as `wandb`, or a dataclass such as `opt`, is merged instead: keys that the mapping does not give keep their values. To replace a `TypedDict` in a config file, add `_replace_: true` to the mapping; then every required key has to be given again:
+In a config file, a dictionary such as `optimizer_kwargs` replaces the previous value in the same way, unless its mapping has `_replace_: false`: then its keys are added to the previous dictionary, and the keys that it does not give keep their values. A `TypedDict` such as `wandb`, or a dataclass such as `opt`, is merged instead: keys that the mapping does not give keep their values. To replace a `TypedDict` in a config file, add `_replace_: true` to the mapping; then every required key has to be given again:
 ```yaml
 wandb:
   _replace_: true
