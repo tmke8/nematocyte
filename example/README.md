@@ -149,7 +149,7 @@ nematocyte.sweeper.params=null  [dict[str, any] | null] Sweeps by key, written a
 
 nematocyte.output_dir=null      [path | null] Directory of this start of the program,
                                 which holds one directory per job. If not set, it is
-                                outputs/DATE/TIME.
+                                'outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}'.
 nematocyte.log=info             [debug|info|warn] Level of log messages, for
                                 nematocyte.configure_logging() and
                                 nematocyte.log_level().

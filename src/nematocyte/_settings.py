@@ -212,7 +212,8 @@ class Settings:
     output_dir: Path | None = field(
         default=None,
         doc="Directory of this start of the program, which holds one "
-        "directory per job. If not set, it is outputs/DATE/TIME.",
+        "directory per job. If not set, it is "
+        "'outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}'.",
     )
     log: LogLevel = field(
         default="info",

@@ -97,8 +97,11 @@ created when they are first asked for.
 ### One setting
 
 `nematocyte.output_dir` is the directory of the program start. If it is not
-set, nematocyte fills in `outputs/DATE/TIME`. It can be set like any other
-value, with interpolations:
+set, nematocyte fills in `outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}`, and the
+doc of the field says so, which `--help` and `--cfg all` show. The default
+of the field itself is `None`, since an interpolation is not resolved in a
+dataclass default ([interpolation.md](interpolation.md)). It can be set
+like any other value, with interpolations:
 
 ```bash
 python main.py 'nematocyte.output_dir=outputs/${wandb.group}/${now:%H-%M-%S}'
