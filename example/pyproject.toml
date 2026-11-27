@@ -10,7 +10,7 @@ dependencies = [
     "wandb~=0.30.0",
 ]
 readme = "README.md"
-requires-python = ">= 3.14"
+requires-python = ">= 3.15"
 
 [tool.uv.sources]
 # nematocyte is the package in the parent directory.
@@ -33,7 +33,7 @@ unsound-return = "warn"
 
 [tool.ruff]
 line-length = 88
-target-version = "py314"
+target-version = "py315"
 
 [tool.ruff.format]
 quote-style = "preserve"

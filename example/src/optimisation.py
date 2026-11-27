@@ -1,6 +1,6 @@
 """Optimisation and training code."""
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,7 +19,7 @@ class OptimisationCfg:
     optimizer_cls: str = field(
         default="torch.optim.AdamW", doc="Import path of the optimizer class."
     )
-    optimizer_kwargs: Mapping[str, Any] | None = field(
+    optimizer_kwargs: frozendict[str, Any] | None = field(
         default=None, doc="Further keyword arguments for the optimizer."
     )
 
