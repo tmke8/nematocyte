@@ -109,6 +109,45 @@ A primary config that drops a value with a selection gives the
 the validator makes to check a named config give none: they are not in any
 file ([composition.md](composition.md#a-value-that-a-selection-drops-is-warned-about)).
 
+### Overrides for what the command line always sets
+
+Some fields are set on the command line of every run and in no file, such
+as a script's input:
+
+```python
+@dataclass
+class RescoreConfig:
+    config_file: Path
+    scale: float = 1.0
+```
+
+No file in its config directory can be complete on its own. `overrides`
+takes the arguments that such a run would have, and applies them on top of
+every file that is checked:
+
+```python
+nematocyte.validate_configs(RescoreConfig, "conf/rescore", overrides=["config_file=x"])
+```
+
+- They are the arguments as on the command line, as `nematocyte.compose`
+  takes them ([api.md](api.md)): `key=value`, `+KEY=value`, `~KEY` and
+  `+NAME`.
+- They are applied as the command line is: a primary config is composed as
+  if it had been passed to `--config-name` with them, and a named config is
+  selected on top of `config_name` and them. A value in them wins over the
+  file, so it is not checked from the file.
+- To check a named config, the validator selects it for its field, after
+  the overrides. That selection wins where the overrides select for the same
+  field; where they select an option of a group, the named configs for its
+  nested fields are checked under that option, as under one that a primary
+  config selects.
+- A primary config gives the `nematocyte.DroppedValueWarning` that a run
+  with these arguments would give, including for what a selection in the
+  overrides drops.
+- An override that cannot be parsed is not the fault of any one file, and is
+  raised by the constructor. One that does not fit the schema is reported
+  for every file, as each run with it would fail.
+
 ### `__post_init__` runs, and checks the config only
 
 Validation builds the full objects by default, so every `__post_init__`
@@ -181,7 +220,8 @@ of a multirun, before any job is submitted ([multirun.md](multirun.md)).
 ### Details
 
 - `validate_configs` and `Validator` take `config_name`, for the primary
-  config that supplies the rest of the tree.
+  config that supplies the rest of the tree, and `overrides`
+  ([above](#overrides-for-what-the-command-line-always-sets)).
 - A field whose type pydantic cannot read is an error in the config class
   ([deserializer.md](deserializer.md#details-of-building)), and so is raised
   by the constructor of `Validator`.

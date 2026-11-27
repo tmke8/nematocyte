@@ -217,6 +217,14 @@ assert_type(
     nematocyte.validate_configs(Config, "configs", config_name="x"),
     list[nematocyte.ValidationResult],
 )
+assert_type(
+    nematocyte.validate_configs(Config, "configs", overrides=["seed=1"]),
+    list[nematocyte.ValidationResult],
+)
+assert_type(
+    nematocyte.Validator(Config, "configs", overrides=("seed=1",)).validate("a.yaml"),
+    nematocyte.ValidationResult,
+)
 
 # -- TypedDicts --------------------------------------------------------------------
 

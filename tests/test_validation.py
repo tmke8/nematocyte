@@ -284,6 +284,102 @@ def test_field_without_default_needs_a_primary_config(tmp_path: Path) -> None:
     assert validator.validate("sub/big.yaml").ok
 
 
+@dataclass
+class NeedsFile:
+    """A script whose input is named on the command line of each run."""
+
+    config_file: Path
+    scale: float = 1.0
+    sub: Sub = field(default_factory=Sub)
+
+
+def test_overrides_for_a_field_that_the_command_line_sets(tmp_path: Path) -> None:
+    directory = write_files(
+        tmp_path / "c",
+        {"fast.yaml": "scale: 2.0\n", "sub/big.yaml": "x: 100\n"},
+    )
+    # No file can set `config_file`, so without the overrides none passes.
+    results = nematocyte.validate_configs(NeedsFile, directory)
+    assert [result.ok for result in results] == [False, False]
+    assert all("config_file" in str(result.error) for result in results)
+    results = nematocyte.validate_configs(
+        NeedsFile, directory, overrides=["config_file=x"]
+    )
+    assert all(result.ok for result in results)
+    validator = nematocyte.Validator(NeedsFile, directory, overrides=["config_file=x"])
+    assert validator.validate("fast.yaml").ok
+    assert validator.validate("sub/big.yaml").ok
+
+
+def test_overrides_come_on_top_of_the_file(config_dir: Path) -> None:
+    write_files(config_dir, {"bad_gpu.yaml": "gpu: -5\n"})
+    validator = nematocyte.Validator(Config, config_dir)
+    assert not validator.validate("bad_gpu.yaml").ok
+    # As on the command line, a value in the overrides wins over the file.
+    validator = nematocyte.Validator(Config, config_dir, overrides=["gpu=0"])
+    assert validator.validate("bad_gpu.yaml").ok
+
+
+def test_added_config_in_the_overrides(tmp_path: Path) -> None:
+    directory = write_files(
+        tmp_path / "c",
+        {
+            "placeholder.yaml": "config_file: x\n",
+            "fast.yaml": "scale: 2.0\n",
+            "sub/big.yaml": "x: 100\n",
+        },
+    )
+    validator = nematocyte.Validator(NeedsFile, directory, overrides=["+placeholder"])
+    assert validator.validate("fast.yaml").ok
+    assert validator.validate("sub/big.yaml").ok
+
+
+def test_selection_of_the_validator_wins_over_the_overrides(config_dir: Path) -> None:
+    # The file is checked as a config for `model`, whatever the overrides
+    # select there.
+    validator = nematocyte.Validator(Config, config_dir, overrides=["model=fcn"])
+    assert validator.validate("model/my_cnn.yaml").ok
+    write_files(
+        config_dir, {"model/bad_cnn.yaml": "_defaults_:\n  _self_: cnn\nx: 1\n"}
+    )
+    error = str(validator.validate("model/bad_cnn.yaml").error)
+    assert "'x'" in error
+    assert "Cnn" in error
+
+
+def test_overrides_decide_the_option_for_a_nested_field(config_dir: Path) -> None:
+    # `norm` is a field of `cnn` only. With `model=cnn` in the overrides the
+    # file is checked under that option, with no selection of the validator's.
+    validator = nematocyte.Validator(Config, config_dir, overrides=["model=cnn"])
+    assert validator.validate("model/norm/my_batchnorm.yaml").ok
+
+
+def test_error_from_an_override_names_it(config_dir: Path) -> None:
+    validator = nematocyte.Validator(Config, config_dir, overrides=["sede=1"])
+    for path in ["good_run.yaml", "dm/celeba_small.yaml"]:
+        error = str(validator.validate(path).error)
+        assert "'sede=1'" in error
+        assert "Config" in error
+
+
+def test_override_that_cannot_be_parsed(config_dir: Path) -> None:
+    # Not the fault of any one file, so it is raised.
+    with pytest.raises(ConfigError, match=r"'\+\+seed=1'"):
+        nematocyte.Validator(Config, config_dir, overrides=["++seed=1"])
+    with pytest.raises(ConfigError, match=r"'\+\+seed=1'"):
+        nematocyte.validate_configs(Config, config_dir, overrides=["++seed=1"])
+
+
+def test_drop_warning_from_the_overrides_on_a_primary_config(
+    config_dir: Path,
+) -> None:
+    # A primary config is composed as a run with the overrides on its command
+    # line would be, and gives the same warning.
+    validator = nematocyte.Validator(Config, config_dir, overrides=["model=fcn"])
+    with pytest.warns(nematocyte.DroppedValueWarning, match="model.activation"):
+        assert validator.validate("good_run.yaml").ok
+
+
 def test_error_is_a_config_error(config_dir: Path) -> None:
     write_files(config_dir, {"bad.yaml": "nope: 1\n"})
     result = nematocyte.Validator(Config, config_dir).validate("bad.yaml")

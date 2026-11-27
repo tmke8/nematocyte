@@ -1,5 +1,6 @@
 """Checking every config file, without running anything."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 import os
@@ -13,13 +14,26 @@ from ._errors import ConfigError
 from ._files import SUFFIXES
 from ._interpolation import resolve
 from ._multirun import check_params, parse_params
-from ._overrides import Override
+from ._overrides import AddedConfig, Override, split_arguments
 from ._schema import RESERVED_KEY, SOME, Kind, class_fields, config_class
 from ._settings import Settings
 from ._tree import Path as KeyPath
 from ._tree import root_fields
 
 __all__ = ["ValidationResult", "Validator", "validate_configs"]
+
+
+@dataclass(frozen=True)
+class _Arguments:
+    """What every file is checked with: a primary config and the overrides."""
+
+    config_name: str | None
+    """The primary config that supplies the rest of the tree for a named
+    config."""
+    added: tuple[AddedConfig, ...]
+    """The added configs (`+NAME`) from the validator's overrides."""
+    overrides: tuple[Override, ...]
+    """The other overrides of the validator, as on the command line."""
 
 
 @dataclass(frozen=True)
@@ -98,7 +112,7 @@ def _classify(composer: Composer, relative: Path) -> tuple[KeyPath, str] | None:
 
 def _selections(
     composer: Composer,
-    config_name: str | None,
+    arguments: _Arguments,
     path: KeyPath,
     name: str,
     *,
@@ -109,11 +123,17 @@ def _selections(
 
     Where the path goes through a group, there is one way for each option
     that has the next field: the option that is selected, if it has it, and
-    every other one, selected with an override.
+    every other one, selected with an override. The overrides of the
+    validator come before these selections, which win over them.
     """
     if depth == len(path):
         return [[*overrides, Override(path, name, f"{'.'.join(path)}={name}")]]
-    root = composer.compose(config_name, overrides, warn=False)
+    root = composer.compose(
+        arguments.config_name,
+        [*arguments.overrides, *overrides],
+        arguments.added,
+        warn=False,
+    )
     node = root
     for segment in path[: depth - 1]:
         node = node.children[segment]
@@ -140,7 +160,7 @@ def _selections(
         selection
         for choice in choices
         for selection in _selections(
-            composer, config_name, path, name, overrides=choice, depth=depth + 1
+            composer, arguments, path, name, overrides=choice, depth=depth + 1
         )
     ]
 
@@ -148,12 +168,19 @@ def _selections(
 def _check_tree(
     composer: Composer,
     config_name: str | None,
-    overrides: list[Override],
+    arguments: _Arguments,
+    selections: list[Override],
     relative: Path,
 ) -> None:
     # The selections that the validator makes itself are in no file, so what
-    # they drop is not warned about; a primary config is composed as in a run.
-    root = composer.compose(config_name, overrides, warn=not overrides)
+    # they drop is not warned about; a primary config is composed as in a run,
+    # with the validator's overrides as its command line.
+    root = composer.compose(
+        config_name,
+        [*arguments.overrides, *selections],
+        arguments.added,
+        warn=not selections,
+    )
     resolve(root, datetime.now())
     build(root, skip=RESERVED_KEY)
     # nematocyte's own settings are always built: their classes are its own.
@@ -165,7 +192,7 @@ def _check_tree(
         )
 
 
-def _validate(composer: Composer, relative: Path, config_name: str | None) -> None:
+def _validate(composer: Composer, relative: Path, arguments: _Arguments) -> None:
     if composer.config_dir is None or not (composer.config_dir / relative).is_file():
         raise ConfigError(f"There is no config file {relative.as_posix()}.")
     if relative.suffix not in SUFFIXES:
@@ -176,19 +203,19 @@ def _validate(composer: Composer, relative: Path, config_name: str | None) -> No
     found = _classify(composer, relative)
     if found is None:
         name = relative.with_suffix("").as_posix()
-        _check_tree(composer, name, [], relative)
+        _check_tree(composer, name, arguments, [], relative)
         return
     path, name = found
-    selections = _selections(composer, config_name, path, name)
+    selections = _selections(composer, arguments, path, name)
     if len(selections) == 1:
-        _check_tree(composer, config_name, selections[0], relative)
+        _check_tree(composer, arguments.config_name, arguments, selections[0], relative)
         return
     # The file is checked with every option that has its field; it has to fit
     # all of them, since any of them can be selected when it is used.
     failures: list[str] = []
     for overrides in selections:
         try:
-            _check_tree(composer, config_name, overrides, relative)
+            _check_tree(composer, arguments.config_name, arguments, overrides, relative)
         except ConfigError as exc:
             shown = " ".join(override.text for override in overrides[:-1])
             failures.append(f"With {shown or 'the option that is selected'}:\n{exc}")
@@ -214,11 +241,16 @@ class Validator:
         config_name: A primary config that supplies the rest of the tree
             when a named config is checked. Only needed if some field of the
             root config class has no default.
+        overrides: Arguments as they are written on the command line, as
+            `nematocyte.compose` takes them, applied on top of every file
+            that is checked. For a field that every run sets on the command
+            line, such as `config_file=x`.
 
     Raises:
         SchemaError: If the config class is declared in an unsupported way.
-        ConfigError: If the config directory does not exist, or a file at
-            its top is named after a subconfig or a group.
+        ConfigError: If the config directory does not exist, a file at its
+            top is named after a subconfig or a group, or one of the
+            overrides cannot be parsed.
     """
 
     def __init__(
@@ -227,10 +259,12 @@ class Validator:
         config_dir: str | os.PathLike[str],
         *,
         config_name: str | None = None,
+        overrides: Sequence[str] = (),
     ) -> None:
         self._directory = Path(config_dir)
         self._composer = Composer(config_class(config_cls), self._directory, Settings)
-        self._config_name = config_name
+        added, parsed = split_arguments(overrides)
+        self._arguments = _Arguments(config_name, tuple(added), tuple(parsed))
 
     def validate(self, path: str | os.PathLike[str]) -> ValidationResult:
         """Check one config file.
@@ -243,7 +277,7 @@ class Validator:
         if relative.is_absolute():
             relative = relative.relative_to(self._directory.absolute())
         try:
-            _validate(self._composer, relative, self._config_name)
+            _validate(self._composer, relative, self._arguments)
         except ConfigError as exc:
             return ValidationResult(relative, exc)
         return ValidationResult(relative, None)
@@ -254,6 +288,7 @@ def validate_configs(
     config_dir: str | os.PathLike[str],
     *,
     config_name: str | None = None,
+    overrides: Sequence[str] = (),
 ) -> list[ValidationResult]:
     """Check every config file in the config directory; one result per file.
 
@@ -263,7 +298,9 @@ def validate_configs(
     directory = Path(config_dir)
     if not directory.is_dir():
         raise ConfigError(f"The config directory {directory} does not exist.")
-    validator = Validator(config_cls, directory, config_name=config_name)
+    validator = Validator(
+        config_cls, directory, config_name=config_name, overrides=overrides
+    )
     files = sorted(
         path.relative_to(directory)
         for path in directory.rglob("*")
